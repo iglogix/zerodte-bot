@@ -22,11 +22,15 @@ class ToolHandlers:
         api_client=None,
         db=None,
         dry_run: bool = True,
+        stop_limit_gap: int = 40,
+        stop_market_gap: int = 30,
     ):
         self.cache = cache
         self.api_client = api_client
         self.db = db
         self.dry_run = dry_run
+        self.stop_limit_gap = stop_limit_gap
+        self.stop_market_gap = stop_market_gap
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Dispatch a tool call by name."""
@@ -191,10 +195,12 @@ class ToolHandlers:
         self,
         symbol: str,
         stop_loss_amount: float,
-        stop_limit_gap: int = 40,
-        stop_market_gap: int = 30,
+        stop_limit_gap: Optional[int] = None,
+        stop_market_gap: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Place OCO stop-loss: stop-limit (40pt gap) + stop-market (30pt further)."""
+        """Place OCO stop-loss: stop-limit + stop-market (gaps from config)."""
+        stop_limit_gap = stop_limit_gap if stop_limit_gap is not None else self.stop_limit_gap
+        stop_market_gap = stop_market_gap if stop_market_gap is not None else self.stop_market_gap
         if self.dry_run:
             return {
                 "stop_limit_order_id": f"DRY-SL-{datetime.now().strftime('%Y%m%d%H%M%S')}",

@@ -30,9 +30,15 @@ class CachedMarketData:
         self,
         cache_db_path: str = "data/market_cache.db",
         api_client: Optional[Any] = None,
+        option_chain_ttl: int = 60,
+        quote_ttl: int = 60,
+        account_info_ttl: int = 60,
     ):
         self.cache_db_path = cache_db_path
         self.api_client = api_client
+        self.option_chain_ttl = option_chain_ttl
+        self.quote_ttl = quote_ttl
+        self.account_info_ttl = account_info_ttl
         self._engine = None
         self._SessionLocal = None
 
@@ -109,8 +115,9 @@ class CachedMarketData:
     async def get_option_chain_with_fallback(
         self,
         symbol: str,
-        max_age_seconds: int = 60,
+        max_age_seconds: Optional[int] = None,
     ) -> List[Dict]:
+        max_age_seconds = max_age_seconds if max_age_seconds is not None else self.option_chain_ttl
         cached = await self.get_cached_option_chain(symbol, max_age_seconds)
         if cached is not None:
             logger.debug("Cache hit: option_chain for %s", symbol)
@@ -143,8 +150,9 @@ class CachedMarketData:
     async def get_quote_with_fallback(
         self,
         symbol: str,
-        max_age_seconds: int = 60,
+        max_age_seconds: Optional[int] = None,
     ) -> Dict:
+        max_age_seconds = max_age_seconds if max_age_seconds is not None else self.quote_ttl
         cached = await self.get_cached_quote(symbol, max_age_seconds)
         if cached is not None:
             return cached
@@ -168,8 +176,9 @@ class CachedMarketData:
 
     async def get_account_info_with_fallback(
         self,
-        max_age_seconds: int = 60,
+        max_age_seconds: Optional[int] = None,
     ) -> Dict:
+        max_age_seconds = max_age_seconds if max_age_seconds is not None else self.account_info_ttl
         cached = await self.get_cached_account_info(max_age_seconds)
         if cached is not None:
             return cached

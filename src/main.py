@@ -83,12 +83,17 @@ class BotOrchestrator:
         llm_cfg = self.config.get("llm", {})
         risk_cfg = self.config.get("risk", {})
         notif_cfg = self.config.get("notifications", {})
+        stop_cfg = self.config.get("stop_loss", {})
+        cache_cfg = self.config.get("cache", {})
 
         self._db = DatabaseService(db_cfg.get("trading_db", "0dte_bot.db"))
         self._db.initialize()
 
         self._cache = CachedMarketData(
             cache_db_path=db_cfg.get("cache_db", "data/market_cache.db"),
+            option_chain_ttl=cache_cfg.get("option_chain_ttl", 60),
+            quote_ttl=cache_cfg.get("quote_ttl", 60),
+            account_info_ttl=cache_cfg.get("account_info_ttl", 60),
         )
         await self._cache.initialize()
 
@@ -120,6 +125,8 @@ class BotOrchestrator:
             api_client=api_client,
             db=self._db,
             dry_run=self.dry_run,
+            stop_limit_gap=stop_cfg.get("stop_limit_gap", 40),
+            stop_market_gap=stop_cfg.get("stop_market_gap", 30),
         )
 
         self._risk_manager = RiskManager(

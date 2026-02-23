@@ -13,25 +13,6 @@ llm:
   max_iterations: 10                   # Max tool loop iterations
   timeout_seconds: 30                  # LLM response timeout
 
-# Trading Parameters (from bot_prompt.md)
-trading:
-  underlying: "SPX"
-  expiration: "0DTE"
-  structure: "iron_condor"
-  
-  # Delta targets
-  delta_min: 0.10
-  delta_max: 0.15
-  
-  # Premium targets (per side)
-  premium_min: 1.00  # $100
-  premium_max: 2.00  # $200
-  
-  # Wing width
-  wing_width_default: 30
-  wing_width_min: 25
-  wing_width_max: 40
-
 # Entry Schedule (Eastern Time)
 entry:
   schedule:
@@ -42,7 +23,7 @@ entry:
     - "13:15"
     - "14:15"
     - "15:15"
-  stability_candles: 3  # Consecutive 5-min candles at same level
+  stability_candles: 3  # Consecutive 5-min candles at same level (read by LLM from bot_prompt.md)
 
 # Risk Management
 risk:
@@ -58,9 +39,9 @@ stop_loss:
 
 # Cache TTL (seconds)
 cache:
-  option_prices_ttl: 60
+  option_chain_ttl: 60
+  quote_ttl: 60
   account_info_ttl: 60
-  candles_permanent: true  # 5-min candles stored permanently
 
 # Notifications
 notifications:
