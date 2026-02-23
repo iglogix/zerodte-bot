@@ -52,7 +52,7 @@ def _load_prompt(prompt_path: str = "bot_prompt.md") -> str:
         return f.read()
 
 
-VALID_MODES = {"dry_run", "sandbox", "live"}
+VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
 
 
 class BotOrchestrator:
@@ -61,7 +61,8 @@ class BotOrchestrator:
     runs the scheduled entry loop.
 
     mode:
-      dry_run - no real orders, simulated responses
+      dry_run - no API calls at all, fully simulated responses
+      manual  - live market data + full order generation, orders NOT submitted
       sandbox - real orders to TastyTrade cert environment
       live    - real orders to TastyTrade production
     """
@@ -234,6 +235,8 @@ def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
         return "live"
     if args.sandbox:
         return "sandbox"
+    if args.manual:
+        return "manual"
     env_mode = os.environ.get("BOT_MODE", "").strip().lower()
     if env_mode in VALID_MODES:
         return env_mode
@@ -274,11 +277,17 @@ def main():
 
 Examples:
   python -m src.main                  # dry-run (default)
+  python -m src.main --manual         # live data, orders generated but NOT submitted
   python -m src.main --sandbox        # TastyTrade cert environment
   python -m src.main --live           # TastyTrade production
-  python -m src.main --sandbox --once # one cycle in sandbox""",
+  python -m src.main --manual --once  # one manual cycle""",
     )
     mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--manual",
+        action="store_true",
+        help="Live market data, full order generation, but orders NOT submitted",
+    )
     mode_group.add_argument(
         "--sandbox",
         action="store_true",

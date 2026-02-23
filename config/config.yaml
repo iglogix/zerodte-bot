@@ -5,7 +5,8 @@ bot:
   name: "0dte-iron-condor-bot"
   timezone: "America/New_York"
   # Mode controls order execution:
-  #   dry_run  - no API calls for orders, simulated responses (default)
+  #   dry_run  - no API calls at all, fully simulated responses (default)
+  #   manual   - live market data + full order generation, but orders NOT submitted
   #   sandbox  - real API calls to TastyTrade cert environment
   #   live     - real API calls to TastyTrade production environment
   mode: "dry_run"

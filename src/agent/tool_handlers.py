@@ -36,6 +36,7 @@ class ToolHandlers:
         self.api_client = api_client
         self.db = db
         self.dry_run = self.mode == "dry_run"
+        self.manual = self.mode == "manual"
         self.stop_limit_gap = stop_limit_gap
         self.stop_market_gap = stop_market_gap
 
@@ -53,6 +54,28 @@ class ToolHandlers:
     # -------------------------------------------------------------------------
     # Market data tools
     # -------------------------------------------------------------------------
+
+    def _is_simulated(self) -> bool:
+        """True only in dry_run — market data is also simulated."""
+        return self.mode == "dry_run"
+
+    def _block_submission(self) -> bool:
+        """True in dry_run and manual — orders must not be submitted."""
+        return self.mode in ("dry_run", "manual")
+
+    def _manual_order_result(self, tool_name: str, details: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a manual-mode result: order fully generated but not submitted."""
+        logger.info(
+            "[MANUAL] Order generated (NOT submitted) — %s: %s",
+            tool_name,
+            details,
+        )
+        return {
+            **details,
+            "manual": True,
+            "submitted": False,
+            "note": "Order generated from live data but NOT submitted (manual mode)",
+        }
 
     async def get_spx_price(self) -> Dict[str, Any]:
         """Return current SPX price, using cache when valid."""
@@ -156,19 +179,19 @@ class ToolHandlers:
                 "error": "Invalid strike order: long_put_strike must be < short_put_strike"
             }
 
-        if self.dry_run:
-            order_id = f"DRY-IC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            logger.info("[DRY RUN] Simulated iron condor: %s", order_id)
-            return {
-                "order_id": order_id,
-                "dry_run": True,
-                "simulated": True,
+        if self._block_submission():
+            details = {
                 "short_call_strike": short_call_strike,
                 "long_call_strike": long_call_strike,
                 "short_put_strike": short_put_strike,
                 "long_put_strike": long_put_strike,
                 "quantity": quantity,
             }
+            if self.dry_run:
+                order_id = f"DRY-IC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                logger.info("[DRY RUN] Simulated iron condor: %s", order_id)
+                return {"order_id": order_id, "dry_run": True, "simulated": True, **details}
+            return self._manual_order_result("place_iron_condor", details)
 
         return await self.api_client.place_order({
             "order_type": "iron_condor",
@@ -187,9 +210,11 @@ class ToolHandlers:
         quantity: int = 1,
     ) -> Dict[str, Any]:
         """Place a single credit spread (call or put side)."""
-        if self.dry_run:
-            order_id = f"DRY-CS-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            return {"order_id": order_id, "dry_run": True, "simulated": True}
+        if self._block_submission():
+            details = {"spread_type": spread_type, "short_strike": short_strike, "long_strike": long_strike, "quantity": quantity}
+            if self.dry_run:
+                return {"order_id": f"DRY-CS-{datetime.now().strftime('%Y%m%d%H%M%S')}", "dry_run": True, "simulated": True}
+            return self._manual_order_result("place_credit_spread", details)
 
         return await self.api_client.place_order({
             "order_type": f"{spread_type}_credit_spread",
@@ -208,13 +233,24 @@ class ToolHandlers:
         """Place OCO stop-loss: stop-limit + stop-market (gaps from config)."""
         stop_limit_gap = stop_limit_gap if stop_limit_gap is not None else self.stop_limit_gap
         stop_market_gap = stop_market_gap if stop_market_gap is not None else self.stop_market_gap
-        if self.dry_run:
-            return {
-                "stop_limit_order_id": f"DRY-SL-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                "stop_market_order_id": f"DRY-SM-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                "dry_run": True,
-                "simulated": True,
+        if self._block_submission():
+            details = {
+                "symbol": symbol,
+                "stop_loss_amount": stop_loss_amount,
+                "stop_limit_gap": stop_limit_gap,
+                "stop_market_gap": stop_market_gap,
+                "stop_limit_trigger": stop_loss_amount,
+                "stop_limit_price": stop_loss_amount + stop_limit_gap,
+                "stop_market_trigger": stop_loss_amount + stop_market_gap,
             }
+            if self.dry_run:
+                return {
+                    "stop_limit_order_id": f"DRY-SL-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                    "stop_market_order_id": f"DRY-SM-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                    "dry_run": True,
+                    "simulated": True,
+                }
+            return self._manual_order_result("place_stop_order", details)
 
         return await self.api_client.place_oco_order({
             "symbol": symbol,
@@ -232,9 +268,11 @@ class ToolHandlers:
         close_all: bool = False,
     ) -> Dict[str, Any]:
         """Close a position or specific leg."""
-        if self.dry_run:
-            order_id = f"DRY-CL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            return {"order_id": order_id, "dry_run": True, "simulated": True}
+        if self._block_submission():
+            details = {"symbol": symbol, "trade_id": trade_id, "quantity": quantity, "order_type": order_type, "close_all": close_all}
+            if self.dry_run:
+                return {"order_id": f"DRY-CL-{datetime.now().strftime('%Y%m%d%H%M%S')}", "dry_run": True, "simulated": True}
+            return self._manual_order_result("close_position", details)
 
         if close_all and trade_id:
             return await self.api_client.place_order({
@@ -251,7 +289,9 @@ class ToolHandlers:
 
     async def cancel_order(self, order_id: str) -> Dict[str, Any]:
         """Cancel a pending order."""
-        if self.dry_run:
-            return {"status": "cancelled", "order_id": order_id, "dry_run": True}
+        if self._block_submission():
+            if self.dry_run:
+                return {"status": "cancelled", "order_id": order_id, "dry_run": True}
+            return self._manual_order_result("cancel_order", {"order_id": order_id, "status": "would_cancel"})
 
         return await self.api_client.cancel_order(order_id)

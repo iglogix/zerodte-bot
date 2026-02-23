@@ -21,7 +21,7 @@ _SANDBOX_URL = "https://api.cert.tastyworks.com"
 _PRODUCTION_URL = "https://api.tastyworks.com"
 
 
-VALID_MODES = {"dry_run", "sandbox", "live"}
+VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
 
 
 class TastyTradeClient:
@@ -30,7 +30,8 @@ class TastyTradeClient:
     Handles session tokens, market data, and order placement.
 
     mode:
-      dry_run - market data reads only; orders never sent (handled by ToolHandlers)
+      dry_run - no real API calls; market data and orders fully simulated
+      manual  - live market data from production API; orders generated but NOT submitted
       sandbox - all calls go to api.cert.tastyworks.com
       live    - all calls go to api.tastyworks.com
     """
@@ -48,7 +49,7 @@ class TastyTradeClient:
         self.username = username or os.environ.get("TASTYTRADE_USERNAME", "")
         self.password = password or os.environ.get("TASTYTRADE_PASSWORD", "")
         self.account_number = account_number or os.environ.get("TASTYTRADE_ACCOUNT_NUMBER", "")
-        self.base_url = _PRODUCTION_URL if mode == "live" else _SANDBOX_URL
+        self.base_url = _SANDBOX_URL if mode == "sandbox" else _PRODUCTION_URL
         self._session_token: Optional[str] = None
         self._http: Optional[aiohttp.ClientSession] = None
 
