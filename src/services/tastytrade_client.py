@@ -263,6 +263,8 @@ class TastyTradeClient:
 
     async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
         """Get 0DTE option chain for a symbol with Greeks.
+        Fetches symbol list from REST, then enriches near-ATM strikes
+        with live bid/ask/delta via DXLink.
         In sandbox mode, reads from production API (cert has no live feed).
         """
         today = date.today().strftime("%Y-%m-%d")
@@ -304,6 +306,98 @@ class TastyTradeClient:
                             "vega": 0.0,
                             "iv": 0.0,
                         })
+
+        if not options:
+            return options
+
+        # Get SPX price for near-ATM filtering, then enrich with Greeks
+        spx_price = 0.0
+        try:
+            q = await self._get_quote_via_dxlink("SPX")
+            spx_price = q.get("price", 0.0)
+        except Exception:
+            pass
+        try:
+            options = await self._enrich_option_chain_greeks(options, spx_price=spx_price)
+        except Exception as exc:
+            logger.warning("Option chain Greeks enrichment failed: %s", exc)
+
+        return options
+
+    async def _enrich_option_chain_greeks(
+        self, options: List[Dict[str, Any]], spx_price: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch live bid/ask/delta for near-ATM options via a single DXLink session.
+        Subscribes to both Quote and Greeks simultaneously and collects for 6s.
+        """
+        from tastytrade import DXLinkStreamer  # type: ignore
+        from tastytrade.dxfeed import Quote, Greeks  # type: ignore
+
+        # Filter to near-ATM strikes only (±200 pts) to limit subscription size
+        if spx_price:
+            near_atm = [o for o in options if abs(o["strike"] - spx_price) <= 200]
+        else:
+            # Pick middle 100 strikes as a heuristic
+            mid = len(options) // 2
+            near_atm = options[max(0, mid - 50): mid + 50]
+
+        if not near_atm:
+            return options
+
+        streamer_syms = [o["streamer_symbol"] for o in near_atm if o["streamer_symbol"]]
+        if not streamer_syms:
+            return options
+
+        session = self._market_sdk_session or self._sdk_session
+        quotes_map: Dict[str, Any] = {}
+        greeks_map: Dict[str, Any] = {}
+
+        async with DXLinkStreamer(session) as streamer:
+            await streamer.subscribe(Quote, streamer_syms)
+            await streamer.subscribe(Greeks, streamer_syms)
+
+            needed_q = set(streamer_syms)
+            needed_g = set(streamer_syms)
+            deadline = asyncio.get_event_loop().time() + 8.0
+
+            while (needed_q or needed_g) and asyncio.get_event_loop().time() < deadline:
+                left = deadline - asyncio.get_event_loop().time()
+                if left <= 0:
+                    break
+                if needed_q:
+                    try:
+                        q = await asyncio.wait_for(streamer.get_event(Quote), timeout=min(1.5, left))
+                        quotes_map[q.event_symbol] = q
+                        needed_q.discard(q.event_symbol)
+                        continue
+                    except asyncio.TimeoutError:
+                        needed_q.clear()
+                if needed_g:
+                    try:
+                        g = await asyncio.wait_for(streamer.get_event(Greeks), timeout=min(1.5, left))
+                        greeks_map[g.event_symbol] = g
+                        needed_g.discard(g.event_symbol)
+                    except asyncio.TimeoutError:
+                        needed_g.clear()
+
+        for opt in options:
+            ssym = opt.get("streamer_symbol", "")
+            q = quotes_map.get(ssym)
+            g = greeks_map.get(ssym)
+            if q:
+                bid = float(q.bid_price or 0)
+                ask = float(q.ask_price or 0)
+                opt["bid"] = bid
+                opt["ask"] = ask
+                opt["last"] = (bid + ask) / 2 if bid and ask else bid or ask
+            if g:
+                opt["delta"] = float(g.delta or 0)
+                opt["gamma"] = float(g.gamma or 0)
+                opt["theta"] = float(g.theta or 0)
+                opt["vega"] = float(g.vega or 0)
+                opt["iv"] = float(g.volatility or 0)
+
         return options
 
     async def get_5min_candles(self, symbol: str, count: int = 6) -> List[Dict[str, Any]]:
