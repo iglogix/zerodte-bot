@@ -1,13 +1,19 @@
 """
 TastyTrade API client for 0DTE Iron Condor Trading Bot.
-Handles authentication, market data, and order execution via the TastyTrade REST API.
 
-Sandbox environment: https://api.cert.tastyworks.com
-Production environment: https://api.tastyworks.com
+Authentication: OAuth2 via tastytrade SDK Session(client_secret, refresh_token).
+  - Sandbox:    Session(client_secret, refresh_token, is_test=True)
+  - Production: Session(client_secret, refresh_token)
+  - Access tokens last 15 min; SDK auto-refreshes transparently.
+  - Refresh tokens never expire.
+
+Credentials loaded from environment variables (see .env.example).
+User-Agent header must be <product>/<version> — required by TastyTrade API.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import date, datetime
@@ -19,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 _SANDBOX_URL = "https://api.cert.tastyworks.com"
 _PRODUCTION_URL = "https://api.tastyworks.com"
+_USER_AGENT = "0dte-iron-condor-bot/1.0"
 
 
 VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
@@ -26,31 +33,38 @@ VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
 
 class TastyTradeClient:
     """
-    Async TastyTrade REST API client.
-    Handles session tokens, market data, and order placement.
+    Async TastyTrade REST API client using OAuth2.
 
     mode:
       dry_run - no real API calls; market data and orders fully simulated
       manual  - live market data from production API; orders generated but NOT submitted
-      sandbox - all calls go to api.cert.tastyworks.com
-      live    - all calls go to api.tastyworks.com
+      sandbox - OAuth2 against api.cert.tastyworks.com (is_test=True)
+      live    - OAuth2 against api.tastyworks.com
     """
 
     def __init__(
         self,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        provider_secret: Optional[str] = None,
+        refresh_token: Optional[str] = None,
         account_number: Optional[str] = None,
         mode: str = "dry_run",
     ):
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode {mode!r}. Must be one of: {VALID_MODES}")
         self.mode = mode
-        self.username = username or os.environ.get("TASTYTRADE_USERNAME", "")
-        self.password = password or os.environ.get("TASTYTRADE_PASSWORD", "")
-        self.account_number = account_number or os.environ.get("TASTYTRADE_ACCOUNT_NUMBER", "")
-        self.base_url = _SANDBOX_URL if mode == "sandbox" else _PRODUCTION_URL
-        self._session_token: Optional[str] = None
+        is_sandbox = mode == "sandbox"
+
+        pfx = "TASTYTRADE_SANDBOX_" if is_sandbox else "TASTYTRADE_"
+        self.provider_secret = provider_secret or os.environ.get(f"{pfx}CLIENT_SECRET", "")
+        self.refresh_token = refresh_token or os.environ.get(f"{pfx}REFRESH_TOKEN", "")
+        self.account_number = account_number or os.environ.get(
+            f"{pfx}ACCOUNT_NUMBER",
+            os.environ.get(f"{pfx}ACCOUNT", ""),  # fallback: TASTYTRADE_ACCOUNT
+        )
+
+        self.base_url = _SANDBOX_URL if is_sandbox else _PRODUCTION_URL
+        self._sdk_session = None
+        self._access_token: Optional[str] = None
         self._http: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -61,37 +75,85 @@ class TastyTradeClient:
         await self.disconnect()
 
     async def connect(self):
-        self._http = aiohttp.ClientSession()
-        await self.authenticate()
+        """Authenticate and open HTTP session."""
+        if self.mode == "dry_run":
+            return
+        self._http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
+        await self._authenticate()
 
     async def disconnect(self):
         if self._http:
             await self._http.close()
+            self._http = None
 
     # -------------------------------------------------------------------------
-    # Authentication
+    # Authentication — OAuth2
     # -------------------------------------------------------------------------
 
-    async def authenticate(self) -> bool:
-        """Authenticate and store session token."""
+    async def _authenticate(self):
+        """
+        Authenticate using OAuth2. Tries tastytrade SDK first;
+        falls back to raw HTTP refresh-token exchange.
+        """
+        try:
+            await self._authenticate_via_sdk()
+        except ImportError:
+            logger.warning("tastytrade SDK not installed — using raw OAuth2 token exchange")
+            await self._authenticate_via_http()
+
+    async def _authenticate_via_sdk(self):
+        """Use OAuthSession from the tastytrade SDK (v10+)."""
+        from tastytrade import OAuthSession  # type: ignore
+
+        is_test = self.mode == "sandbox"
+        loop = asyncio.get_event_loop()
+        self._sdk_session = await loop.run_in_executor(
+            None,
+            lambda: OAuthSession(self.provider_secret, self.refresh_token, is_test=is_test),
+        )
+        self._access_token = self._sdk_session.session_token
+        logger.info(
+            "TastyTrade OAuth2 authenticated via OAuthSession (mode=%s, is_test=%s)",
+            self.mode, is_test,
+        )
+
+    async def _authenticate_via_http(self):
+        """
+        Raw OAuth2 refresh-token exchange when SDK is not installed.
+        POST /oauth/token with grant_type=refresh_token.
+        """
         payload = {
-            "login": self.username,
-            "password": self.password,
-            "remember-me": True,
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "client_id": self.provider_secret,
         }
         async with self._http.post(
-            f"{self.base_url}/sessions",
+            f"{self.base_url}/oauth/token",
             json=payload,
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
-            self._session_token = data["data"]["session-token"]
-            logger.info("TastyTrade authenticated successfully")
-            return True
+            self._access_token = data["access_token"]
+            logger.info("TastyTrade OAuth2 authenticated via HTTP token exchange (mode=%s)", self.mode)
+
+    async def get_session(self):
+        """Return the SDK session object (for AlertStreamer / Account.get)."""
+        return self._sdk_session
+
+    async def get_session_token(self) -> str:
+        """Return the current access token (auto-refreshed by SDK)."""
+        if self._sdk_session is not None:
+            return self._sdk_session.session_token
+        return self._access_token or ""
+
+    async def get_account_number(self) -> str:
+        return self.account_number
 
     def _headers(self) -> Dict[str, str]:
+        token = self._access_token or ""
+        auth = f"Bearer {token}" if token else ""
         return {
-            "Authorization": self._session_token or "",
+            "Authorization": auth,
             "Content-Type": "application/json",
         }
 
@@ -100,7 +162,33 @@ class TastyTradeClient:
     # -------------------------------------------------------------------------
 
     async def get_quote(self, symbol: str) -> Dict[str, Any]:
-        """Get current quote for a symbol."""
+        """
+        Get current quote for a symbol.
+        Uses /market-metrics for index symbols (SPX, SPXW);
+        falls back to /market-data/quotes/{symbol} for equities/ETFs.
+        """
+        async with self._http.get(
+            f"{self.base_url}/market-metrics",
+            headers=self._headers(),
+            params={"symbols": symbol},
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                items = data.get("data", {}).get("items", [])
+                if items:
+                    item = items[0]
+                    price = float(
+                        item.get("last", None)
+                        or item.get("implied-volatility-index", 0)
+                    )
+                    return {
+                        "symbol": symbol,
+                        "price": price,
+                        "bid": 0.0,
+                        "ask": 0.0,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+
         async with self._http.get(
             f"{self.base_url}/market-data/quotes/{symbol}",
             headers=self._headers(),
