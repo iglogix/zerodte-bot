@@ -156,15 +156,23 @@ class OrderFillListener:
             await self._listen_via_raw_ws()
 
     async def _listen_via_sdk(self):
-        """Use the official tastytrade Python SDK AlertStreamer."""
+        """Use the official tastytrade Python SDK AlertStreamer (v10+)."""
         from tastytrade import AlertStreamer, Account  # type: ignore
         from tastytrade.order import PlacedOrder       # type: ignore
 
         session = await self.api_client.get_session()
-        accounts = await Account.get(session)
+
+        # Account.get is synchronous in SDK v10
+        loop = asyncio.get_event_loop()
+        accounts = await loop.run_in_executor(None, lambda: Account.get(session))
+        if not isinstance(accounts, list):
+            accounts = [accounts]
 
         self._connected = True
-        logger.info("OrderFillListener: connected via SDK AlertStreamer")
+        logger.info(
+            "OrderFillListener: connected via SDK AlertStreamer (%d account(s))",
+            len(accounts),
+        )
 
         async with AlertStreamer(session) as streamer:
             await streamer.subscribe_accounts(accounts)
@@ -221,7 +229,7 @@ class OrderFillListener:
             else "wss://streamer.tastyworks.com"
         )
         token = await self.api_client.get_session_token()
-        headers = {"Authorization": token}
+        headers = {"Authorization": f"Bearer {token}"}
 
         self._connected = True
         logger.info("OrderFillListener: connected via raw websocket to %s", ws_url)
