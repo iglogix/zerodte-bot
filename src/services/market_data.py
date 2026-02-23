@@ -230,6 +230,22 @@ class CachedMarketData:
         count: int = 10,
         ignore_ttl: bool = True,
     ) -> List[Dict]:
+        import logging as _logging
+        # Always fetch fresh candles from API — candles are time-series and
+        # the cache goes stale immediately after the first fetch.
+        if self.api_client and hasattr(self.api_client, "get_5min_candles"):
+            try:
+                candles = await self.api_client.get_5min_candles(symbol, count=count)
+                if candles:
+                    for c in candles:
+                        await self.cache_5min_candle(symbol, c)
+                    return candles
+            except Exception as exc:
+                _logging.getLogger(__name__).warning(
+                    "get_5min_candles API fetch failed for %s: %s — falling back to cache", symbol, exc
+                )
+
+        # API unavailable — serve from cache
         with self._session() as session:
             rows = (
                 session.query(MarketDataCache)
@@ -238,24 +254,7 @@ class CachedMarketData:
                 .all()
             )
             result = [json.loads(r.data_json) for r in rows]
-            cached = result[-count:] if count < len(result) else result
-
-        if cached:
-            return cached
-
-        # Cache empty — fetch live from API client and store
-        if self.api_client and hasattr(self.api_client, "get_5min_candles"):
-            try:
-                candles = await self.api_client.get_5min_candles(symbol, count=count)
-                for c in candles:
-                    await self.cache_5min_candle(symbol, c)
-                return candles
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "get_5min_candles API fallback failed for %s: %s", symbol, exc
-                )
-        return []
+            return result[-count:] if count < len(result) else result
 
     async def get_5min_candles_range(
         self,

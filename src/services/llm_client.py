@@ -108,24 +108,32 @@ class LLMClient:
         )
 
         if messages:
-            # Use the full tool-loop conversation so the validator has the same
-            # market data the primary agent gathered via tool calls.
-            # - Replace system message with our prompt (virgin eyes).
-            # - Keep assistant messages but blank their text content so the validator
-            #   cannot see the primary's reasoning; tool_calls must stay so that the
-            #   following tool-result messages remain valid (API requires matching IDs).
-            validator_messages = []
+            # Flatten the tool-loop into a single user message containing all
+            # tool results as plain text. This avoids provider-specific issues
+            # (e.g. Anthropic rejecting tool_calls without tool definitions)
+            # while still giving the validator full market data context.
+            tool_results_text = []
             for msg in messages:
-                if msg["role"] == "system":
-                    validator_messages.append({"role": "system", "content": prompt})
-                elif msg["role"] == "assistant":
-                    sanitised = {"role": "assistant", "content": ""}
-                    if msg.get("tool_calls"):
-                        sanitised["tool_calls"] = msg["tool_calls"]
-                    validator_messages.append(sanitised)
-                else:
-                    validator_messages.append(msg)
-            validator_messages.append({"role": "user", "content": _DECISION_REQUEST})
+                if msg["role"] == "tool":
+                    # Find the tool name from the preceding assistant message tool_calls
+                    tool_results_text.append(f"Tool result: {msg.get('content', '')}")
+                elif msg["role"] == "assistant" and msg.get("tool_calls"):
+                    for tc in msg["tool_calls"]:
+                        name = tc.get("function", {}).get("name") or tc.get("name", "")
+                        args = tc.get("function", {}).get("arguments") or tc.get("arguments", "")
+                        tool_results_text.append(f"Tool called: {name}({args})")
+
+            context_block = "\n".join(tool_results_text)
+            validator_messages = [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Market data gathered by the primary agent:\n\n{context_block}"
+                        + _DECISION_REQUEST
+                    ),
+                },
+            ]
         else:
             validator_messages = [
                 {"role": "system", "content": prompt},
