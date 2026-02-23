@@ -133,7 +133,7 @@ class ToolHandlers:
 
         equity = account.get("equity", 0)
         max_allowed = equity * 0.5
-        available = account.get("buying_power", max_allowed)
+        available = account.get("buying_power") or max_allowed
 
         result = {
             "available": available,
