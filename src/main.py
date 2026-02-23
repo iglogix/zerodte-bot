@@ -108,8 +108,16 @@ class BotOrchestrator:
             timeout_seconds=llm_cfg.get("timeout_seconds", 30),
         )
 
+        from src.services.tastytrade_client import TastyTradeClient
+
+        api_client = TastyTradeClient(
+            environment=os.environ.get("TASTYTRADE_ENVIRONMENT", "sandbox"),
+        )
+        self._cache.api_client = api_client
+
         tool_handlers = ToolHandlers(
             cache=self._cache,
+            api_client=api_client,
             db=self._db,
             dry_run=self.dry_run,
         )
