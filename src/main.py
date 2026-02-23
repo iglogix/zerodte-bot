@@ -83,6 +83,7 @@ class BotOrchestrator:
         self._tool_handlers = None
         self._fill_listener = None
         self._fill_queue = None
+        self._api_client = None
 
     async def initialize(self):
         """Initialize all services."""
@@ -119,8 +120,8 @@ class BotOrchestrator:
             webhook_config=notif_cfg.get("webhook", {}),
         )
 
-        primary_llm = LLMClient(model=llm_cfg.get("primary_model", "claude-sonnet-4.6"))
-        validator_llm = LLMClient(model=llm_cfg.get("validator_model", "gpt-5.2"))
+        primary_llm = LLMClient(model=llm_cfg.get("primary_model", "openai/gpt-4.1"))
+        validator_llm = LLMClient(model=llm_cfg.get("validator_model", "anthropic/claude-sonnet-4-5"))
 
         self._validator = DualLLMValidator(
             primary_llm=primary_llm,
@@ -137,6 +138,7 @@ class BotOrchestrator:
         api_client = TastyTradeClient(
             mode=self.mode,
         )
+        await api_client.connect()
         self._cache.api_client = api_client
 
         self._tool_handlers = ToolHandlers(
@@ -157,6 +159,7 @@ class BotOrchestrator:
             take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
         )
 
+        self._api_client = api_client
         self._fill_queue = asyncio.Queue()
 
         self._fill_listener = OrderFillListener(
@@ -268,6 +271,8 @@ class BotOrchestrator:
             await self._fill_listener.stop()
         if self._monitor:
             await self._monitor.stop()
+        if self._api_client:
+            await self._api_client.disconnect()
         if self._cache:
             await self._cache.close()
         logger.info("Bot shutdown complete")

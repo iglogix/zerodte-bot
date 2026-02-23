@@ -97,7 +97,17 @@ class TradingAgent:
 
             assistant_msg = {"role": "assistant", "content": content or ""}
             if tool_calls:
-                assistant_msg["tool_calls"] = tool_calls
+                normalized = []
+                for tc in tool_calls:
+                    normalized.append({
+                        "id": tc.get("id", f"call_{iteration}"),
+                        "type": "function",
+                        "function": {
+                            "name": tc.get("name") or tc.get("function", {}).get("name", ""),
+                            "arguments": tc.get("arguments") or tc.get("function", {}).get("arguments", "{}"),
+                        },
+                    })
+                assistant_msg["tool_calls"] = normalized
             messages.append(assistant_msg)
 
             for tc in tool_calls:
