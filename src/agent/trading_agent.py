@@ -34,6 +34,8 @@ class TradingAgent:
         db=None,
         dry_run: bool = True,
         max_iterations: int = 10,
+        decision_file_logger=None,
+        mode: str = "dry_run",
     ):
         self.llm_client = llm_client
         self.tool_handlers = tool_handlers
@@ -41,6 +43,8 @@ class TradingAgent:
         self.db = db
         self.dry_run = dry_run
         self.max_iterations = max_iterations
+        self.decision_file_logger = decision_file_logger
+        self.mode = mode
 
     async def run_tool_loop(
         self,
@@ -60,6 +64,13 @@ class TradingAgent:
         messages = self._build_initial_messages(prompt, market_data)
         tool_calls_made = []
         iteration = 0
+
+        cycle = None
+        if self.decision_file_logger:
+            cycle = self.decision_file_logger.start_cycle(
+                mode=self.mode,
+                market_data=market_data,
+            )
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -83,14 +94,26 @@ class TradingAgent:
                             messages=messages,
                             proposed_trade=decision,
                         )
+                        if cycle:
+                            cycle.add_validator_result(
+                                proposed_trade=decision,
+                                primary_approval=validation.get("primary_decision"),
+                                secondary_approval=validation.get("secondary_decision"),
+                                outcome="blocked" if not validation.get("execute") else "approved",
+                                reason=validation.get("disagreement_reason") or validation.get("error_reason"),
+                            )
                         if not validation.get("execute", False):
                             await self._log_decision({"content": content, "blocked": True})
+                            if cycle:
+                                cycle.finish(outcome="blocked", response=content or "")
                             return {
                                 "response": content or "",
                                 "tool_calls_made": tool_calls_made,
                                 "blocked": True,
                             }
                 await self._log_decision({"content": content, "messages": messages})
+                if cycle:
+                    cycle.finish(outcome="waited", response=content or "")
                 return {
                     "response": content or "",
                     "tool_calls_made": tool_calls_made,
@@ -129,6 +152,14 @@ class TradingAgent:
                         messages=messages,
                         proposed_trade=args,
                     )
+                    if cycle:
+                        cycle.add_validator_result(
+                            proposed_trade=args,
+                            primary_approval=validation.get("primary_decision"),
+                            secondary_approval=validation.get("secondary_decision"),
+                            outcome="blocked" if not validation.get("execute") else "approved",
+                            reason=validation.get("disagreement_reason") or validation.get("error_reason"),
+                        )
                     if not validation.get("execute", False):
                         await self._log_tool_call(tool_name, args, {"blocked": True})
                         messages.append({
@@ -150,6 +181,8 @@ class TradingAgent:
 
                 await self._log_tool_call(tool_name, args, result, duration_ms)
                 tool_calls_made.append({"name": tool_name, "args": args, "result": result})
+                if cycle:
+                    cycle.add_tool_call(tool_name, args, result, duration_ms)
 
                 # Truncate large payloads (option chains) to avoid context overflow.
                 # The full result is logged to DB; the LLM only needs near-ATM enriched strikes.
@@ -173,6 +206,8 @@ class TradingAgent:
 
         logger.warning("Tool loop reached max iterations (%d)", self.max_iterations)
         await self._log_decision({"content": "max_iterations_reached", "messages": messages})
+        if cycle:
+            cycle.finish(outcome="max_iterations", response="Max iterations reached")
         return {
             "response": "Max iterations reached",
             "tool_calls_made": tool_calls_made,

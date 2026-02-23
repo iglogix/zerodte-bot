@@ -92,6 +92,7 @@ class BotOrchestrator:
         from src.services.risk_manager import RiskManager
         from src.services.notifications import NotificationService
         from src.services.llm_client import LLMClient
+        from src.services.decision_logger import DecisionFileLogger
         from src.agent.tool_handlers import ToolHandlers
         from src.agent.dual_validator import DualLLMValidator
         from src.agent.trading_agent import TradingAgent
@@ -183,6 +184,11 @@ class BotOrchestrator:
             mode=self.mode,
         )
 
+        log_cfg = self.config.get("logging", {})
+        decision_file_logger = DecisionFileLogger(
+            base_dir=str(Path(log_cfg.get("log_dir", "logs")) / "decisions")
+        )
+
         self._agent = TradingAgent(
             llm_client=primary_llm,
             tool_handlers=self._tool_handlers,
@@ -190,6 +196,8 @@ class BotOrchestrator:
             db=self._db,
             dry_run=self.dry_run,
             max_iterations=llm_cfg.get("max_iterations", 10),
+            decision_file_logger=decision_file_logger,
+            mode=self.mode,
         )
 
         self._prompt = _load_prompt()
