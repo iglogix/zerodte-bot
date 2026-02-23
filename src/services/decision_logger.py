@@ -96,6 +96,16 @@ class DecisionCycle:
             "duration_ms": duration_ms,
         })
 
+    @staticmethod
+    def _split_reasoning(approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Return a copy of an approval dict with reasoning split into lines."""
+        if not approval:
+            return approval
+        result = dict(approval)
+        if isinstance(result.get("reasoning"), str):
+            result["reasoning"] = result["reasoning"].splitlines()
+        return result
+
     def add_validator_result(
         self,
         proposed_trade: Optional[Dict[str, Any]],
@@ -108,14 +118,14 @@ class DecisionCycle:
         self._doc["validator_invocations"].append({
             "timestamp": datetime.now().isoformat(),
             "proposed_trade": proposed_trade,
-            "primary_approval": primary_approval,
-            "secondary_approval": secondary_approval,
+            "primary_approval": self._split_reasoning(primary_approval),
+            "secondary_approval": self._split_reasoning(secondary_approval),
             "outcome": outcome,
-            "reason": reason,
+            "reason": reason.splitlines() if isinstance(reason, str) else reason,
         })
 
     def set_primary_response(self, response: str):
-        self._doc["primary_response"] = response
+        self._doc["primary_response"] = response.splitlines() if response else []
 
     # ------------------------------------------------------------------
     # Finish — write to disk
@@ -130,7 +140,7 @@ class DecisionCycle:
         self._doc["finished_at"] = datetime.now().isoformat()
         self._doc["outcome"] = outcome
         if response is not None:
-            self._doc["primary_response"] = response
+            self._doc["primary_response"] = response.splitlines() if response else []
 
         file_path = self._folder / f"{self._cycle_id}.json"
         try:
