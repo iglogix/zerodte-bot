@@ -158,8 +158,15 @@ class TastyTradeClient:
             logger.warning("Could not open sandbox market data session: %s", exc)
 
     def _market_headers(self) -> Dict[str, str]:
-        """Headers for read-only market data requests (production in sandbox)."""
-        token = self._market_token or self._access_token or ""
+        """Headers for read-only market data requests (production in sandbox).
+        Always reads the live token from the SDK session so auto-refresh is respected.
+        """
+        if self._market_sdk_session is not None:
+            token = self._market_sdk_session.session_token or ""
+        elif self._sdk_session is not None:
+            token = self._sdk_session.session_token or ""
+        else:
+            token = self._market_token or self._access_token or ""
         auth = f"Bearer {token}" if token else ""
         return {
             "Authorization": auth,
@@ -199,7 +206,10 @@ class TastyTradeClient:
         return self.account_number
 
     def _headers(self) -> Dict[str, str]:
-        token = self._access_token or ""
+        if self._sdk_session is not None:
+            token = self._sdk_session.session_token or ""
+        else:
+            token = self._access_token or ""
         auth = f"Bearer {token}" if token else ""
         return {
             "Authorization": auth,
