@@ -4,7 +4,11 @@
 bot:
   name: "0dte-iron-condor-bot"
   timezone: "America/New_York"
-  dry_run: true  # Set to false for live trading
+  # Mode controls order execution:
+  #   dry_run  - no API calls for orders, simulated responses (default)
+  #   sandbox  - real API calls to TastyTrade cert environment
+  #   live     - real API calls to TastyTrade production environment
+  mode: "dry_run"
 
 # LLM Configuration
 llm:

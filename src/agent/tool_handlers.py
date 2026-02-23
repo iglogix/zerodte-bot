@@ -21,14 +21,21 @@ class ToolHandlers:
         cache=None,
         api_client=None,
         db=None,
-        dry_run: bool = True,
+        mode: Optional[str] = None,
+        dry_run: Optional[bool] = None,
         stop_limit_gap: int = 40,
         stop_market_gap: int = 30,
     ):
+        if mode is not None:
+            self.mode = mode
+        elif dry_run is not None:
+            self.mode = "dry_run" if dry_run else "live"
+        else:
+            self.mode = "dry_run"
         self.cache = cache
         self.api_client = api_client
         self.db = db
-        self.dry_run = dry_run
+        self.dry_run = self.mode == "dry_run"
         self.stop_limit_gap = stop_limit_gap
         self.stop_market_gap = stop_market_gap
 

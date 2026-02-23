@@ -21,10 +21,18 @@ _SANDBOX_URL = "https://api.cert.tastyworks.com"
 _PRODUCTION_URL = "https://api.tastyworks.com"
 
 
+VALID_MODES = {"dry_run", "sandbox", "live"}
+
+
 class TastyTradeClient:
     """
     Async TastyTrade REST API client.
     Handles session tokens, market data, and order placement.
+
+    mode:
+      dry_run - market data reads only; orders never sent (handled by ToolHandlers)
+      sandbox - all calls go to api.cert.tastyworks.com
+      live    - all calls go to api.tastyworks.com
     """
 
     def __init__(
@@ -32,14 +40,15 @@ class TastyTradeClient:
         username: Optional[str] = None,
         password: Optional[str] = None,
         account_number: Optional[str] = None,
-        environment: str = "sandbox",
+        mode: str = "dry_run",
     ):
+        if mode not in VALID_MODES:
+            raise ValueError(f"Invalid mode {mode!r}. Must be one of: {VALID_MODES}")
+        self.mode = mode
         self.username = username or os.environ.get("TASTYTRADE_USERNAME", "")
         self.password = password or os.environ.get("TASTYTRADE_PASSWORD", "")
         self.account_number = account_number or os.environ.get("TASTYTRADE_ACCOUNT_NUMBER", "")
-        self.base_url = (
-            _PRODUCTION_URL if environment == "production" else _SANDBOX_URL
-        )
+        self.base_url = _PRODUCTION_URL if mode == "live" else _SANDBOX_URL
         self._session_token: Optional[str] = None
         self._http: Optional[aiohttp.ClientSession] = None
 

@@ -52,15 +52,26 @@ def _load_prompt(prompt_path: str = "bot_prompt.md") -> str:
         return f.read()
 
 
+VALID_MODES = {"dry_run", "sandbox", "live"}
+
+
 class BotOrchestrator:
     """
     Top-level orchestrator that wires all components together and
     runs the scheduled entry loop.
+
+    mode:
+      dry_run - no real orders, simulated responses
+      sandbox - real orders to TastyTrade cert environment
+      live    - real orders to TastyTrade production
     """
 
-    def __init__(self, config: Dict[str, Any], dry_run: bool = True):
+    def __init__(self, config: Dict[str, Any], mode: str = "dry_run"):
+        if mode not in VALID_MODES:
+            raise ValueError(f"Invalid mode {mode!r}. Must be one of: {VALID_MODES}")
         self.config = config
-        self.dry_run = dry_run
+        self.mode = mode
+        self.dry_run = mode == "dry_run"
         self._prompt: Optional[str] = None
         self._cache = None
         self._db = None
@@ -116,7 +127,7 @@ class BotOrchestrator:
         from src.services.tastytrade_client import TastyTradeClient
 
         api_client = TastyTradeClient(
-            environment=os.environ.get("TASTYTRADE_ENVIRONMENT", "sandbox"),
+            mode=self.mode,
         )
         self._cache.api_client = api_client
 
@@ -124,7 +135,7 @@ class BotOrchestrator:
             cache=self._cache,
             api_client=api_client,
             db=self._db,
-            dry_run=self.dry_run,
+            mode=self.mode,
             stop_limit_gap=stop_cfg.get("stop_limit_gap", 40),
             stop_market_gap=stop_cfg.get("stop_market_gap", 30),
         )
@@ -148,8 +159,7 @@ class BotOrchestrator:
         )
 
         self._prompt = _load_prompt()
-        mode = "DRY-RUN" if self.dry_run else "LIVE"
-        logger.info("Bot initialized — mode: %s", mode)
+        logger.info("Bot initialized — mode: %s", self.mode.upper())
 
     async def run_cycle(self):
         """Run one decision cycle."""
@@ -189,7 +199,7 @@ class BotOrchestrator:
             pass
 
         data["timestamp"] = datetime.now().isoformat()
-        data["dry_run"] = self.dry_run
+        data["mode"] = self.mode
         return data
 
     async def run_scheduled(self):
@@ -215,6 +225,24 @@ class BotOrchestrator:
         logger.info("Bot shutdown complete")
 
 
+def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
+    """
+    Resolve bot mode with priority: CLI flag > BOT_MODE env var > config.yaml.
+    CLI flags --sandbox and --live are mutually exclusive.
+    """
+    if args.live:
+        return "live"
+    if args.sandbox:
+        return "sandbox"
+    env_mode = os.environ.get("BOT_MODE", "").strip().lower()
+    if env_mode in VALID_MODES:
+        return env_mode
+    cfg_mode = config.get("bot", {}).get("mode", "dry_run")
+    if cfg_mode in VALID_MODES:
+        return cfg_mode
+    return "dry_run"
+
+
 async def main_async(args: argparse.Namespace):
     config = _load_config()
     _setup_logging(
@@ -222,8 +250,8 @@ async def main_async(args: argparse.Namespace):
         config.get("logging", {}).get("level", "INFO"),
     )
 
-    dry_run = not args.live
-    orchestrator = BotOrchestrator(config=config, dry_run=dry_run)
+    mode = _resolve_mode(args, config)
+    orchestrator = BotOrchestrator(config=config, mode=mode)
 
     try:
         await orchestrator.initialize()
@@ -239,11 +267,27 @@ async def main_async(args: argparse.Namespace):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="0DTE Iron Condor Trading Bot")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(
+        description="0DTE Iron Condor Trading Bot",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Mode priority: CLI flag > BOT_MODE env var > config.yaml bot.mode
+
+Examples:
+  python -m src.main                  # dry-run (default)
+  python -m src.main --sandbox        # TastyTrade cert environment
+  python -m src.main --live           # TastyTrade production
+  python -m src.main --sandbox --once # one cycle in sandbox""",
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--sandbox",
+        action="store_true",
+        help="Use TastyTrade sandbox (cert) environment",
+    )
+    mode_group.add_argument(
         "--live",
         action="store_true",
-        help="Enable live trading (default: dry-run)",
+        help="Use TastyTrade production environment (real money)",
     )
     parser.add_argument(
         "--once",
