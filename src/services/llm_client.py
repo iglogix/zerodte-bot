@@ -80,36 +80,67 @@ class LLMClient:
         self,
         market_data: Dict[str, Any],
         prompt: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Used by DualLLMValidator — ask the LLM for a structured trading decision.
+
+        When `messages` is provided (the full primary-agent tool-loop conversation),
+        the validator sees all tool results (SPX price, option chain, candles, etc.)
+        and appends a final user turn asking for a JSON verdict.
+
+        Falls back to building from bare market_data when messages is not provided.
+
         Returns a dict with action, timing, strikes, stop_loss_amount, etc.
         """
-        from src.agent.tool_definitions import TOOL_DEFINITIONS
-
-        messages = [
-            {"role": "system", "content": prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Market data:\n{json.dumps(market_data, indent=2, default=str)}\n\n"
-                    "Based on the strategy, provide your trading decision as a JSON object with:\n"
-                    "- action: 'enter_trade' or 'wait'\n"
-                    "- timing: 'now' or reason to wait\n"
-                    "- order_sequence: ['call_spread', 'put_spread'] or null\n"
-                    "- short_call_strike, long_call_strike, short_put_strike, long_put_strike\n"
-                    "- stop_loss_amount: total premium to use as stop\n"
-                    "- reasoning: brief explanation\n\n"
-                    "Respond ONLY with valid JSON."
-                ),
-            },
-        ]
-
         import litellm
+
+        _DECISION_REQUEST = (
+            "\n\nBased on everything above, provide your independent trading decision "
+            "as a JSON object with:\n"
+            "- action: 'enter_trade' or 'wait'\n"
+            "- timing: 'now' or reason to wait\n"
+            "- order_sequence: ['call_spread', 'put_spread'] or null\n"
+            "- short_call_strike, long_call_strike, short_put_strike, long_put_strike\n"
+            "- stop_loss_amount: total premium to use as stop\n"
+            "- reasoning: brief explanation\n\n"
+            "Respond ONLY with valid JSON."
+        )
+
+        if messages:
+            # Use the full tool-loop conversation so the validator has the same
+            # market data the primary agent gathered via tool calls.
+            # - Replace system message with our prompt (virgin eyes).
+            # - Keep assistant messages but blank their text content so the validator
+            #   cannot see the primary's reasoning; tool_calls must stay so that the
+            #   following tool-result messages remain valid (API requires matching IDs).
+            validator_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    validator_messages.append({"role": "system", "content": prompt})
+                elif msg["role"] == "assistant":
+                    sanitised = {"role": "assistant", "content": ""}
+                    if msg.get("tool_calls"):
+                        sanitised["tool_calls"] = msg["tool_calls"]
+                    validator_messages.append(sanitised)
+                else:
+                    validator_messages.append(msg)
+            validator_messages.append({"role": "user", "content": _DECISION_REQUEST})
+        else:
+            validator_messages = [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Market data:\n{json.dumps(market_data, indent=2, default=str)}"
+                        + _DECISION_REQUEST
+                    ),
+                },
+            ]
 
         response = await litellm.acompletion(
             model=self.model,
-            messages=messages,
+            messages=validator_messages,
             temperature=self.temperature,
             max_tokens=1024,
         )

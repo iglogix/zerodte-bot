@@ -13,8 +13,8 @@ bot:
 
 # LLM Configuration
 llm:
-  primary_model: "openai/gpt-4.1"    # Primary decision maker
-  validator_model: "openai/gpt-4.1"  # Virgin eyes validator (swap to claude when credits available)
+  primary_model: "anthropic/claude-sonnet-4-5"       # Primary decision maker
+  validator_model: "openai/gpt-5.2"                 # Virgin eyes validator
   max_iterations: 10                   # Max tool loop iterations
   timeout_seconds: 30                  # LLM response timeout
 

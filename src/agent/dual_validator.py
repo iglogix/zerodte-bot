@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class DualLLMValidator:
         self,
         market_data: Dict[str, Any],
         prompt: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Ask both LLMs independently, then compare decisions.
@@ -71,10 +72,10 @@ class DualLLMValidator:
 
         try:
             primary_task = asyncio.create_task(
-                self._call_with_timeout(self.primary_llm, market_data, prompt)
+                self._call_with_timeout(self.primary_llm, market_data, prompt, messages)
             )
             secondary_task = asyncio.create_task(
-                self._call_with_timeout(self.secondary_llm, market_data, prompt)
+                self._call_with_timeout(self.secondary_llm, market_data, prompt, messages)
             )
             results = await asyncio.gather(primary_task, secondary_task, return_exceptions=True)
 
@@ -159,9 +160,16 @@ class DualLLMValidator:
         await self._log(result, primary_decision, secondary_decision)
         return result
 
-    async def _call_with_timeout(self, llm, market_data: Dict, prompt: str) -> Dict:
+
+    async def _call_with_timeout(
+        self,
+        llm,
+        market_data: Dict,
+        prompt: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict:
         return await asyncio.wait_for(
-            llm.get_decision(market_data=market_data, prompt=prompt),
+            llm.get_decision(market_data=market_data, prompt=prompt, messages=messages),
             timeout=self.timeout_seconds,
         )
 

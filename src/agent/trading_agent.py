@@ -80,6 +80,7 @@ class TradingAgent:
                         validation = await self.validator.validate_decision(
                             market_data=market_data,
                             prompt=prompt,
+                            messages=messages,
                         )
                         if not validation.get("execute", False):
                             await self._log_decision({"content": content, "blocked": True})
@@ -124,6 +125,7 @@ class TradingAgent:
                     validation = await self.validator.validate_decision(
                         market_data=market_data,
                         prompt=prompt,
+                        messages=messages,
                     )
                     if not validation.get("execute", False):
                         await self._log_tool_call(tool_name, args, {"blocked": True})
