@@ -37,6 +37,11 @@ risk:
   max_buying_power_percent: 50.0
   take_profit_threshold: 0.05  # Close short at $0.05
 
+# Position Monitor
+monitor:
+  poll_interval_seconds: 30   # How often to check open positions
+  eod_close_time: "15:55"     # Force-close all positions before this time (ET)
+
 # Stop-Loss Configuration
 stop_loss:
   stop_limit_gap: 40   # Points between trigger and limit

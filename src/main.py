@@ -79,6 +79,8 @@ class BotOrchestrator:
         self._risk_manager = None
         self._agent = None
         self._notifier = None
+        self._monitor = None
+        self._tool_handlers = None
 
     async def initialize(self):
         """Initialize all services."""
@@ -97,6 +99,7 @@ class BotOrchestrator:
         notif_cfg = self.config.get("notifications", {})
         stop_cfg = self.config.get("stop_loss", {})
         cache_cfg = self.config.get("cache", {})
+        monitor_cfg = self.config.get("monitor", {})
 
         self._db = DatabaseService(db_cfg.get("trading_db", "0dte_bot.db"))
         self._db.initialize()
@@ -126,13 +129,14 @@ class BotOrchestrator:
         )
 
         from src.services.tastytrade_client import TastyTradeClient
+        from src.services.position_monitor import PositionMonitor
 
         api_client = TastyTradeClient(
             mode=self.mode,
         )
         self._cache.api_client = api_client
 
-        tool_handlers = ToolHandlers(
+        self._tool_handlers = ToolHandlers(
             cache=self._cache,
             api_client=api_client,
             db=self._db,
@@ -150,9 +154,23 @@ class BotOrchestrator:
             take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
         )
 
+        eod_str = monitor_cfg.get("eod_close_time", "15:55")
+        eod_h, eod_m = (int(x) for x in eod_str.split(":"))
+        self._monitor = PositionMonitor(
+            db=self._db,
+            cache=self._cache,
+            tool_handlers=self._tool_handlers,
+            risk_manager=self._risk_manager,
+            notifier=self._notifier,
+            poll_interval_seconds=monitor_cfg.get("poll_interval_seconds", 30),
+            take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
+            eod_close_time=time(eod_h, eod_m),
+            mode=self.mode,
+        )
+
         self._agent = TradingAgent(
             llm_client=primary_llm,
-            tool_handlers=tool_handlers,
+            tool_handlers=self._tool_handlers,
             validator=self._validator,
             db=self._db,
             dry_run=self.dry_run,
@@ -204,23 +222,35 @@ class BotOrchestrator:
         return data
 
     async def run_scheduled(self):
-        """Run the bot on the configured entry schedule."""
+        """Run the entry scheduler and position monitor concurrently."""
         entry_cfg = self.config.get("entry", {})
         schedule = entry_cfg.get("schedule", ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"])
 
         logger.info("Starting scheduled bot. Entry times: %s", schedule)
 
-        while True:
-            now = datetime.now()
-            current_time = now.strftime("%H:%M")
+        monitor_task = asyncio.create_task(self._monitor.start())
 
-            if current_time in schedule:
-                await self.run_cycle()
-                await asyncio.sleep(61)
-            else:
-                await asyncio.sleep(10)
+        try:
+            while True:
+                now = datetime.now()
+                current_time = now.strftime("%H:%M")
+
+                if current_time in schedule:
+                    await self.run_cycle()
+                    await asyncio.sleep(61)
+                else:
+                    await asyncio.sleep(10)
+        finally:
+            await self._monitor.stop()
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
 
     async def shutdown(self):
+        if self._monitor:
+            await self._monitor.stop()
         if self._cache:
             await self._cache.close()
         logger.info("Bot shutdown complete")
