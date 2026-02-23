@@ -93,6 +93,8 @@ class DualLLMValidator:
             primary_error = str(exc)
 
         if primary_error:
+            logger.error("Validator primary LLM failed: %s", primary_error)
+            logger.error("Validator secondary error: %s", secondary_error)
             result = {
                 "execute": False,
                 "agreed": False,

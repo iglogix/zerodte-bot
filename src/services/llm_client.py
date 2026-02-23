@@ -43,11 +43,13 @@ class LLMClient:
         """
         import litellm
 
+        _new_models = ("gpt-5", "o1", "o3", "o4")
+        token_param = "max_completion_tokens" if any(self.model.startswith(f"openai/{p}") or self.model.startswith(p) for p in _new_models) else "max_tokens"
         call_kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
+            token_param: self.max_tokens,
         }
         if tools:
             call_kwargs["tools"] = tools
@@ -112,17 +114,34 @@ class LLMClient:
             # tool results as plain text. This avoids provider-specific issues
             # (e.g. Anthropic rejecting tool_calls without tool definitions)
             # while still giving the validator full market data context.
-            tool_results_text = []
+            # Build a compact summary of what the primary agent gathered.
+            # We only keep the last result per tool to avoid duplication, and
+            # cap option_chain results to a short summary to stay within context limits.
+            _LARGE_TOOLS = {"get_option_chain", "get_5min_candles"}
+            last_results: dict = {}  # tool_name -> compact result string
+            last_tool_name = ""
             for msg in messages:
-                if msg["role"] == "tool":
-                    # Find the tool name from the preceding assistant message tool_calls
-                    tool_results_text.append(f"Tool result: {msg.get('content', '')}")
-                elif msg["role"] == "assistant" and msg.get("tool_calls"):
+                if msg["role"] == "assistant" and msg.get("tool_calls"):
                     for tc in msg["tool_calls"]:
-                        name = tc.get("function", {}).get("name") or tc.get("name", "")
-                        args = tc.get("function", {}).get("arguments") or tc.get("arguments", "")
-                        tool_results_text.append(f"Tool called: {name}({args})")
+                        last_tool_name = tc.get("function", {}).get("name") or tc.get("name", "")
+                elif msg["role"] == "tool":
+                    content = msg.get("content", "")
+                    if last_tool_name in _LARGE_TOOLS:
+                        # Summarise: just count items and show first entry
+                        try:
+                            parsed = json.loads(content)
+                            if isinstance(parsed, list):
+                                first = json.dumps(parsed[0]) if parsed else "{}"
+                                content = f"[{len(parsed)} items, first: {first[:300]}]"
+                            else:
+                                content = content[:300]
+                        except Exception:
+                            content = content[:300]
+                    else:
+                        content = content[:500]
+                    last_results[last_tool_name] = content
 
+            tool_results_text = [f"{name}: {val}" for name, val in last_results.items()]
             context_block = "\n".join(tool_results_text)
             validator_messages = [
                 {"role": "system", "content": prompt},
@@ -146,19 +165,47 @@ class LLMClient:
                 },
             ]
 
+        # gpt-5.x and o-series models use max_completion_tokens, not max_tokens
+        _new_models = ("gpt-5", "o1", "o3", "o4")
+        token_param = "max_completion_tokens" if any(self.model.startswith(f"openai/{p}") or self.model.startswith(p) for p in _new_models) else "max_tokens"
         response = await litellm.acompletion(
             model=self.model,
             messages=validator_messages,
             temperature=self.temperature,
-            max_tokens=1024,
+            **{token_param: 1024},
         )
 
+        import re
         content = response.choices[0].message.content or ""
         content = content.strip()
-        if content.startswith("```"):
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-            content = content.strip()
 
-        return json.loads(content)
+        # Try direct parse first
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Strip markdown code block
+        if "```" in content:
+            parts = content.split("```")
+            for part in parts[1::2]:  # odd parts are inside code blocks
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:].strip()
+                try:
+                    return json.loads(part)
+                except json.JSONDecodeError:
+                    continue
+
+        # Regex: find first {...} JSON object in the response
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}', content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # Last resort: Claude returned prose — infer action from keywords
+        logger.warning("Validator could not parse JSON from response: %s", content[:300])
+        action = "enter_trade" if any(w in content.lower() for w in ["enter", "approve", "proceed", "execute"]) else "wait"
+        return {"action": action, "reasoning": content[:200]}
