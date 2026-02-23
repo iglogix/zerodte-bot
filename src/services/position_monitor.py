@@ -15,7 +15,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, time, date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.services.order_fill_listener import FillEvent
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ class PositionMonitor:
         tool_handlers=None,
         risk_manager=None,
         notifier=None,
+        fill_queue=None,
         poll_interval_seconds: int = 30,
         take_profit_threshold: float = 0.05,
         eod_close_time: time = _MARKET_CLOSE,
@@ -46,11 +50,13 @@ class PositionMonitor:
         self.tool_handlers = tool_handlers
         self.risk_manager = risk_manager
         self.notifier = notifier
+        self.fill_queue = fill_queue  # asyncio.Queue fed by OrderFillListener
         self.poll_interval_seconds = poll_interval_seconds
         self.take_profit_threshold = take_profit_threshold
         self.eod_close_time = eod_close_time
         self.mode = mode
         self._running = False
+        self._stop_filled_symbols: set = set()  # symbols confirmed filled via WS
 
     # -------------------------------------------------------------------------
     # Main loop
@@ -84,6 +90,9 @@ class PositionMonitor:
         now = datetime.now()
         current_time = now.time()
 
+        # --- Primary path: drain websocket fill events immediately ---
+        await self._drain_fill_queue()
+
         trades = await self.db.get_open_trades()
         if not trades:
             return
@@ -101,7 +110,73 @@ class PositionMonitor:
             await self._mark_expired(trades)
 
     # -------------------------------------------------------------------------
-    # Per-trade checks
+    # Websocket fill queue drain (primary stop detection)
+    # -------------------------------------------------------------------------
+
+    async def _drain_fill_queue(self):
+        """Process all pending fill events from OrderFillListener."""
+        if not self.fill_queue:
+            return
+        while not self.fill_queue.empty():
+            try:
+                event = self.fill_queue.get_nowait()
+                await self._handle_fill_event(event)
+                self.fill_queue.task_done()
+            except Exception:
+                logger.exception("Error processing fill event from queue")
+                break
+
+    async def _handle_fill_event(self, event: "FillEvent"):
+        """
+        React to a confirmed order fill from the websocket.
+
+        If a stop order on a short leg has been filled:
+          1. Record the symbol so polling fallback skips it
+          2. Find the matching trade and close the corresponding long leg
+        """
+        if not event.is_stop_fill or not event.is_fully_filled:
+            logger.debug(
+                "[FILL] Ignoring non-stop or partial fill: order_id=%s type=%s status=%s",
+                event.order_id, event.order_type, event.status,
+            )
+            return
+
+        logger.warning(
+            "[FILL-STOP] Stop fill detected via websocket: symbol=%s order_id=%s price=%.2f",
+            event.symbol, event.order_id, event.fill_price,
+        )
+
+        self._stop_filled_symbols.add(event.symbol)
+
+        trades = await self.db.get_open_trades()
+        for trade in trades:
+            await self._close_long_for_stopped_short(trade, event.symbol)
+
+    async def _close_long_for_stopped_short(self, trade: Dict[str, Any], stopped_symbol: str):
+        """Given a stopped short symbol, close the paired long leg."""
+        trade_id = trade.get("trade_id", "")
+        pairs = [
+            ("short_call_symbol", "long_call_symbol", "call"),
+            ("short_put_symbol", "long_put_symbol", "put"),
+        ]
+        for short_key, long_key, side in pairs:
+            if trade.get(short_key) != stopped_symbol:
+                continue
+            long_symbol = trade.get(long_key)
+            if not long_symbol:
+                continue
+            logger.warning(
+                "[FILL-STOP] Closing long %s leg %s for trade %s (stop filled via WS)",
+                side, long_symbol, trade_id,
+            )
+            await self._close_leg(
+                trade_id, long_symbol, f"long_{side}",
+                reason="stop_filled_ws_close_long",
+            )
+            await self._notify_stop_triggered(trade_id, side, trade)
+
+    # -------------------------------------------------------------------------
+    # Per-trade checks (polling fallback)
     # -------------------------------------------------------------------------
 
     async def _check_trade(self, trade: Dict[str, Any]):
@@ -136,8 +211,8 @@ class PositionMonitor:
 
     async def _check_stop_triggered(self, trade: Dict[str, Any]):
         """
-        Detect if a short leg stop has been triggered (position gone / filled at stop).
-        If so, immediately close the corresponding long leg at market.
+        Fallback polling: detect if a short leg stop has been triggered.
+        Skips symbols already handled by the websocket fill listener.
         """
         trade_id = trade.get("trade_id", "")
         pairs = [
@@ -151,14 +226,25 @@ class PositionMonitor:
             if not short_symbol or not long_symbol:
                 continue
 
+            # Skip if already handled by websocket fill event
+            if short_symbol in self._stop_filled_symbols:
+                logger.debug(
+                    "[STOP-POLL] Skipping %s — already handled via websocket fill",
+                    short_symbol,
+                )
+                continue
+
             stopped = await self._is_position_closed(short_symbol)
             if stopped:
                 logger.warning(
-                    "[STOP-TRIGGERED] %s %s short stopped out — closing long leg %s",
+                    "[STOP-POLL] %s %s short stopped out (detected by polling fallback) "
+                    "— closing long leg %s",
                     trade_id, side, long_symbol,
                 )
+                self._stop_filled_symbols.add(short_symbol)
                 await self._close_leg(
-                    trade_id, long_symbol, f"long_{side}", reason="stop_triggered_close_long"
+                    trade_id, long_symbol, f"long_{side}",
+                    reason="stop_triggered_poll_fallback",
                 )
                 await self._notify_stop_triggered(trade_id, side, trade)
 

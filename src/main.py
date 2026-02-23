@@ -81,6 +81,8 @@ class BotOrchestrator:
         self._notifier = None
         self._monitor = None
         self._tool_handlers = None
+        self._fill_listener = None
+        self._fill_queue = None
 
     async def initialize(self):
         """Initialize all services."""
@@ -130,6 +132,7 @@ class BotOrchestrator:
 
         from src.services.tastytrade_client import TastyTradeClient
         from src.services.position_monitor import PositionMonitor
+        from src.services.order_fill_listener import OrderFillListener
 
         api_client = TastyTradeClient(
             mode=self.mode,
@@ -154,6 +157,14 @@ class BotOrchestrator:
             take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
         )
 
+        self._fill_queue = asyncio.Queue()
+
+        self._fill_listener = OrderFillListener(
+            api_client=api_client,
+            fill_queue=self._fill_queue,
+            mode=self.mode,
+        )
+
         eod_str = monitor_cfg.get("eod_close_time", "15:55")
         eod_h, eod_m = (int(x) for x in eod_str.split(":"))
         self._monitor = PositionMonitor(
@@ -162,6 +173,7 @@ class BotOrchestrator:
             tool_handlers=self._tool_handlers,
             risk_manager=self._risk_manager,
             notifier=self._notifier,
+            fill_queue=self._fill_queue,
             poll_interval_seconds=monitor_cfg.get("poll_interval_seconds", 30),
             take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
             eod_close_time=time(eod_h, eod_m),
@@ -222,13 +234,14 @@ class BotOrchestrator:
         return data
 
     async def run_scheduled(self):
-        """Run the entry scheduler and position monitor concurrently."""
+        """Run entry scheduler, position monitor, and fill listener concurrently."""
         entry_cfg = self.config.get("entry", {})
         schedule = entry_cfg.get("schedule", ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"])
 
         logger.info("Starting scheduled bot. Entry times: %s", schedule)
 
         monitor_task = asyncio.create_task(self._monitor.start())
+        listener_task = asyncio.create_task(self._fill_listener.start())
 
         try:
             while True:
@@ -241,14 +254,18 @@ class BotOrchestrator:
                 else:
                     await asyncio.sleep(10)
         finally:
+            await self._fill_listener.stop()
             await self._monitor.stop()
-            monitor_task.cancel()
-            try:
-                await monitor_task
-            except asyncio.CancelledError:
-                pass
+            for task in (listener_task, monitor_task):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     async def shutdown(self):
+        if self._fill_listener:
+            await self._fill_listener.stop()
         if self._monitor:
             await self._monitor.stop()
         if self._cache:
