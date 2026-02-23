@@ -95,8 +95,19 @@ class ToolHandlers:
         min_delta: Optional[float] = None,
         max_delta: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
-        """Return 0DTE option chain, optionally filtered by delta range."""
+        """Return 0DTE option chain filtered to today's expiry, optionally by delta range."""
+        from datetime import date
         chain = await self.cache.get_option_chain_with_fallback("SPX", max_age_seconds=60)
+
+        # Always filter to today's expiry (0DTE) — the full chain spans all expirations
+        today = date.today().isoformat()
+        chain = [opt for opt in chain if str(opt.get("expiration", "")).startswith(today)]
+
+        # Only keep enriched strikes (bid > 0 means Greeks were fetched)
+        enriched = [opt for opt in chain if opt.get("bid", 0) > 0]
+        if enriched:
+            chain = enriched
+
         if min_delta is not None or max_delta is not None:
             filtered = []
             for opt in chain:

@@ -81,6 +81,7 @@ class TradingAgent:
                             market_data=market_data,
                             prompt=prompt,
                             messages=messages,
+                            proposed_trade=decision,
                         )
                         if not validation.get("execute", False):
                             await self._log_decision({"content": content, "blocked": True})
@@ -126,6 +127,7 @@ class TradingAgent:
                         market_data=market_data,
                         prompt=prompt,
                         messages=messages,
+                        proposed_trade=args,
                     )
                     if not validation.get("execute", False):
                         await self._log_tool_call(tool_name, args, {"blocked": True})
@@ -149,10 +151,24 @@ class TradingAgent:
                 await self._log_tool_call(tool_name, args, result, duration_ms)
                 tool_calls_made.append({"name": tool_name, "args": args, "result": result})
 
+                # Truncate large payloads (option chains) to avoid context overflow.
+                # The full result is logged to DB; the LLM only needs near-ATM enriched strikes.
+                if tool_name == "get_option_chain" and isinstance(result, list) and len(result) > 30:
+                    enriched = [s for s in result if s.get("bid", 0) > 0]
+                    # Sort by absolute delta proximity to 0.10-0.15 target
+                    enriched.sort(key=lambda s: abs(abs(s.get("delta", 0)) - 0.12))
+                    summary = enriched[:30]
+                    tool_content = json.dumps(
+                        {"items": summary, "total_count": len(result), "enriched_count": len(enriched)},
+                        default=str,
+                    )
+                else:
+                    tool_content = json.dumps(result, default=str)
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call_id,
-                    "content": json.dumps(result, default=str),
+                    "content": tool_content,
                 })
 
         logger.warning("Tool loop reached max iterations (%d)", self.max_iterations)

@@ -209,3 +209,112 @@ class LLMClient:
         logger.warning("Validator could not parse JSON from response: %s", content[:300])
         action = "enter_trade" if any(w in content.lower() for w in ["enter", "approve", "proceed", "execute"]) else "wait"
         return {"action": action, "reasoning": content[:200]}
+
+    async def get_approval(
+        self,
+        market_data: Dict[str, Any],
+        prompt: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        proposed_trade: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Used by DualLLMValidator — ask the LLM to approve or reject a specific
+        proposed trade that the primary agent has already decided on.
+
+        The LLM sees:
+          - The compact market data context (from the primary's tool loop)
+          - The exact trade parameters proposed (strikes, stop-loss, etc.)
+          - A request to approve or reject with reasoning
+
+        Returns {"action": "approve"|"reject", "reasoning": "..."}
+        """
+        import litellm
+        import re
+
+        trade_json = json.dumps(proposed_trade or {}, indent=2)
+
+        # Build compact context from tool-loop messages.
+        # The primary agent already truncated option_chain to 30 near-ATM enriched strikes,
+        # so we pass that content as-is. Other large tools are capped at 800 chars.
+        context_block = ""
+        if messages:
+            last_results: dict = {}
+            last_tool_name = ""
+            for msg in messages:
+                if msg["role"] == "assistant" and msg.get("tool_calls"):
+                    for tc in msg["tool_calls"]:
+                        last_tool_name = tc.get("function", {}).get("name") or tc.get("name", "")
+                elif msg["role"] == "tool":
+                    content = msg.get("content", "")
+                    # option_chain is already pre-truncated by trading_agent to 30 near-ATM strikes
+                    # candles are small; other tools capped at 800 chars
+                    if last_tool_name not in ("get_option_chain",) and len(content) > 800:
+                        content = content[:800]
+                    last_results[last_tool_name] = content
+            context_block = "\n".join(f"{k}: {v}" for k, v in last_results.items())
+        else:
+            context_block = f"Market data: {json.dumps(market_data, default=str)[:500]}"
+
+        from datetime import date as _date
+        today_str = _date.today().isoformat()
+        approval_request = (
+            f"\n\nIMPORTANT: Today's date is {today_str}. Options expiring {today_str} ARE 0DTE (expiring today).\n\n"
+            f"The primary trading agent has proposed the following trade:\n"
+            f"```json\n{trade_json}\n```\n\n"
+            "Review the market data above and decide whether to APPROVE or REJECT this specific trade.\n"
+            "Consider: are the strikes appropriate given current SPX price and volatility? "
+            "Is the stop-loss reasonable? Is the timing correct?\n\n"
+            "Respond ONLY with a JSON object:\n"
+            "{\"action\": \"approve\" or \"reject\", \"reasoning\": \"brief explanation\"}"
+        )
+
+        validator_messages = [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": f"Market data gathered by the primary agent:\n\n{context_block}{approval_request}",
+            },
+        ]
+
+        _new_models = ("gpt-5", "o1", "o3", "o4")
+        token_param = "max_completion_tokens" if any(
+            self.model.startswith(f"openai/{p}") or self.model.startswith(p)
+            for p in _new_models
+        ) else "max_tokens"
+
+        response = await litellm.acompletion(
+            model=self.model,
+            messages=validator_messages,
+            temperature=self.temperature,
+            **{token_param: 512},
+        )
+
+        content = (response.choices[0].message.content or "").strip()
+
+        # Try direct parse
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Strip markdown code block
+        if "```" in content:
+            for part in content.split("```")[1::2]:
+                part = part.strip().lstrip("json").strip()
+                try:
+                    return json.loads(part)
+                except json.JSONDecodeError:
+                    continue
+
+        # Regex fallback
+        match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # Keyword inference
+        logger.warning("Approval LLM could not parse JSON: %s", content[:300])
+        action = "approve" if any(w in content.lower() for w in ["approve", "yes", "proceed", "looks good"]) else "reject"
+        return {"action": action, "reasoning": content[:200]}
