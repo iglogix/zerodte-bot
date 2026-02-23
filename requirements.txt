@@ -1,0 +1,28 @@
+# 0DTE Iron Condor Trading Bot - Dependencies
+
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# API Clients
+aiohttp>=3.9.0
+websockets>=12.0
+
+# LLM Integration
+litellm>=1.30.0
+anthropic>=0.18.0
+openai>=1.12.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+
+# Utilities
+pyyaml>=6.0.0
