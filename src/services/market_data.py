@@ -238,7 +238,24 @@ class CachedMarketData:
                 .all()
             )
             result = [json.loads(r.data_json) for r in rows]
-            return result[-count:] if count < len(result) else result
+            cached = result[-count:] if count < len(result) else result
+
+        if cached:
+            return cached
+
+        # Cache empty — fetch live from API client and store
+        if self.api_client and hasattr(self.api_client, "get_5min_candles"):
+            try:
+                candles = await self.api_client.get_5min_candles(symbol, count=count)
+                for c in candles:
+                    await self.cache_5min_candle(symbol, c)
+                return candles
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "get_5min_candles API fallback failed for %s: %s", symbol, exc
+                )
+        return []
 
     async def get_5min_candles_range(
         self,

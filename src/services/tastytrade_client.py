@@ -67,6 +67,13 @@ class TastyTradeClient:
         self._access_token: Optional[str] = None
         self._http: Optional[aiohttp.ClientSession] = None
 
+        # In sandbox mode, market data (quotes, chains) comes from production
+        # since the cert environment has no live data feed.
+        self._market_data_url = _PRODUCTION_URL if is_sandbox else self.base_url
+        self._market_http: Optional[aiohttp.ClientSession] = None
+        self._market_token: Optional[str] = None
+        self._market_sdk_session = None  # production OAuthSession for DXLink in sandbox
+
     async def __aenter__(self):
         await self.connect()
         return self
@@ -81,10 +88,16 @@ class TastyTradeClient:
         self._http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
         await self._authenticate()
 
+        if self.mode == "sandbox":
+            await self._connect_market_data_session()
+
     async def disconnect(self):
         if self._http:
             await self._http.close()
             self._http = None
+        if self._market_http:
+            await self._market_http.close()
+            self._market_http = None
 
     # -------------------------------------------------------------------------
     # Authentication — OAuth2
@@ -116,6 +129,42 @@ class TastyTradeClient:
             "TastyTrade OAuth2 authenticated via OAuthSession (mode=%s, is_test=%s)",
             self.mode, is_test,
         )
+
+    async def _connect_market_data_session(self):
+        """
+        Sandbox only: open a second session against production for read-only
+        market data (quotes, option chains). Uses production credentials.
+        """
+        prod_secret = os.environ.get("TASTYTRADE_CLIENT_SECRET", "")
+        prod_token = os.environ.get("TASTYTRADE_REFRESH_TOKEN", "")
+        if not prod_secret or not prod_token:
+            logger.warning(
+                "Sandbox market data: no production credentials found — "
+                "set TASTYTRADE_CLIENT_SECRET + TASTYTRADE_REFRESH_TOKEN"
+            )
+            return
+        try:
+            from tastytrade import OAuthSession  # type: ignore
+            loop = asyncio.get_event_loop()
+            prod_session = await loop.run_in_executor(
+                None,
+                lambda: OAuthSession(prod_secret, prod_token, is_test=False),
+            )
+            self._market_sdk_session = prod_session
+            self._market_token = prod_session.session_token
+            self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
+            logger.info("Sandbox market data session opened against production API")
+        except Exception as exc:
+            logger.warning("Could not open sandbox market data session: %s", exc)
+
+    def _market_headers(self) -> Dict[str, str]:
+        """Headers for read-only market data requests (production in sandbox)."""
+        token = self._market_token or self._access_token or ""
+        auth = f"Bearer {token}" if token else ""
+        return {
+            "Authorization": auth,
+            "Content-Type": "application/json",
+        }
 
     async def _authenticate_via_http(self):
         """
@@ -163,35 +212,43 @@ class TastyTradeClient:
 
     async def get_quote(self, symbol: str) -> Dict[str, Any]:
         """
-        Get current quote for a symbol.
-        Uses /market-metrics for index symbols (SPX, SPXW);
-        falls back to /market-data/quotes/{symbol} for equities/ETFs.
+        Get real-time quote via DXLinkStreamer (works for SPX and all symbols).
+        In sandbox mode uses the production session (cert has no live feed).
         """
-        async with self._http.get(
-            f"{self.base_url}/market-metrics",
-            headers=self._headers(),
-            params={"symbols": symbol},
-        ) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                items = data.get("data", {}).get("items", [])
-                if items:
-                    item = items[0]
-                    price = float(
-                        item.get("last", None)
-                        or item.get("implied-volatility-index", 0)
-                    )
-                    return {
-                        "symbol": symbol,
-                        "price": price,
-                        "bid": 0.0,
-                        "ask": 0.0,
-                        "timestamp": datetime.now().isoformat(),
-                    }
+        try:
+            return await self._get_quote_via_dxlink(symbol)
+        except Exception as exc:
+            logger.warning("DXLink quote failed for %s: %s — falling back to REST", symbol, exc)
+            return await self._get_quote_via_rest(symbol)
 
-        async with self._http.get(
-            f"{self.base_url}/market-data/quotes/{symbol}",
-            headers=self._headers(),
+    async def _get_quote_via_dxlink(self, symbol: str) -> Dict[str, Any]:
+        """Fetch a single quote snapshot via DXLinkStreamer."""
+        from tastytrade import DXLinkStreamer  # type: ignore
+        from tastytrade.dxfeed import Quote    # type: ignore
+
+        session = self._market_sdk_session or self._sdk_session
+        async with DXLinkStreamer(session) as streamer:
+            await streamer.subscribe(Quote, [symbol])
+            quote = await asyncio.wait_for(streamer.get_event(Quote), timeout=10)
+            bid = float(quote.bid_price or 0)
+            ask = float(quote.ask_price or 0)
+            price = (bid + ask) / 2 if bid and ask else bid or ask
+            return {
+                "symbol": symbol,
+                "price": price,
+                "bid": bid,
+                "ask": ask,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+    async def _get_quote_via_rest(self, symbol: str) -> Dict[str, Any]:
+        """REST fallback for quotes."""
+        http = self._market_http or self._http
+        base = self._market_data_url
+        hdrs = self._market_headers()
+        async with http.get(
+            f"{base}/market-data/quotes/{symbol}",
+            headers=hdrs,
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
@@ -205,40 +262,91 @@ class TastyTradeClient:
             }
 
     async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
-        """Get 0DTE option chain for a symbol with Greeks."""
+        """Get 0DTE option chain for a symbol with Greeks.
+        In sandbox mode, reads from production API (cert has no live feed).
+        """
         today = date.today().strftime("%Y-%m-%d")
-        async with self._http.get(
-            f"{self.base_url}/option-chains/{symbol}/nested",
-            headers=self._headers(),
+        http = self._market_http or self._http
+        base = self._market_data_url
+        async with http.get(
+            f"{base}/option-chains/{symbol}/nested",
+            headers=self._market_headers(),
             params={"expiration-date": today},
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
 
         options = []
-        for expiration in data.get("data", {}).get("items", []):
-            for strike in expiration.get("strikes", []):
-                for side in ["call", "put"]:
-                    opt = strike.get(side, {})
-                    if not opt:
-                        continue
-                    options.append({
-                        "symbol": opt.get("symbol", ""),
-                        "strike": float(strike.get("strike-price", 0)),
-                        "option_type": side,
-                        "expiration": expiration.get("expiration-date", ""),
-                        "bid": float(opt.get("bid", 0)),
-                        "ask": float(opt.get("ask", 0)),
-                        "last": float(opt.get("last", 0)),
-                        "volume": int(opt.get("volume", 0)),
-                        "open_interest": int(opt.get("open-interest", 0)),
-                        "delta": float(opt.get("delta", 0)),
-                        "gamma": float(opt.get("gamma", 0)),
-                        "theta": float(opt.get("theta", 0)),
-                        "vega": float(opt.get("vega", 0)),
-                        "iv": float(opt.get("implied-volatility", 0)),
-                    })
+        for chain in data.get("data", {}).get("items", []):
+            for expiration in chain.get("expirations", []):
+                exp_date = expiration.get("expiration-date", "")
+                for strike in expiration.get("strikes", []):
+                    strike_price = float(strike.get("strike-price", 0))
+                    for side in ["call", "put"]:
+                        sym = strike.get(side, "").strip()
+                        streamer_sym = strike.get(f"{side}-streamer-symbol", "")
+                        if not sym:
+                            continue
+                        options.append({
+                            "symbol": sym,
+                            "streamer_symbol": streamer_sym,
+                            "strike": strike_price,
+                            "option_type": side,
+                            "expiration": exp_date,
+                            "bid": 0.0,
+                            "ask": 0.0,
+                            "last": 0.0,
+                            "volume": 0,
+                            "open_interest": 0,
+                            "delta": 0.0,
+                            "gamma": 0.0,
+                            "theta": 0.0,
+                            "vega": 0.0,
+                            "iv": 0.0,
+                        })
         return options
+
+    async def get_5min_candles(self, symbol: str, count: int = 6) -> List[Dict[str, Any]]:
+        """
+        Fetch the last N completed 5-minute candles for a symbol via DXLink.
+        Uses production session in sandbox mode.
+        """
+        try:
+            from tastytrade import DXLinkStreamer  # type: ignore
+            from tastytrade.dxfeed import Candle   # type: ignore
+
+            session = self._market_sdk_session or self._sdk_session
+            candles: List[Dict[str, Any]] = []
+
+            # Request candles from count*5 minutes ago to cover enough history
+            from_dt = datetime.now().replace(second=0, microsecond=0)
+            from_dt = from_dt.replace(minute=(from_dt.minute // 5) * 5)
+            import datetime as dt_module
+            from_dt = from_dt - dt_module.timedelta(minutes=count * 5 + 10)
+
+            async with DXLinkStreamer(session) as streamer:
+                await streamer.subscribe_candle([symbol], "5m", from_dt)
+                try:
+                    while len(candles) < count:
+                        c = await asyncio.wait_for(streamer.get_event(Candle), timeout=8)
+                        if not c.open:
+                            continue
+                        candles.append({
+                            "timestamp": datetime.fromtimestamp(c.time / 1000).isoformat() if c.time else datetime.now().isoformat(),
+                            "open": float(c.open or 0),
+                            "high": float(c.high or 0),
+                            "low": float(c.low or 0),
+                            "close": float(c.close or 0),
+                            "volume": float(c.volume or 0),
+                        })
+                except asyncio.TimeoutError:
+                    pass
+
+            candles.sort(key=lambda x: x["timestamp"])
+            return candles[-count:]
+        except Exception as exc:
+            logger.warning("DXLink candles failed for %s: %s", symbol, exc)
+            return []
 
     async def get_account_info(self) -> Dict[str, Any]:
         """Get account balances and buying power."""
