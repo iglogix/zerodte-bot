@@ -362,7 +362,19 @@ Examples:
     )
     args = parser.parse_args()
 
-    asyncio.run(main_async(args))
+    loop = asyncio.new_event_loop()
+
+    def _suppress_ssl_shutdown(loop, context):
+        msg = context.get("message", "")
+        if "SSL" in msg or "Bad file descriptor" in msg or "socket.send" in msg:
+            return
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_suppress_ssl_shutdown)
+    try:
+        loop.run_until_complete(main_async(args))
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":
