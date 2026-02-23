@@ -206,7 +206,7 @@ class BotOrchestrator:
             market_data=market_data,
         )
 
-        logger.info("Cycle complete. Response: %s", result.get("response", "")[:200])
+        logger.info("Cycle complete. Response:\n%s", result.get("response", ""))
         return result
 
     async def _gather_market_data(self) -> Dict[str, Any]:
