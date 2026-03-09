@@ -54,7 +54,7 @@ logging:
   log_dir: "logs_8am_options"
 
 market_data:
-  dxlink_symbol: "/ESH5:XCME"    # ES futures for ORB candle and midline polling
+  dxlink_symbol: "/ESM26:XCME"   # ES futures for ORB candle and midline polling (update quarterly: H/M/U/Z)
 
 # Market constants for Black-Scholes time-to-expiration calculations
 # These vary by product and calendar year

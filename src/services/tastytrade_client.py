@@ -342,27 +342,44 @@ class TastyTradeClient:
                     minutes=count * interval_mins + 10
                 )
 
+            # Collect all candles from the stream, filter by from_time
+            from_ts = from_time.timestamp() if from_time else 0
+            all_candles: List[Dict[str, Any]] = []
+
             async with DXLinkStreamer(session) as streamer:
                 await streamer.subscribe_candle([symbol], interval, from_time)
                 try:
-                    while len(candles) < count:
-                        c = await asyncio.wait_for(streamer.get_event(Candle), timeout=8)
-                        if not c.open:
+                    # Collect candles for up to 8 seconds
+                    end_time = asyncio.get_event_loop().time() + 8
+                    while asyncio.get_event_loop().time() < end_time:
+                        c = await asyncio.wait_for(streamer.get_event(Candle), timeout=2)
+                        if not c.open or not c.time:
                             continue
-                        candles.append({
-                            "open": float(c.open),
-                            "high": float(c.high),
-                            "low": float(c.low),
-                            "close": float(c.close),
-                            "volume": int(c.volume or 0),
-                            "timestamp": c.time.isoformat() if c.time else None,
-                        })
+                        candle_ts = c.time / 1000
+                        # Only include candles at or after from_time
+                        if candle_ts >= from_ts:
+                            all_candles.append({
+                                "open": float(c.open),
+                                "high": float(c.high),
+                                "low": float(c.low),
+                                "close": float(c.close),
+                                "volume": int(c.volume or 0),
+                                "timestamp": datetime.fromtimestamp(candle_ts).isoformat(),
+                                "_ts": candle_ts,
+                            })
                 except asyncio.TimeoutError:
                     pass
 
-            # Sort by timestamp and return requested count
-            candles.sort(key=lambda x: x.get("timestamp") or "")
-            return candles[-count:] if len(candles) > count else candles
+            # Sort by timestamp, deduplicate by timestamp, return requested count
+            all_candles.sort(key=lambda x: x["_ts"])
+            seen = set()
+            candles = []
+            for c in all_candles:
+                if c["_ts"] not in seen:
+                    seen.add(c["_ts"])
+                    del c["_ts"]
+                    candles.append(c)
+            return candles[:count]
 
         except Exception as exc:
             logger.warning("get_candles failed for %s: %s", symbol, exc)
