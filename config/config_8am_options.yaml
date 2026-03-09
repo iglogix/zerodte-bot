@@ -55,6 +55,13 @@ logging:
 market_data:
   dxlink_symbol: "/ESH5:XCME"    # ES futures for ORB candle and midline polling
 
+# Market constants for Black-Scholes time-to-expiration calculations
+# These vary by product and calendar year
+market:
+  trading_days_per_year: 252    # NYSE/NASDAQ typical (251-253 depending on year)
+  trading_hours_per_day: 6.5    # RTH: 9:30 AM - 4:00 PM ET
+  market_close: "16:00"         # SPX options expire at 4:00 PM ET (cash-settled)
+
 backtest:
   data_dir: "data"                # directory containing spy_daily.csv, vix_daily.csv, vix9d_daily.csv
   data_file: "GLBX-20260227-7PWD5NKFSF.zip"  # ES bars for ORB logic

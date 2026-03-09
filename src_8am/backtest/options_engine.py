@@ -235,8 +235,13 @@ class OrbOptionsBacktestEngine:
         self._max_loss_usd = risk.get("max_loss_per_trade_usd", 500)
         self._qty = cfg.get("bot", {}).get("quantity", 1)
 
-        self._market_close_time = time(16, 0)   # actual market close
-        self._session_end_minutes = 6.5 * 60     # trading hours per day
+        # Market constants for BS time-to-expiration calculations
+        market = cfg.get("market", {})
+        self._trading_days_year = market.get("trading_days_per_year", 252)
+        self._trading_hours_day = market.get("trading_hours_per_day", 6.5)
+        market_close_s = market.get("market_close", "16:00")
+        self._market_close_time = time(*[int(x) for x in market_close_s.split(":")])
+        self._session_end_minutes = self._trading_hours_day * 60
 
     # -----------------------------------------------------------------------
     # Market data helpers
@@ -496,7 +501,7 @@ class OrbOptionsBacktestEngine:
         # Get session IV (VIX if configured, else fixed assumed_iv)
         session_iv = self._get_session_iv(session_date)
 
-        t_entry = self._tte_hours(entry_time) / (252 * 6.5)  # fraction of trading year
+        t_entry = self._tte_hours(entry_time) / (self._trading_days_year * self._trading_hours_day)
         spread_type = "put_credit_spread" if bias == "long" else "call_credit_spread"
 
         short_k = _select_strike(option_underlying, self._target_delta, session_iv, t_entry, spread_type, self._strike_step)
@@ -623,7 +628,7 @@ class OrbOptionsBacktestEngine:
                 # EOD — expire worthless (conservative: full max profit)
                 return ts, bar["close"], "expired_worthless", 0.0
 
-            t_now = self._tte_hours(ts) / (252 * 6.5)
+            t_now = self._tte_hours(ts) / (self._trading_days_year * self._trading_hours_day)
             t_now = max(t_now, 1e-6)
 
             # Check short strike breach (use bar high/low for worst-case intrabar)
@@ -663,8 +668,13 @@ class OrbOptionsBacktestEngine:
     # -----------------------------------------------------------------------
 
     def _tte_hours(self, ts: datetime) -> float:
-        """Trading hours remaining until 16:00 ET on the same day."""
-        close_dt = ts.replace(hour=16, minute=0, second=0, microsecond=0)
+        """Trading hours remaining until market close on the same day."""
+        close_dt = ts.replace(
+            hour=self._market_close_time.hour,
+            minute=self._market_close_time.minute,
+            second=0,
+            microsecond=0
+        )
         if ts.tzinfo is None:
             close_dt = close_dt.replace(tzinfo=ET)
             ts = ts.replace(tzinfo=ET)

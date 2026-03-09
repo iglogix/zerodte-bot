@@ -108,6 +108,18 @@ NFP (Non-Farm Payrolls) releases at 8:30 AM ET on first Fridays, right after the
 
 ---
 
+## Market Constants
+
+| Parameter | Config Key | Default | Description |
+|-----------|------------|---------|-------------|
+| Trading Days/Year | `market.trading_days_per_year` | 252 | NYSE/NASDAQ calendar (251-253) |
+| Trading Hours/Day | `market.trading_hours_per_day` | 6.5 | RTH: 9:30 AM - 4:00 PM ET |
+| Market Close | `market.market_close` | 16:00 | SPX options expiration time |
+
+Used for Black-Scholes time-to-expiration calculations. May vary by product or calendar year.
+
+---
+
 ## Backtest Data Sources
 
 | Parameter | Config Key | Options | Description |
