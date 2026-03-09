@@ -14,6 +14,7 @@ strategy:
   orb_range_filter:
     min_pts: 2.0                # skip days with tiny ORB range
     max_pts: 30.0               # skip extreme gap/event days
+  skip_nfp_fridays: true        # skip first Friday of month (NFP release at 8:30 AM)
 
 # ORB options logic:
 #   LONG  bias (breakout above ORB high) → sell PUT  credit spread below ORB low
@@ -28,7 +29,10 @@ options:
   tp_pct_of_credit: 0.50          # close at 50% of max profit
   sl_mult_of_credit: 2.0          # close at 200% of credit received
   monitor_poll_seconds: 30        # how often to check spread mark price
-  assumed_iv: 0.15                # IV used in backtest BS pricing (live bot uses real chain)
+  assumed_iv: 0.15                # fallback IV if iv_source=fixed or VIX data missing
+  # Backtest data sources (more accurate than using ES as SPX proxy)
+  underlying_source: "spy"        # "es" = use ES bars directly, "spy" = use SPY*10 as SPX proxy
+  iv_source: "vix"                # "fixed" = use assumed_iv, "vix" = use daily VIX9D/VIX
 
 risk:
   max_loss_per_trade_usd: 500     # max loss per spread in dollars (spread_width - credit) * 100
@@ -49,3 +53,9 @@ logging:
 
 market_data:
   dxlink_symbol: "/ESH5:XCME"    # ES futures for ORB candle and midline polling
+
+backtest:
+  data_dir: "data"                # directory containing spy_daily.csv, vix_daily.csv, vix9d_daily.csv
+  data_file: "GLBX-20260227-7PWD5NKFSF.zip"  # ES bars for ORB logic
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"

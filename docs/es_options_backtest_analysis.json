@@ -1,0 +1,525 @@
+{
+  "backtest_period": {
+    "start": "2022-04-25",
+    "end": "2024-12-31",
+    "reason": "ES 0DTE daily options available since April 25, 2022"
+  },
+  "configuration": {
+    "underlying_source": "es",
+    "iv_source": "vix",
+    "target_delta": 0.16,
+    "spread_width": 5,
+    "tp_pct": 0.5
+  },
+  "summary": {
+    "total_trades": 523,
+    "wins": 475,
+    "losses": 48,
+    "win_rate": 90.8,
+    "total_pnl": 10218.0,
+    "avg_pnl_per_trade": 19.54,
+    "profit_factor": 2.345,
+    "sharpe_annualized": 5.45,
+    "max_drawdown": 800.0,
+    "max_consecutive_losses": 2
+  },
+  "by_year": {
+    "2022": {
+      "trades": 126,
+      "wins": 115,
+      "losses": 11,
+      "pnl": 2684.0,
+      "win_rate": 91.3
+    },
+    "2023": {
+      "trades": 195,
+      "wins": 178,
+      "losses": 17,
+      "pnl": 3996.0,
+      "win_rate": 91.3
+    },
+    "2024": {
+      "trades": 202,
+      "wins": 182,
+      "losses": 20,
+      "pnl": 3538.0,
+      "win_rate": 90.1
+    }
+  },
+  "by_day_of_week": {
+    "Monday": {
+      "trades": 111,
+      "wins": 107,
+      "losses": 4,
+      "pnl": 3547.0,
+      "win_rate": 96.4,
+      "loss_rate": 3.6
+    },
+    "Wednesday": {
+      "trades": 107,
+      "wins": 101,
+      "losses": 6,
+      "pnl": 2769.0,
+      "win_rate": 94.4,
+      "loss_rate": 5.6
+    },
+    "Thursday": {
+      "trades": 104,
+      "wins": 89,
+      "losses": 15,
+      "pnl": 961.0,
+      "win_rate": 85.6,
+      "loss_rate": 14.4
+    },
+    "Friday": {
+      "trades": 100,
+      "wins": 88,
+      "losses": 12,
+      "pnl": 1411.0,
+      "win_rate": 88.0,
+      "loss_rate": 12.0
+    },
+    "Tuesday": {
+      "trades": 101,
+      "wins": 90,
+      "losses": 11,
+      "pnl": 1530.0,
+      "win_rate": 89.1,
+      "loss_rate": 10.9
+    }
+  },
+  "by_vix_level": {
+    "<15%": {
+      "trades": 226,
+      "losses": 13,
+      "loss_rate": 5.8,
+      "avg_pnl": 25.55
+    },
+    "15-20%": {
+      "trades": 146,
+      "losses": 16,
+      "loss_rate": 11.0,
+      "avg_pnl": 16.59
+    },
+    "20-25%": {
+      "trades": 73,
+      "losses": 10,
+      "loss_rate": 13.7,
+      "avg_pnl": 11.7
+    },
+    "25-30%": {
+      "trades": 51,
+      "losses": 9,
+      "loss_rate": 17.6,
+      "avg_pnl": 2.75
+    },
+    ">30%": {
+      "trades": 27,
+      "losses": 0,
+      "loss_rate": 0.0,
+      "avg_pnl": 38.07
+    }
+  },
+  "by_month": {
+    "April": {
+      "trades": 34,
+      "wins": 28,
+      "losses": 6,
+      "pnl": 43.0,
+      "win_rate": 82.4,
+      "loss_rate": 17.6
+    },
+    "May": {
+      "trades": 52,
+      "wins": 50,
+      "losses": 2,
+      "pnl": 1538.0,
+      "win_rate": 96.2,
+      "loss_rate": 3.8
+    },
+    "June": {
+      "trades": 48,
+      "wins": 42,
+      "losses": 6,
+      "pnl": 671.0,
+      "win_rate": 87.5,
+      "loss_rate": 12.5
+    },
+    "July": {
+      "trades": 47,
+      "wins": 40,
+      "losses": 7,
+      "pnl": 471.0,
+      "win_rate": 85.1,
+      "loss_rate": 14.9
+    },
+    "August": {
+      "trades": 53,
+      "wins": 47,
+      "losses": 6,
+      "pnl": 775.0,
+      "win_rate": 88.7,
+      "loss_rate": 11.3
+    },
+    "September": {
+      "trades": 50,
+      "wins": 48,
+      "losses": 2,
+      "pnl": 1474.0,
+      "win_rate": 96.0,
+      "loss_rate": 4.0
+    },
+    "October": {
+      "trades": 50,
+      "wins": 47,
+      "losses": 3,
+      "pnl": 1278.0,
+      "win_rate": 94.0,
+      "loss_rate": 6.0
+    },
+    "November": {
+      "trades": 45,
+      "wins": 45,
+      "losses": 0,
+      "pnl": 1760.0,
+      "win_rate": 100.0,
+      "loss_rate": 0.0
+    },
+    "December": {
+      "trades": 42,
+      "wins": 38,
+      "losses": 4,
+      "pnl": 769.0,
+      "win_rate": 90.5,
+      "loss_rate": 9.5
+    },
+    "January": {
+      "trades": 35,
+      "wins": 32,
+      "losses": 3,
+      "pnl": 691.0,
+      "win_rate": 91.4,
+      "loss_rate": 8.6
+    },
+    "February": {
+      "trades": 35,
+      "wins": 30,
+      "losses": 5,
+      "pnl": 341.0,
+      "win_rate": 85.7,
+      "loss_rate": 14.3
+    },
+    "March": {
+      "trades": 32,
+      "wins": 28,
+      "losses": 4,
+      "pnl": 407.0,
+      "win_rate": 87.5,
+      "loss_rate": 12.5
+    }
+  },
+  "by_orb_range": {},
+  "by_exit_reason": {
+    "tp_50pct": {
+      "count": 463,
+      "pnl": 16952.0,
+      "avg_pnl": 36.61
+    },
+    "short_breached": {
+      "count": 48,
+      "pnl": -7598.0,
+      "avg_pnl": -158.29
+    },
+    "expired_worthless": {
+      "count": 12,
+      "pnl": 864.0,
+      "avg_pnl": 72.0
+    }
+  },
+  "by_bias": {
+    "SHORT (CALL_spread)": {
+      "trades": 251,
+      "wins": 235,
+      "losses": 16,
+      "pnl": 6270.0,
+      "win_rate": 93.6
+    },
+    "LONG (PUT_spread)": {
+      "trades": 272,
+      "wins": 240,
+      "losses": 32,
+      "pnl": 3948.0,
+      "win_rate": 88.2
+    }
+  },
+  "event_analysis": {
+    "FOMC": {
+      "trades": 31,
+      "losses": 2,
+      "loss_rate": 6.5,
+      "total_pnl": 740.0
+    },
+    "NFP": {
+      "trades": 19,
+      "losses": 6,
+      "loss_rate": 31.6,
+      "total_pnl": -457.0
+    },
+    "CPI": {
+      "trades": 17,
+      "losses": 0,
+      "loss_rate": 0.0,
+      "total_pnl": 615.0
+    }
+  },
+  "top_losses": [
+    {
+      "date": "2024-04-04",
+      "day_of_week": "Thursday",
+      "bias": "long",
+      "pnl": -170.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 17.1,
+      "orb_range_pts": 3.0,
+      "events": null
+    },
+    {
+      "date": "2023-01-18",
+      "day_of_week": "Wednesday",
+      "bias": "long",
+      "pnl": -169.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 17.2,
+      "orb_range_pts": 4.0,
+      "events": null
+    },
+    {
+      "date": "2024-08-01",
+      "day_of_week": "Thursday",
+      "bias": "long",
+      "pnl": -168.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 19.5,
+      "orb_range_pts": 6.5,
+      "events": null
+    },
+    {
+      "date": "2024-07-18",
+      "day_of_week": "Thursday",
+      "bias": "long",
+      "pnl": -167.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 14.9,
+      "orb_range_pts": 4.0,
+      "events": null
+    },
+    {
+      "date": "2024-08-07",
+      "day_of_week": "Wednesday",
+      "bias": "long",
+      "pnl": -165.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 29.3,
+      "orb_range_pts": 6.25,
+      "events": null
+    },
+    {
+      "date": "2022-06-28",
+      "day_of_week": "Tuesday",
+      "bias": "long",
+      "pnl": -164.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 27.2,
+      "orb_range_pts": 4.5,
+      "events": null
+    },
+    {
+      "date": "2023-02-23",
+      "day_of_week": "Thursday",
+      "bias": "long",
+      "pnl": -164.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 18.1,
+      "orb_range_pts": 4.25,
+      "events": null
+    },
+    {
+      "date": "2024-04-09",
+      "day_of_week": "Tuesday",
+      "bias": "long",
+      "pnl": -164.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 14.7,
+      "orb_range_pts": 7.0,
+      "events": null
+    },
+    {
+      "date": "2024-04-15",
+      "day_of_week": "Monday",
+      "bias": "long",
+      "pnl": -164.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 20.8,
+      "orb_range_pts": 3.75,
+      "events": null
+    },
+    {
+      "date": "2022-05-26",
+      "day_of_week": "Thursday",
+      "bias": "short",
+      "pnl": -163.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 25.7,
+      "orb_range_pts": 5.75,
+      "events": null
+    },
+    {
+      "date": "2022-08-26",
+      "day_of_week": "Friday",
+      "bias": "long",
+      "pnl": -163.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 23.9,
+      "orb_range_pts": 4.0,
+      "events": null
+    },
+    {
+      "date": "2024-04-17",
+      "day_of_week": "Wednesday",
+      "bias": "long",
+      "pnl": -163.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 18.1,
+      "orb_range_pts": 6.0,
+      "events": null
+    },
+    {
+      "date": "2024-06-17",
+      "day_of_week": "Monday",
+      "bias": "short",
+      "pnl": -163.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 11.9,
+      "orb_range_pts": 4.25,
+      "events": null
+    },
+    {
+      "date": "2024-09-06",
+      "day_of_week": "Friday",
+      "bias": "long",
+      "pnl": -163.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 22.3,
+      "orb_range_pts": 7.25,
+      "events": [
+        "NFP"
+      ]
+    },
+    {
+      "date": "2023-03-16",
+      "day_of_week": "Thursday",
+      "bias": "short",
+      "pnl": -162.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 24.6,
+      "orb_range_pts": 7.5,
+      "events": null
+    },
+    {
+      "date": "2022-06-01",
+      "day_of_week": "Wednesday",
+      "bias": "long",
+      "pnl": -161.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 25.1,
+      "orb_range_pts": 5.0,
+      "events": null
+    },
+    {
+      "date": "2023-12-29",
+      "day_of_week": "Friday",
+      "bias": "long",
+      "pnl": -161.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 10.7,
+      "orb_range_pts": 3.25,
+      "events": null
+    },
+    {
+      "date": "2024-04-05",
+      "day_of_week": "Friday",
+      "bias": "short",
+      "pnl": -161.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 15.5,
+      "orb_range_pts": 4.5,
+      "events": [
+        "NFP"
+      ]
+    },
+    {
+      "date": "2024-04-22",
+      "day_of_week": "Monday",
+      "bias": "short",
+      "pnl": -161.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 17.5,
+      "orb_range_pts": 12.75,
+      "events": null
+    },
+    {
+      "date": "2024-07-30",
+      "day_of_week": "Tuesday",
+      "bias": "long",
+      "pnl": -161.0,
+      "exit_reason": "short_breached",
+      "iv_pct": 18.9,
+      "orb_range_pts": 4.0,
+      "events": [
+        "FOMC"
+      ]
+    }
+  ],
+  "actionable_insights": [
+    {
+      "finding": "NFP Fridays have 31.6% loss rate vs 9.2% average",
+      "recommendation": "Skip trading on first Friday of each month (NFP release day)",
+      "impact": "Would avoid 6 losses, saving ~$940"
+    },
+    {
+      "finding": "Thursday has highest loss rate (14.4%)",
+      "recommendation": "Consider reducing position size on Thursdays or skipping",
+      "impact": "15 of 48 losses occurred on Thursday"
+    },
+    {
+      "finding": "Monday has lowest loss rate (3.6%) and highest P&L (+$3,547)",
+      "recommendation": "Potentially increase position size on Mondays",
+      "impact": "96.4% win rate on Mondays"
+    },
+    {
+      "finding": "VIX 25-30% has highest loss rate (17.6%)",
+      "recommendation": "Be cautious or skip when VIX is in 25-30% range",
+      "impact": "Elevated volatility without extreme mean-reversion"
+    },
+    {
+      "finding": "April has worst performance (17.6% loss rate)",
+      "recommendation": "Monitor April more closely, consider tighter stops",
+      "impact": "6 losses in April alone"
+    },
+    {
+      "finding": "November has 0% loss rate",
+      "recommendation": "November historically favorable, maintain normal trading",
+      "impact": "All 45 November trades were winners"
+    },
+    {
+      "finding": "LONG bias (PUT spreads) has 88% win rate vs SHORT (CALL) 94%",
+      "recommendation": "SHORT bias trades are more reliable",
+      "impact": "PUT spreads have 6% higher loss rate"
+    },
+    {
+      "finding": "All losses exit via 'short_breached'",
+      "recommendation": "Consider adjusting delta or using wider spreads",
+      "impact": "No losses from TP/SL logic issues"
+    }
+  ]
+}

@@ -54,7 +54,8 @@ def _run_combo_on_days(args: tuple) -> Optional[Dict[str, Any]]:
     cfg["options"]["target_short_delta"] = params["target_short_delta"]
     cfg["options"]["spread_width_pts"] = params["spread_width_pts"]
     cfg["options"]["tp_pct_of_credit"] = params["tp_pct_of_credit"]
-    cfg["options"]["assumed_iv"] = params["assumed_iv"]
+    if "assumed_iv" in params:
+        cfg["options"]["assumed_iv"] = params["assumed_iv"]
     cfg["strategy"]["midline_tolerance_pts"] = params["midline_tolerance"]
     cfg["strategy"]["orb_range_filter"]["min_pts"] = params["min_orb_range_pts"]
 
@@ -103,7 +104,8 @@ def _run_combo(args: tuple) -> Optional[Dict[str, Any]]:
     cfg["options"]["target_short_delta"] = params["target_short_delta"]
     cfg["options"]["spread_width_pts"] = params["spread_width_pts"]
     cfg["options"]["tp_pct_of_credit"] = params["tp_pct_of_credit"]
-    cfg["options"]["assumed_iv"] = params["assumed_iv"]
+    if "assumed_iv" in params:
+        cfg["options"]["assumed_iv"] = params["assumed_iv"]
     cfg["strategy"]["midline_tolerance_pts"] = params["midline_tolerance"]
     cfg["strategy"]["orb_range_filter"]["min_pts"] = params["min_orb_range_pts"]
 
@@ -146,11 +148,11 @@ def _run_combo(args: tuple) -> Optional[Dict[str, Any]]:
 # Parameter grid
 # ---------------------------------------------------------------------------
 
+# Note: assumed_iv removed from grid — now fetched from daily VIX data when iv_source="vix"
 DEFAULT_GRID: Dict[str, List[Any]] = {
     "target_short_delta":  [0.10, 0.12, 0.16, 0.20, 0.25],
     "spread_width_pts":    [5, 10, 15],
     "tp_pct_of_credit":    [0.25, 0.50, 0.75],
-    "assumed_iv":          [0.15, 0.20],
     "min_orb_range_pts":   [2.0, 3.0, 5.0],
     "midline_tolerance":   [0.25, 0.50, 1.0],
 }

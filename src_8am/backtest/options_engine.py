@@ -213,6 +213,7 @@ class OrbOptionsBacktestEngine:
         self._max_range = range_cfg.get("max_pts", 30.0)
 
         self._midline_tol = strat.get("midline_tolerance_pts", 0.50)
+        self._skip_nfp = strat.get("skip_nfp_fridays", False)
 
         opt = cfg.get("options", {})
         self._target_delta = opt.get("target_short_delta", 0.16)
@@ -221,12 +222,70 @@ class OrbOptionsBacktestEngine:
         self._tp_pct = opt.get("tp_pct_of_credit", 0.50)
         self._iv = opt.get("assumed_iv", 0.15)
 
+        # Configurable data sources for more accurate backtesting
+        # underlying_source: "es" (use ES bars directly) or "spy" (use SPY*10 as SPX proxy)
+        # iv_source: "fixed" (use assumed_iv) or "vix" (use daily VIX9D/VIX)
+        self._underlying_source = opt.get("underlying_source", "es")
+        self._iv_source = opt.get("iv_source", "fixed")
+        self._data_dir = cfg.get("backtest", {}).get("data_dir", "data")
+        self._market_data = None  # Lazy-loaded
+
         risk = cfg.get("risk", {})
         self._max_loss_usd = risk.get("max_loss_per_trade_usd", 500)
         self._qty = cfg.get("bot", {}).get("quantity", 1)
 
         self._market_close_time = time(16, 0)   # actual market close
         self._session_end_minutes = 6.5 * 60     # trading hours per day
+
+    # -----------------------------------------------------------------------
+    # Market data helpers
+    # -----------------------------------------------------------------------
+
+    def _get_market_data(self):
+        """Lazy-load market data loader for SPY/VIX data."""
+        if self._market_data is None:
+            from src_8am.backtest.market_data import MarketDataLoader
+            self._market_data = MarketDataLoader(data_dir=self._data_dir)
+        return self._market_data
+
+    def _get_underlying_price(self, session_date: date, es_price: float) -> float:
+        """
+        Get the underlying price to use for option pricing.
+
+        If underlying_source is "spy", returns SPY*10 (SPX proxy).
+        Otherwise returns the ES price as-is.
+        """
+        if self._underlying_source == "spy":
+            md = self._get_market_data()
+            spy_data = md.get_spy_ohlc(session_date)
+            if spy_data:
+                return spy_data["close"]  # Already scaled by 10
+        return es_price
+
+    def _get_session_iv(self, session_date: date) -> float:
+        """
+        Get the IV to use for option pricing.
+
+        If iv_source is "vix", returns daily VIX9D/VIX (as decimal).
+        Otherwise returns the fixed assumed_iv.
+        """
+        if self._iv_source == "vix":
+            md = self._get_market_data()
+            return md.get_daily_iv(session_date, fallback=self._iv)
+        return self._iv
+
+    def _is_nfp_friday(self, session_date: date) -> bool:
+        """
+        Check if this is an NFP Friday (first Friday of the month).
+
+        NFP (Non-Farm Payrolls) is released at 8:30 AM ET on the first Friday
+        of each month, causing high volatility right after the ORB window.
+        Backtesting shows 31.6% loss rate on these days vs 9.2% overall.
+        """
+        if session_date.weekday() != 4:  # Not Friday
+            return False
+        # First Friday: day 1-7
+        return session_date.day <= 7
 
     # -----------------------------------------------------------------------
     # Public API
@@ -245,17 +304,71 @@ class OrbOptionsBacktestEngine:
 
     def run_on_days(self, days) -> List[OptionsBacktestResult]:
         """Run backtest on a pre-loaded list of DayBars (avoids re-parsing zip)."""
-        results = []
-        traded_dates: set = set()
+        # Group by date and select highest-volume contract per day
+        # This handles roll periods where multiple contracts trade simultaneously
+        from collections import defaultdict
+
+        by_date: Dict[date, List] = defaultdict(list)
         for day_bars in days:
-            if day_bars.session_date in traded_dates:
+            by_date[day_bars.session_date].append(day_bars)
+
+        results = []
+        for session_date in sorted(by_date.keys()):
+            # Skip NFP Fridays (first Friday of month) - high loss rate due to 8:30 AM release
+            if self._skip_nfp and self._is_nfp_friday(session_date):
                 continue
-            result = self._process_day(day_bars)
+
+            candidates = by_date[session_date]
+
+            # Select contract with highest volume (most liquid)
+            best_day = max(candidates, key=lambda d: sum(b["volume"] for b in d.bars))
+
+            # Skip AM expiration contracts (3rd Friday, contract expires at 9:30 AM)
+            # These have symbol like ESH4 expiring in March - check if bars end early
+            if self._is_am_expiration(best_day):
+                # Try to use next contract instead
+                non_expiring = [d for d in candidates if not self._is_am_expiration(d)]
+                if non_expiring:
+                    best_day = max(non_expiring, key=lambda d: sum(b["volume"] for b in d.bars))
+                else:
+                    continue  # Skip this day entirely
+
+            result = self._process_day(best_day)
             if result is not None:
                 results.append(result)
-                if result.status == "closed":
-                    traded_dates.add(result.session_date)
+
         return results
+
+    def _is_am_expiration(self, day_bars) -> bool:
+        """
+        Check if this is an AM expiration day for this contract.
+
+        ES futures expire at 9:30 AM ET on the 3rd Friday of contract month.
+        We detect this by checking if the contract's bars end before market hours.
+        """
+        if not day_bars.bars:
+            return False
+
+        symbol = day_bars.symbol
+        session_date = day_bars.session_date
+
+        # ES contract months: H=Mar, M=Jun, U=Sep, Z=Dec
+        contract_months = {"H": 3, "M": 6, "U": 9, "Z": 12}
+
+        # Extract contract month from symbol (e.g., ESH4 -> H)
+        if len(symbol) >= 3 and symbol[2] in contract_months:
+            contract_month = contract_months[symbol[2]]
+
+            # Check if this is the expiration month
+            if session_date.month == contract_month:
+                # 3rd Friday check: day 15-21 and Friday
+                if 15 <= session_date.day <= 21 and session_date.weekday() == 4:
+                    # Verify bars end early (before 10:00 AM typical for AM exp)
+                    last_bar_time = day_bars.bars[-1]["ts_et"].time()
+                    if last_bar_time.hour < 10:
+                        return True
+
+        return False
 
     # -----------------------------------------------------------------------
     # Day processing
@@ -373,18 +486,23 @@ class OrbOptionsBacktestEngine:
             )
 
         fill_bar = post_retest[0]
-        entry_price = fill_bar["open"]
+        es_entry_price = fill_bar["open"]  # ES price from bars (used for ORB logic)
         entry_time = fill_bar["ts_et"]
 
         # --- Step 6: Price the spread via BS ---
+        # Get underlying price for option pricing (SPY*10 if configured, else ES)
+        option_underlying = self._get_underlying_price(session_date, es_entry_price)
+        # Get session IV (VIX if configured, else fixed assumed_iv)
+        session_iv = self._get_session_iv(session_date)
+
         t_entry = self._tte_hours(entry_time) / (252 * 6.5)  # fraction of trading year
         spread_type = "put_credit_spread" if bias == "long" else "call_credit_spread"
 
-        short_k = _select_strike(entry_price, self._target_delta, self._iv, t_entry, spread_type)
+        short_k = _select_strike(option_underlying, self._target_delta, session_iv, t_entry, spread_type)
         long_k = (short_k - self._spread_width if spread_type == "put_credit_spread"
                   else short_k + self._spread_width)
 
-        credit = _spread_credit(entry_price, short_k, long_k, t_entry, self._iv, spread_type)
+        credit = _spread_credit(option_underlying, short_k, long_k, t_entry, session_iv, spread_type)
         credit = round(credit, 2)
 
         if credit < self._min_credit:
@@ -398,8 +516,8 @@ class OrbOptionsBacktestEngine:
                 breakout_price=breakout_bar["close"],
                 spread_type=spread_type,
                 short_strike=short_k, long_strike=long_k,
-                spread_width=self._spread_width, iv_assumed=self._iv,
-                underlying_at_entry=entry_price,
+                spread_width=self._spread_width, iv_assumed=session_iv,
+                underlying_at_entry=option_underlying,
                 status="skipped", skip_reason=f"credit_too_low_{credit:.2f}",
             )
 
@@ -417,16 +535,16 @@ class OrbOptionsBacktestEngine:
                 breakout_price=breakout_bar["close"],
                 spread_type=spread_type,
                 short_strike=short_k, long_strike=long_k,
-                spread_width=self._spread_width, iv_assumed=self._iv,
-                underlying_at_entry=entry_price,
+                spread_width=self._spread_width, iv_assumed=session_iv,
+                underlying_at_entry=option_underlying,
                 credit_received=credit, max_profit_usd=max_profit, max_loss_usd=max_loss,
                 status="skipped", skip_reason="risk_limit",
             )
 
         if spread_type == "put_credit_spread":
-            short_delta = abs(_bs_put_delta(entry_price, short_k, t_entry, self._iv))
+            short_delta = abs(_bs_put_delta(option_underlying, short_k, t_entry, session_iv))
         else:
-            short_delta = _bs_call_delta(entry_price, short_k, t_entry, self._iv)
+            short_delta = _bs_call_delta(option_underlying, short_k, t_entry, session_iv)
 
         tp_debit = round(credit * (1 - self._tp_pct), 2)
 
@@ -440,6 +558,7 @@ class OrbOptionsBacktestEngine:
             credit=credit,
             tp_debit=tp_debit,
             entry_time=entry_time,
+            session_iv=session_iv,
         )
 
         pnl = round((credit - debit) * 100 * self._qty, 2)
@@ -454,9 +573,9 @@ class OrbOptionsBacktestEngine:
             breakout_price=breakout_bar["close"],
             spread_type=spread_type,
             short_strike=short_k, long_strike=long_k,
-            spread_width=self._spread_width, iv_assumed=self._iv,
+            spread_width=self._spread_width, iv_assumed=session_iv,
             entry_time=entry_time,
-            underlying_at_entry=entry_price,
+            underlying_at_entry=option_underlying,
             credit_received=credit,
             max_profit_usd=max_profit,
             max_loss_usd=max_loss,
@@ -484,6 +603,7 @@ class OrbOptionsBacktestEngine:
         credit: float,
         tp_debit: float,
         entry_time: datetime,
+        session_iv: float,
     ) -> Tuple[datetime, float, str, float]:
         """
         Walk bars after fill, checking in order:
@@ -509,12 +629,12 @@ class OrbOptionsBacktestEngine:
             breached, breach_price = self._check_breach(bar, spread_type, short_k)
             if breached:
                 # Price spread at breach: underlying at short strike (worst case)
-                debit = _spread_value(breach_price, short_k, long_k, t_now, self._iv, spread_type)
+                debit = _spread_value(breach_price, short_k, long_k, t_now, session_iv, spread_type)
                 debit = round(min(debit, self._spread_width), 2)
                 return ts, breach_price, "short_breached", debit
 
             # Check TP: compute BS spread mark at bar close
-            mark = _spread_value(bar["close"], short_k, long_k, t_now, self._iv, spread_type)
+            mark = _spread_value(bar["close"], short_k, long_k, t_now, session_iv, spread_type)
             if mark <= tp_debit:
                 return ts, bar["close"], "tp_50pct", round(tp_debit, 2)
 
