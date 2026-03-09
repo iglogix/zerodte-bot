@@ -2,7 +2,7 @@ bot:
   name: "8am-orb-options-bot"
   timezone: "America/New_York"
   mode: "dry_run"         # dry_run | manual | sandbox | live
-  symbol: "SPX"
+  symbol: "ES"            # ES futures / 0DTE ES options
   quantity: 1             # number of spreads
 
 strategy:
@@ -31,8 +31,8 @@ options:
   sl_mult_of_credit: 2.0          # close at 200% of credit received
   monitor_poll_seconds: 30        # how often to check spread mark price
   assumed_iv: 0.15                # fallback IV if iv_source=fixed or VIX data missing
-  # Backtest data sources (more accurate than using ES as SPX proxy)
-  underlying_source: "spy"        # "es" = use ES bars directly, "spy" = use SPY*10 as SPX proxy
+  # Backtest data sources
+  underlying_source: "es"         # "es" = use ES bars directly, "spy" = use SPY*10 as SPX proxy
   iv_source: "vix"                # "fixed" = use assumed_iv, "vix" = use daily VIX9D/VIX
 
 risk:
@@ -60,10 +60,18 @@ market_data:
 market:
   trading_days_per_year: 252    # NYSE/NASDAQ typical (251-253 depending on year)
   trading_hours_per_day: 6.5    # RTH: 9:30 AM - 4:00 PM ET
-  market_close: "16:00"         # SPX options expire at 4:00 PM ET (cash-settled)
+  market_close: "16:00"         # ES 0DTE options expire at 4:00 PM ET (RTH close)
+  # Note: ES futures trade nearly 24/5 but RTH is 9:30-16:00 ET
+  # For SPX options, also 4:00 PM ET (cash-settled at close)
 
 backtest:
   data_dir: "data"                # directory containing spy_daily.csv, vix_daily.csv, vix9d_daily.csv
-  data_file: "GLBX-20260227-7PWD5NKFSF.zip"  # ES bars for ORB logic
-  start_date: "2024-01-01"
+  data_file: "glbx-mdp3-20210227-20260226.ohlcv-1m.csv"  # ES 1-min bars (unzipped)
+  start_date: "2022-04-25"        # 0DTE ES options launched this date
   end_date: "2024-12-31"
+
+# Contract selection logic (handled in options_engine.py):
+#   - Multiple ES contracts trade simultaneously during roll periods (H/M/U/Z)
+#   - Select highest-volume contract per day (most liquid)
+#   - Skip AM expiration days (3rd Friday of contract month, bars end before 10:00 AM)
+#   - Use next contract on expiration days

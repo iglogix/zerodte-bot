@@ -57,35 +57,58 @@ class DayBars:
 
 class DatabentoLoader:
     """
-    Loads and parses the Databento GLBX OHLCV-1m zip file.
+    Loads and parses Databento GLBX OHLCV-1m data.
+
+    Supports multiple file formats:
+      - .zip containing .csv.zst (original Databento download)
+      - .csv.zst (zstd-compressed CSV)
+      - .csv (plain uncompressed CSV)
 
     Usage:
-        loader = DatabentoLoader("GLBX-20260227-7PWD5NKFSF.zip")
+        loader = DatabentoLoader("glbx-mdp3-20210227-20260226.ohlcv-1m.csv")
         for day in loader.iter_days(start_date, end_date):
             ...day.bars...
     """
 
-    def __init__(self, zip_path: str):
-        self.zip_path = Path(zip_path)
-        if not self.zip_path.exists():
-            raise FileNotFoundError(f"Databento zip not found: {self.zip_path}")
+    def __init__(self, data_path: str):
+        self.data_path = Path(data_path)
+        if not self.data_path.exists():
+            raise FileNotFoundError(f"Databento data not found: {self.data_path}")
 
     def _open_csv_stream(self):
-        """Open the inner .zst CSV and return a text iterator."""
-        try:
-            import zstandard as zstd
-        except ImportError:
-            raise ImportError("Install zstandard: pip install zstandard")
+        """Open the CSV data and return a text iterator."""
+        path = self.data_path
 
-        zf = zipfile.ZipFile(self.zip_path)
-        zst_names = [n for n in zf.namelist() if n.endswith(".csv.zst")]
-        if not zst_names:
-            raise ValueError(f"No .csv.zst file found in {self.zip_path}")
+        # Plain CSV file
+        if path.suffix == ".csv":
+            return open(path, "r", encoding="utf-8")
 
-        zst_data = zf.read(zst_names[0])
-        dctx = zstd.ZstdDecompressor()
-        stream = dctx.stream_reader(io.BytesIO(zst_data), read_across_frames=True)
-        return io.TextIOWrapper(stream, encoding="utf-8")
+        # Zstd-compressed CSV
+        if path.name.endswith(".csv.zst"):
+            try:
+                import zstandard as zstd
+            except ImportError:
+                raise ImportError("Install zstandard: pip install zstandard")
+            dctx = zstd.ZstdDecompressor()
+            stream = dctx.stream_reader(open(path, "rb"), read_across_frames=True)
+            return io.TextIOWrapper(stream, encoding="utf-8")
+
+        # Zip file containing .csv.zst
+        if path.suffix == ".zip":
+            try:
+                import zstandard as zstd
+            except ImportError:
+                raise ImportError("Install zstandard: pip install zstandard")
+            zf = zipfile.ZipFile(path)
+            zst_names = [n for n in zf.namelist() if n.endswith(".csv.zst")]
+            if not zst_names:
+                raise ValueError(f"No .csv.zst file found in {path}")
+            zst_data = zf.read(zst_names[0])
+            dctx = zstd.ZstdDecompressor()
+            stream = dctx.stream_reader(io.BytesIO(zst_data), read_across_frames=True)
+            return io.TextIOWrapper(stream, encoding="utf-8")
+
+        raise ValueError(f"Unsupported file format: {path.suffix}")
 
     def iter_days(
         self,
