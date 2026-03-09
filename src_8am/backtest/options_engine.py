@@ -218,6 +218,7 @@ class OrbOptionsBacktestEngine:
         opt = cfg.get("options", {})
         self._target_delta = opt.get("target_short_delta", 0.16)
         self._spread_width = opt.get("spread_width_pts", 5.0)
+        self._strike_step = opt.get("strike_step_pts", 5.0)
         self._min_credit = opt.get("min_credit_per_spread", 0.50)
         self._tp_pct = opt.get("tp_pct_of_credit", 0.50)
         self._iv = opt.get("assumed_iv", 0.15)
@@ -498,7 +499,7 @@ class OrbOptionsBacktestEngine:
         t_entry = self._tte_hours(entry_time) / (252 * 6.5)  # fraction of trading year
         spread_type = "put_credit_spread" if bias == "long" else "call_credit_spread"
 
-        short_k = _select_strike(option_underlying, self._target_delta, session_iv, t_entry, spread_type)
+        short_k = _select_strike(option_underlying, self._target_delta, session_iv, t_entry, spread_type, self._strike_step)
         long_k = (short_k - self._spread_width if spread_type == "put_credit_spread"
                   else short_k + self._spread_width)
 

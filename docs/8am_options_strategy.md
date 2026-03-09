@@ -55,6 +55,7 @@ NFP (Non-Farm Payrolls) releases at 8:30 AM ET on first Fridays, right after the
 | Target Delta | `options.target_short_delta` | 0.16 | Short strike delta (~1 SD OTM) |
 | Max Delta | `options.max_short_delta` | 0.25 | Reject if actual delta exceeds this |
 | Spread Width | `options.spread_width_pts` | 5 | Distance between short/long strikes |
+| Strike Step | `options.strike_step_pts` | 5 | Round strikes to nearest N points |
 | Min Credit | `options.min_credit_per_spread` | 0.50 | Minimum credit to accept ($50/contract) |
 
 ### Strike Selection
