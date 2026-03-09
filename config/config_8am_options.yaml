@@ -1,7 +1,7 @@
 bot:
   name: "8am-orb-options-bot"
   timezone: "America/New_York"
-  mode: "dry_run"         # dry_run | manual | sandbox | live
+  mode: "sandbox"         # dry_run | manual | sandbox | live
   symbol: "ES"            # ES futures / 0DTE ES options
   quantity: 1             # number of spreads
 
@@ -41,6 +41,7 @@ risk:
   max_buying_power_pct: 50.0
 
 llm:
+  enabled: false                # true = use LLM pre-flight (anomaly/regime), false = enter on signal
   advisor_model: "anthropic/claude-haiku-4-5"
   debrief_model: "anthropic/claude-sonnet-4-5"
 

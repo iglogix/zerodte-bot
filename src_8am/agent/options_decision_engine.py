@@ -66,6 +66,7 @@ class OrbOptionsDecisionEngine:
         self._opt_cfg = config.get("options", {})
         self._risk = config.get("risk", {})
         self._bot = config.get("bot", {})
+        self._llm_enabled = config.get("llm", {}).get("enabled", True)
 
         self._orb_levels: Optional[Dict[str, Any]] = None
         self._session_trade_id: Optional[str] = None
@@ -282,6 +283,15 @@ class OrbOptionsDecisionEngine:
     # -------------------------------------------------------------------------
 
     async def _run_preflight(self, current_price: float) -> bool:
+        # Bypass LLM pre-flight checks when disabled (mechanical strategy)
+        if not self._llm_enabled:
+            logger.info("LLM disabled — skipping anomaly/regime checks, entering on signal")
+            self._preflight_result = {
+                "anomaly": {"safe": True, "reasons": ["llm_disabled"]},
+                "regime": {"verdict": "enter", "reasoning": "llm_disabled"},
+            }
+            return True
+
         account = await self._tools.get_account_info()
 
         anomaly = await self._anomaly.check(
