@@ -177,10 +177,109 @@ class OrbOptionsBotOrchestrator:
 
 
 class _DryRunTTClient:
-    """Stub TT client for dry-run mode."""
+    """
+    Stub TT client for dry-run mode.
+
+    Provides simulated market data for testing without live API connections.
+    All prices are synthetic but use realistic Black-Scholes calculations.
+    """
+
+    def __init__(self):
+        self._base_price = 5500.0  # Base ES/SPX price
+        self._price_drift = 0.0    # Accumulated price drift for simulation
+        self._last_candle_time = None
 
     async def connect(self): pass
     async def disconnect(self): pass
+
+    # -------------------------------------------------------------------------
+    # Market data methods required by OrbMarketData
+    # -------------------------------------------------------------------------
+
+    async def get_candles(
+        self,
+        symbol: str,
+        interval: str = "5m",
+        from_time=None,
+        count: int = 1,
+    ):
+        """
+        Return simulated OHLC candles for dry-run testing.
+
+        Generates realistic candles with slight random variation around base price.
+        """
+        import random
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        ET = ZoneInfo("America/New_York")
+        now = datetime.now(ET)
+
+        # Parse interval to minutes
+        interval_mins = 5
+        if interval == "15m":
+            interval_mins = 15
+        elif interval == "1m":
+            interval_mins = 1
+
+        candles = []
+        base = self._base_price + self._price_drift
+
+        for i in range(count):
+            # Add small random drift to simulate price movement
+            drift = random.uniform(-1.5, 1.5)
+            self._price_drift += drift * 0.1  # Accumulate small drift
+
+            price = base + drift
+            high = price + random.uniform(0.5, 2.0)
+            low = price - random.uniform(0.5, 2.0)
+            open_p = price + random.uniform(-1.0, 1.0)
+            close_p = price + random.uniform(-1.0, 1.0)
+
+            # Ensure OHLC consistency
+            high = max(high, open_p, close_p)
+            low = min(low, open_p, close_p)
+
+            ts = now - timedelta(minutes=interval_mins * (count - 1 - i))
+
+            candles.append({
+                "open": round(open_p, 2),
+                "high": round(high, 2),
+                "low": round(low, 2),
+                "close": round(close_p, 2),
+                "volume": random.randint(1000, 5000),
+                "timestamp": ts.isoformat(),
+            })
+
+        return candles
+
+    async def get_future_quote(self, symbol: str):
+        """
+        Return simulated ES futures quote for price polling.
+
+        Adds small random jitter to simulate live price movement.
+        """
+        import random
+
+        # Add small jitter to simulate live price movement
+        jitter = random.uniform(-0.50, 0.50)
+        price = self._base_price + self._price_drift + jitter
+
+        return {
+            "symbol": symbol,
+            "bid": round(price - 0.25, 2),
+            "ask": round(price + 0.25, 2),
+            "last": round(price, 2),
+            "mark": round(price, 2),
+        }
+
+    async def get_quote(self, symbol: str):
+        """Alias for get_future_quote for compatibility."""
+        return await self.get_future_quote(symbol)
+
+    # -------------------------------------------------------------------------
+    # Options chain methods required by OrbOptionsService
+    # -------------------------------------------------------------------------
 
     async def get_option_chain(self, symbol: str):
         """Return a synthetic SPX chain for dry-run testing with realistic BS deltas."""
@@ -233,9 +332,6 @@ class _DryRunTTClient:
                 "streamer_symbol": f".SPXW{dt_str}P{strike}",
             })
         return chain
-
-    async def get_quote(self, symbol: str):
-        return {"symbol": symbol, "price": 5500.0, "bid": 5499.75, "ask": 5500.25}
 
     async def get_account_info(self):
         return {"equity": 100000.0, "buying_power": 50000.0, "cash_balance": 100000.0}

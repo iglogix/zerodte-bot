@@ -287,6 +287,87 @@ class TastyTradeClient:
                 "timestamp": datetime.now().isoformat(),
             }
 
+    async def get_future_quote(self, symbol: str) -> Dict[str, Any]:
+        """
+        Get futures quote with mark/last/bid/ask fields.
+        Alias for get_quote with additional fields for compatibility.
+        """
+        quote = await self.get_quote(symbol)
+        # Add mark and last fields expected by OrbMarketData
+        quote["mark"] = quote.get("price", 0)
+        quote["last"] = quote.get("price", 0)
+        return quote
+
+    async def get_candles(
+        self,
+        symbol: str,
+        interval: str = "5m",
+        from_time: Optional[datetime] = None,
+        count: int = 1,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch OHLCV candles for a symbol via DXLink.
+
+        Args:
+            symbol: DXLink symbol (e.g., "/ESH5:XCME")
+            interval: Candle interval ("1m", "5m", "15m", etc.)
+            from_time: Start time for candles (optional)
+            count: Number of candles to return
+
+        Returns:
+            List of candle dicts with open/high/low/close/volume/timestamp
+        """
+        try:
+            from tastytrade import DXLinkStreamer  # type: ignore
+            from tastytrade.dxfeed import Candle   # type: ignore
+
+            session = self._market_sdk_session or self._sdk_session
+            candles: List[Dict[str, Any]] = []
+
+            # Calculate from_time if not provided
+            if from_time is None:
+                # Parse interval to minutes
+                interval_mins = 5
+                if interval == "1m":
+                    interval_mins = 1
+                elif interval == "15m":
+                    interval_mins = 15
+                elif interval == "30m":
+                    interval_mins = 30
+                elif interval == "1h":
+                    interval_mins = 60
+
+                from_time = datetime.now().replace(second=0, microsecond=0)
+                from_time = from_time - __import__("datetime").timedelta(
+                    minutes=count * interval_mins + 10
+                )
+
+            async with DXLinkStreamer(session) as streamer:
+                await streamer.subscribe_candle([symbol], interval, from_time)
+                try:
+                    while len(candles) < count:
+                        c = await asyncio.wait_for(streamer.get_event(Candle), timeout=8)
+                        if not c.open:
+                            continue
+                        candles.append({
+                            "open": float(c.open),
+                            "high": float(c.high),
+                            "low": float(c.low),
+                            "close": float(c.close),
+                            "volume": int(c.volume or 0),
+                            "timestamp": c.time.isoformat() if c.time else None,
+                        })
+                except asyncio.TimeoutError:
+                    pass
+
+            # Sort by timestamp and return requested count
+            candles.sort(key=lambda x: x.get("timestamp") or "")
+            return candles[-count:] if len(candles) > count else candles
+
+        except Exception as exc:
+            logger.warning("get_candles failed for %s: %s", symbol, exc)
+            return []
+
     async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
         """Get 0DTE option chain for a symbol with Greeks.
         Fetches symbol list from REST, then enriches near-ATM strikes
