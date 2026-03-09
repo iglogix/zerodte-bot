@@ -1,0 +1,51 @@
+bot:
+  name: "8am-orb-options-bot"
+  timezone: "America/New_York"
+  mode: "dry_run"         # dry_run | manual | sandbox | live
+  symbol: "SPX"
+  quantity: 1             # number of spreads
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.50   # SPX tolerance slightly wider than ES (index pts)
+  orb_range_filter:
+    min_pts: 2.0                # skip days with tiny ORB range
+    max_pts: 30.0               # skip extreme gap/event days
+
+# ORB options logic:
+#   LONG  bias (breakout above ORB high) → sell PUT  credit spread below ORB low
+#   SHORT bias (breakout below ORB low)  → sell CALL credit spread above ORB high
+# Entry trigger: midline retest (same as futures variant)
+# Exit: TP at 50% credit | SL at 200% credit | EOD expire/close
+options:
+  spread_width_pts: 5             # distance between short and long strike
+  target_short_delta: 0.16        # ~1-SD OTM target (16-delta)
+  max_short_delta: 0.25           # reject if short strike delta > this
+  min_credit_per_spread: 0.50     # minimum credit to accept the spread ($50 per contract)
+  tp_pct_of_credit: 0.50          # close at 50% of max profit
+  sl_mult_of_credit: 2.0          # close at 200% of credit received
+  monitor_poll_seconds: 30        # how often to check spread mark price
+  assumed_iv: 0.15                # IV used in backtest BS pricing (live bot uses real chain)
+
+risk:
+  max_loss_per_trade_usd: 500     # max loss per spread in dollars (spread_width - credit) * 100
+  max_daily_loss_usd: 1000        # halt if cumulative realized loss exceeds this
+  max_buying_power_pct: 50.0
+
+llm:
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "orb_options_bot.db"
+  cache_db: "data/orb_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_8am_options"
+
+market_data:
+  dxlink_symbol: "/ESH5:XCME"    # ES futures for ORB candle and midline polling

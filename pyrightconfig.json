@@ -1,0 +1,8 @@
+{
+  "pythonVersion": "3.10",
+  "pythonPlatform": "Linux",
+  "venvPath": ".",
+  "extraPaths": ["src", "src_8am"],
+  "include": ["src", "src_8am", "tests", "tests_locked"],
+  "exclude": ["**/__pycache__"]
+}

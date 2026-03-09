@@ -73,17 +73,19 @@ class BotOrchestrator:
         self.config = config
         self.mode = mode
         self.dry_run = mode == "dry_run"
-        self._prompt: Optional[str] = None
         self._cache = None
         self._db = None
         self._risk_manager = None
-        self._agent = None
+        self._engine = None
         self._notifier = None
         self._monitor = None
         self._tool_handlers = None
         self._fill_listener = None
         self._fill_queue = None
         self._api_client = None
+        self._eod_debrief = None
+        self._session_skipped: bool = False
+        self._session_skip_date: Optional[date] = None
 
     async def initialize(self):
         """Initialize all services."""
@@ -94,8 +96,10 @@ class BotOrchestrator:
         from src.services.llm_client import LLMClient
         from src.services.decision_logger import DecisionFileLogger
         from src.agent.tool_handlers import ToolHandlers
-        from src.agent.dual_validator import DualLLMValidator
-        from src.agent.trading_agent import TradingAgent
+        from src.agent.decision_engine import DecisionEngine
+        from src.agent.anomaly_detector import AnomalyDetector
+        from src.agent.regime_classifier import RegimeClassifier
+        from src.agent.eod_debrief import EodDebrief
 
         db_cfg = self.config.get("database", {})
         llm_cfg = self.config.get("llm", {})
@@ -104,6 +108,9 @@ class BotOrchestrator:
         stop_cfg = self.config.get("stop_loss", {})
         cache_cfg = self.config.get("cache", {})
         monitor_cfg = self.config.get("monitor", {})
+        strategy_cfg = self.config.get("strategy", {})
+        entry_cfg = self.config.get("entry", {})
+        log_cfg = self.config.get("logging", {})
 
         self._db = DatabaseService(db_cfg.get("trading_db", "0dte_bot.db"))
         self._db.initialize()
@@ -121,16 +128,8 @@ class BotOrchestrator:
             webhook_config=notif_cfg.get("webhook", {}),
         )
 
-        primary_llm = LLMClient(model=llm_cfg.get("primary_model", "openai/gpt-4.1"))
-        validator_llm = LLMClient(model=llm_cfg.get("validator_model", "anthropic/claude-sonnet-4-5"))
-
-        self._validator = DualLLMValidator(
-            primary_llm=primary_llm,
-            secondary_llm=validator_llm,
-            notifier=self._notifier,
-            decision_logger=self._db,
-            timeout_seconds=llm_cfg.get("timeout_seconds", 30),
-        )
+        advisor_llm = LLMClient(model=llm_cfg.get("advisor_model", "anthropic/claude-haiku-4-5"))
+        debrief_llm = LLMClient(model=llm_cfg.get("debrief_model", "anthropic/claude-sonnet-4-5"))
 
         from src.services.tastytrade_client import TastyTradeClient
         from src.services.position_monitor import PositionMonitor
@@ -149,6 +148,12 @@ class BotOrchestrator:
             mode=self.mode,
             stop_limit_gap=stop_cfg.get("stop_limit_gap", 40),
             stop_market_gap=stop_cfg.get("stop_market_gap", 30),
+            credit_equality_threshold=strategy_cfg.get("credit_equality_threshold", 0.20),
+            skew_threshold=strategy_cfg.get("skew_threshold", 1.15),
+            min_short_delta=strategy_cfg.get("min_short_delta", 0.10),
+            max_short_delta=strategy_cfg.get("max_short_delta", 0.15),
+            min_side_credit=strategy_cfg.get("min_side_credit", 0.50),
+            max_side_credit=strategy_cfg.get("max_side_credit", 2.50),
         )
 
         self._risk_manager = RiskManager(
@@ -171,6 +176,40 @@ class BotOrchestrator:
 
         eod_str = monitor_cfg.get("eod_close_time", "15:55")
         eod_h, eod_m = (int(x) for x in eod_str.split(":"))
+
+        decision_file_logger = DecisionFileLogger(
+            base_dir=str(Path(log_cfg.get("log_dir", "logs")) / "decisions")
+        )
+
+        anomaly_detector = AnomalyDetector(
+            llm_client=advisor_llm,
+            tool_handlers=self._tool_handlers,
+        )
+        regime_classifier = RegimeClassifier(
+            llm_client=advisor_llm,
+            tool_handlers=self._tool_handlers,
+        )
+
+        self._engine = DecisionEngine(
+            tool_handlers=self._tool_handlers,
+            risk_manager=self._risk_manager,
+            anomaly_detector=anomaly_detector,
+            regime_classifier=regime_classifier,
+            decision_file_logger=decision_file_logger,
+            mode=self.mode,
+            stability_fraction=entry_cfg.get("stability_fraction", 0.15),
+            single_candle_fraction=entry_cfg.get("single_candle_fraction", 0.10),
+            fallback_stability_pts=entry_cfg.get("fallback_stability_pts", 8.0),
+        )
+
+        self._eod_debrief = EodDebrief(
+            llm_client=debrief_llm,
+            db=self._db,
+            notifier=self._notifier,
+            decisions_dir=str(Path(log_cfg.get("log_dir", "logs")) / "decisions"),
+            summaries_dir=str(Path(log_cfg.get("log_dir", "logs")) / "summaries"),
+        )
+
         self._monitor = PositionMonitor(
             db=self._db,
             cache=self._cache,
@@ -182,67 +221,29 @@ class BotOrchestrator:
             take_profit_threshold=risk_cfg.get("take_profit_threshold", 0.05),
             eod_close_time=time(eod_h, eod_m),
             mode=self.mode,
+            eod_debrief=self._eod_debrief,
         )
 
-        log_cfg = self.config.get("logging", {})
-        decision_file_logger = DecisionFileLogger(
-            base_dir=str(Path(log_cfg.get("log_dir", "logs")) / "decisions")
-        )
-
-        self._agent = TradingAgent(
-            llm_client=primary_llm,
-            tool_handlers=self._tool_handlers,
-            validator=self._validator,
-            db=self._db,
-            dry_run=self.dry_run,
-            max_iterations=llm_cfg.get("max_iterations", 10),
-            decision_file_logger=decision_file_logger,
-            mode=self.mode,
-        )
-
-        self._prompt = _load_prompt()
         logger.info("Bot initialized — mode: %s", self.mode.upper())
 
     async def run_cycle(self):
-        """Run one decision cycle."""
+        """Run one decision cycle. Returns CycleResult."""
         logger.info("--- Running decision cycle at %s ---", datetime.now().strftime("%H:%M:%S"))
-
-        market_data = await self._gather_market_data()
-
-        result = await self._agent.run_tool_loop(
-            prompt=self._prompt,
-            market_data=market_data,
+        result = await self._engine.run_cycle()
+        logger.info(
+            "Cycle complete: outcome=%s reason=%s",
+            result.outcome, result.reason,
         )
 
-        logger.info("Cycle complete. Response:\n%s", result.get("response", ""))
+        if result.outcome == "skip_session":
+            self._session_skipped = True
+            self._session_skip_date = date.today()
+            logger.warning(
+                "Session skip triggered — all remaining entry windows suppressed for today: %s",
+                result.reason,
+            )
+
         return result
-
-    async def _gather_market_data(self) -> Dict[str, Any]:
-        """Gather initial market snapshot to pass to the agent."""
-        data: Dict[str, Any] = {}
-
-        try:
-            quote = await self._cache.get_cached_quote("SPX", max_age_seconds=60)
-            if quote:
-                data["spx_price"] = quote.get("price")
-        except Exception:
-            logger.warning("Could not fetch SPX price for market snapshot")
-
-        try:
-            candles = await self._cache.get_5min_candles("SPX", count=6)
-            data["recent_candles"] = candles
-        except Exception:
-            logger.warning("Could not fetch candles for market snapshot")
-
-        try:
-            open_trades = await self._db.get_open_trades()
-            data["open_positions"] = len(open_trades)
-        except Exception:
-            pass
-
-        data["timestamp"] = datetime.now().isoformat()
-        data["mode"] = self.mode
-        return data
 
     async def run_scheduled(self):
         """Run entry scheduler, position monitor, and fill listener concurrently."""
@@ -259,8 +260,19 @@ class BotOrchestrator:
                 now = datetime.now()
                 current_time = now.strftime("%H:%M")
 
+                # Reset session skip flag at the start of a new day
+                if self._session_skip_date and self._session_skip_date < date.today():
+                    self._session_skipped = False
+                    self._session_skip_date = None
+
                 if current_time in schedule:
-                    await self.run_cycle()
+                    if self._session_skipped:
+                        logger.info(
+                            "[SCHEDULER] Skipping %s — session skip active (reason set earlier today)",
+                            current_time,
+                        )
+                    else:
+                        await self.run_cycle()
                     await asyncio.sleep(61)
                 else:
                     await asyncio.sleep(10)

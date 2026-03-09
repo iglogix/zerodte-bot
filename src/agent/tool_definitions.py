@@ -21,32 +21,6 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "get_option_chain",
-            "description": "Get the 0DTE SPX option chain with Greeks (delta, gamma, theta, vega), bid/ask, volume. Optionally filter by delta range.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expiration": {
-                        "type": "string",
-                        "description": "Expiration filter. Use '0DTE' for today's expiration.",
-                        "default": "0DTE",
-                    },
-                    "min_delta": {
-                        "type": "number",
-                        "description": "Minimum absolute delta value (e.g. 0.10 for 10-delta).",
-                    },
-                    "max_delta": {
-                        "type": "number",
-                        "description": "Maximum absolute delta value (e.g. 0.15 for 15-delta).",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "get_5min_candles",
             "description": "Get the last N 5-minute SPX candles (OHLCV). Used to assess market stability before entry.",
             "parameters": {
@@ -250,6 +224,92 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                     },
                 },
                 "required": ["order_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "validate_ic_params",
+            "description": (
+                "Pre-flight validation of proposed iron condor parameters against live chain data "
+                "and strategy rules. Call this BEFORE place_iron_condor to catch rule violations "
+                "early and avoid wasting a validator round-trip. Returns pass/fail with per-check "
+                "detail: delta range, wing width symmetry, per-side credit, and credit equality "
+                "(within the configured threshold). Does NOT place any order."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "short_call_strike": {"type": "number", "description": "Short call strike."},
+                    "long_call_strike": {"type": "number", "description": "Long call strike (> short_call_strike)."},
+                    "short_put_strike": {"type": "number", "description": "Short put strike."},
+                    "long_put_strike": {"type": "number", "description": "Long put strike (< short_put_strike)."},
+                },
+                "required": ["short_call_strike", "long_call_strike", "short_put_strike", "long_put_strike"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_premium_balance_candidates",
+            "description": (
+                "Searches the live 0DTE chain for iron condor configurations where call and put "
+                "credits are balanced within the credit equality threshold. Tries wing widths of "
+                "25, 30, and 35 points automatically. Returns top_candidate with the best-balanced "
+                "strikes ready to place, plus a place_instruction string. "
+                "Use this whenever you need to enter a trade: call this tool, then pass "
+                "top_candidate strikes directly to place_iron_condor. No manual strike selection "
+                "or wing width reasoning needed — the math is done for you. "
+                "If candidates_found is 0, use the call-side strikes from get_option_chain and "
+                "accept a lower put credit per strategy rules."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_credit_per_side": {
+                        "type": "number",
+                        "description": "Desired credit per side in dollars (e.g. 1.50 for $150). Defaults to midpoint of strategy range.",
+                    },
+                    "wing_width": {
+                        "type": "integer",
+                        "description": "Wing width in points to start searching (default 30). The tool also tries ±5pt adjustments.",
+                        "default": 30,
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of candidates to return (default 5).",
+                        "default": 5,
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_skew_snapshot",
+            "description": (
+                "Return a concise put/call skew snapshot for the 0DTE chain: implied-vol ratio "
+                "(put-wing IV ÷ call-wing IV) and credit asymmetry ratio (put credit ÷ call credit) "
+                "at the 10–15 delta band. Use this as CONTEXT ONLY — high skew explains why premiums "
+                "are unequal between sides and tells you how much wing-width adjustment is needed. "
+                "It is NEVER a reason to skip a trade. When skew is high, use "
+                "get_premium_balance_candidates to find wing widths that bring both sides within the "
+                "credit equality threshold, or accept a lower put premium per the strategy rules."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delta_target": {
+                        "type": "number",
+                        "description": "Absolute delta to sample for skew measurement (default 0.12).",
+                        "default": 0.12,
+                    },
+                },
+                "required": [],
             },
         },
     },

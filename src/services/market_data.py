@@ -20,18 +20,20 @@ logger = logging.getLogger(__name__)
 
 class CachedMarketData:
     """
-    Market data layer with SQLite-backed caching.
+    Market data layer with:
+    - In-memory cache for option chains and quotes (short TTL, never persisted)
+    - SQLite-backed permanent storage for 5-min candles (backtesting / fallback)
 
-    - Option prices / quotes: 60s TTL
-    - 5-min candles: permanent (no TTL), append-only, deduplicated by timestamp
+    Option prices change every second — they are held in memory only long enough
+    to deduplicate repeated tool calls within a single LLM decision loop (~10s).
     """
 
     def __init__(
         self,
         cache_db_path: str = "data/market_cache.db",
         api_client: Optional[Any] = None,
-        option_chain_ttl: int = 60,
-        quote_ttl: int = 60,
+        option_chain_ttl: int = 10,
+        quote_ttl: int = 10,
         account_info_ttl: int = 60,
     ):
         self.cache_db_path = cache_db_path
@@ -41,6 +43,10 @@ class CachedMarketData:
         self.account_info_ttl = account_info_ttl
         self._engine = None
         self._SessionLocal = None
+        # In-memory stores: {symbol: (timestamp, data)}
+        self._mem_chains: Dict[str, tuple] = {}
+        self._mem_quotes: Dict[str, tuple] = {}
+        self._mem_account: Optional[tuple] = None
 
     async def initialize(self):
         """Initialize the cache database."""
@@ -94,23 +100,30 @@ class CachedMarketData:
             return json.loads(q.data_json)
 
     # -------------------------------------------------------------------------
-    # Option chain
+    # Option chain  (in-memory only — prices are stale after ~10s)
     # -------------------------------------------------------------------------
 
     async def cache_option_chain(
         self,
         symbol: str,
         chain: List[Dict],
-        ttl_seconds: int = 60,
+        ttl_seconds: int = 10,
     ):
-        self._write(symbol, "option_chain", chain, ttl_seconds)
+        self._mem_chains[symbol] = (datetime.now(), chain)
 
     async def get_cached_option_chain(
         self,
         symbol: str,
-        max_age_seconds: int = 60,
+        max_age_seconds: int = 10,
     ) -> Optional[List[Dict]]:
-        return self._read_latest(symbol, "option_chain", max_age_seconds)
+        entry = self._mem_chains.get(symbol)
+        if entry is None:
+            return None
+        ts, data = entry
+        if (datetime.now() - ts).total_seconds() > max_age_seconds:
+            del self._mem_chains[symbol]
+            return None
+        return data
 
     async def get_option_chain_with_fallback(
         self,
@@ -120,32 +133,39 @@ class CachedMarketData:
         max_age_seconds = max_age_seconds if max_age_seconds is not None else self.option_chain_ttl
         cached = await self.get_cached_option_chain(symbol, max_age_seconds)
         if cached is not None:
-            logger.debug("Cache hit: option_chain for %s", symbol)
+            logger.debug("Memory cache hit: option_chain for %s (age < %ds)", symbol, max_age_seconds)
             return cached
 
-        logger.debug("Cache miss: fetching option_chain for %s from API", symbol)
+        logger.debug("Fetching fresh option_chain for %s from API", symbol)
         data = await self.api_client.get_option_chain(symbol)
         await self.cache_option_chain(symbol, data)
         return data
 
     # -------------------------------------------------------------------------
-    # Quote
+    # Quote  (in-memory only)
     # -------------------------------------------------------------------------
 
     async def cache_quote(
         self,
         symbol: str,
         quote: Dict,
-        ttl_seconds: int = 60,
+        ttl_seconds: int = 10,
     ):
-        self._write(symbol, "quote", quote, ttl_seconds)
+        self._mem_quotes[symbol] = (datetime.now(), quote)
 
     async def get_cached_quote(
         self,
         symbol: str,
-        max_age_seconds: int = 60,
+        max_age_seconds: int = 10,
     ) -> Optional[Dict]:
-        return self._read_latest(symbol, "quote", max_age_seconds)
+        entry = self._mem_quotes.get(symbol)
+        if entry is None:
+            return None
+        ts, data = entry
+        if (datetime.now() - ts).total_seconds() > max_age_seconds:
+            del self._mem_quotes[symbol]
+            return None
+        return data
 
     async def get_quote_with_fallback(
         self,
@@ -162,17 +182,23 @@ class CachedMarketData:
         return data
 
     # -------------------------------------------------------------------------
-    # Account info
+    # Account info  (in-memory, 60s TTL — changes slowly)
     # -------------------------------------------------------------------------
 
     async def cache_account_info(self, info: Dict, ttl_seconds: int = 60):
-        self._write("ACCOUNT", "account_info", info, ttl_seconds)
+        self._mem_account = (datetime.now(), info)
 
     async def get_cached_account_info(
         self,
         max_age_seconds: int = 60,
     ) -> Optional[Dict]:
-        return self._read_latest("ACCOUNT", "account_info", max_age_seconds)
+        if self._mem_account is None:
+            return None
+        ts, data = self._mem_account
+        if (datetime.now() - ts).total_seconds() > max_age_seconds:
+            self._mem_account = None
+            return None
+        return data
 
     async def get_account_info_with_fallback(
         self,
@@ -286,5 +312,11 @@ class CachedMarketData:
         data_type: str,
         max_age_seconds: int = 60,
     ) -> bool:
+        if data_type == "quote":
+            return await self.get_cached_quote(symbol, max_age_seconds) is not None
+        if data_type == "option_chain":
+            return await self.get_cached_option_chain(symbol, max_age_seconds) is not None
+        if data_type == "account_info":
+            return await self.get_cached_account_info(max_age_seconds) is not None
         result = self._read_latest(symbol, data_type, max_age_seconds)
         return result is not None

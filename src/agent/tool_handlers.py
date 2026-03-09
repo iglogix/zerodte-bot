@@ -25,6 +25,12 @@ class ToolHandlers:
         dry_run: Optional[bool] = None,
         stop_limit_gap: int = 40,
         stop_market_gap: int = 30,
+        credit_equality_threshold: float = 0.20,
+        skew_threshold: float = 1.15,
+        min_short_delta: float = 0.10,
+        max_short_delta: float = 0.15,
+        min_side_credit: float = 1.00,
+        max_side_credit: float = 2.00,
     ):
         if mode is not None:
             self.mode = mode
@@ -39,6 +45,12 @@ class ToolHandlers:
         self.manual = self.mode == "manual"
         self.stop_limit_gap = stop_limit_gap
         self.stop_market_gap = stop_market_gap
+        self.credit_equality_threshold = credit_equality_threshold
+        self.skew_threshold = skew_threshold
+        self.min_short_delta = min_short_delta
+        self.max_short_delta = max_short_delta
+        self.min_side_credit = min_side_credit
+        self.max_side_credit = max_side_credit
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Dispatch a tool call by name."""
@@ -94,8 +106,13 @@ class ToolHandlers:
         expiration: str = "0DTE",
         min_delta: Optional[float] = None,
         max_delta: Optional[float] = None,
+        target_credit: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
-        """Return 0DTE option chain filtered to today's expiry, optionally by delta range."""
+        """Return 0DTE option chain filtered to today's expiry, optionally by delta range.
+
+        If target_credit is provided, results are sorted by proximity to that mid-price
+        so the closest match appears first.
+        """
         from datetime import date
         chain = await self.cache.get_option_chain_with_fallback("SPX", max_age_seconds=60)
 
@@ -117,12 +134,152 @@ class ToolHandlers:
                 if max_delta is not None and abs_delta > max_delta:
                     continue
                 filtered.append(opt)
-            return filtered
+            chain = filtered
+
+        if target_credit is not None:
+            chain = sorted(
+                chain,
+                key=lambda o: abs(((o.get("bid", 0) + o.get("ask", 0)) / 2) - target_credit),
+            )
+
         return chain
 
     async def get_5min_candles(self, count: int = 6) -> List[Dict[str, Any]]:
         """Return the last N 5-minute SPX candles."""
         return await self.cache.get_5min_candles("SPX", count=count)
+
+    async def get_expected_move(self) -> Dict[str, Any]:
+        """Return the 0DTE expected daily move derived from the ATM straddle price.
+
+        The ATM straddle (call_mid + put_mid at delta ~0.50) is the market's
+        direct estimate of expected move — no model assumptions needed.
+        It naturally incorporates skew, so put-heavy vol shows up correctly.
+
+        Falls back to IV formula (spx × iv / √252) if straddle price unavailable,
+        then to a conservative hardcoded fallback.
+
+        Returns:
+            {
+                "expected_daily_move": float,   # pts
+                "atm_call_mid": float | None,
+                "atm_put_mid": float | None,
+                "atm_iv": float | None,         # decimal, e.g. 0.18
+                "spx_price": float | None,
+                "source": "straddle" | "iv_formula" | "fallback",
+            }
+        """
+        import math
+
+        spx_price: Optional[float] = None
+        try:
+            quote = await self.get_spx_price()
+            spx_price = quote.get("price")
+        except Exception:
+            pass
+
+        def _mid(opt: Dict) -> Optional[float]:
+            bid, ask = opt.get("bid", 0), opt.get("ask", 0)
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2
+            return None
+
+        # --- Primary: ATM straddle price (delta 0.40-0.60 band) ---
+        for min_d, max_d in [(0.40, 0.60), (0.30, 0.60)]:
+            try:
+                chain = await self.get_option_chain(
+                    expiration="0DTE",
+                    min_delta=min_d,
+                    max_delta=max_d,
+                )
+                calls = [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")]
+                puts  = [o for o in chain if o.get("option_type", "").upper() in ("P", "PUT")]
+                if not calls or not puts:
+                    continue
+
+                best_call = min(calls, key=lambda o: abs(abs(o.get("delta", 0)) - 0.50))
+                best_put  = min(puts,  key=lambda o: abs(abs(o.get("delta", 0)) - 0.50))
+
+                call_mid = _mid(best_call)
+                put_mid  = _mid(best_put)
+
+                if call_mid and put_mid:
+                    expected_move = round(call_mid + put_mid, 2)
+                    atm_iv = best_call.get("iv") or best_call.get("implied_volatility")
+                    logger.info(
+                        "Expected move from straddle: call_mid=%.2f + put_mid=%.2f = %.2f pts",
+                        call_mid, put_mid, expected_move,
+                    )
+                    return {
+                        "expected_daily_move": expected_move,
+                        "atm_call_mid": call_mid,
+                        "atm_put_mid": put_mid,
+                        "atm_iv": float(atm_iv) if atm_iv else None,
+                        "spx_price": spx_price,
+                        "source": "straddle",
+                    }
+            except Exception:
+                continue
+
+        # --- Fallback 1: IV formula ---
+        for min_d, max_d in [(0.40, 0.60), (0.20, 0.60)]:
+            try:
+                chain = await self.get_option_chain(
+                    expiration="0DTE",
+                    min_delta=min_d,
+                    max_delta=max_d,
+                )
+                calls = [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")]
+                if not calls:
+                    continue
+                best = min(calls, key=lambda o: abs(abs(o.get("delta", 0)) - 0.50))
+                iv_raw = best.get("iv") or best.get("implied_volatility")
+                if iv_raw and float(iv_raw) > 0:
+                    atm_iv = float(iv_raw)
+                    price = spx_price or 5500.0
+                    expected_move = round(price * atm_iv / math.sqrt(252), 2)
+                    logger.warning(
+                        "Expected move from IV formula (no straddle prices): iv=%.1f%%, em=%.1f pts",
+                        atm_iv * 100, expected_move,
+                    )
+                    return {
+                        "expected_daily_move": expected_move,
+                        "atm_call_mid": None,
+                        "atm_put_mid": None,
+                        "atm_iv": atm_iv,
+                        "spx_price": spx_price,
+                        "source": "iv_formula",
+                    }
+            except Exception:
+                continue
+
+        # --- Fallback 2: hardcoded conservative IV ---
+        if spx_price:
+            fallback_iv = 0.15
+            expected_move = round(spx_price * fallback_iv / math.sqrt(252), 2)
+            logger.warning(
+                "Expected move hardcoded fallback: iv=15%%, em=%.1f pts", expected_move,
+            )
+            return {
+                "expected_daily_move": expected_move,
+                "atm_call_mid": None,
+                "atm_put_mid": None,
+                "atm_iv": fallback_iv,
+                "spx_price": spx_price,
+                "source": "fallback",
+            }
+
+        return {
+            "expected_daily_move": None,
+            "atm_call_mid": None,
+            "atm_put_mid": None,
+            "atm_iv": None,
+            "spx_price": None,
+            "source": "unavailable",
+        }
+
+    async def get_atm_iv(self) -> Dict[str, Any]:
+        """Alias for get_expected_move() — kept for backwards compatibility."""
+        return await self.get_expected_move()
 
     async def get_account_info(self) -> Dict[str, Any]:
         """Return current account info."""
@@ -306,3 +463,368 @@ class ToolHandlers:
             return self._manual_order_result("cancel_order", {"order_id": order_id, "status": "would_cancel"})
 
         return await self.api_client.cancel_order(order_id)
+
+    # -------------------------------------------------------------------------
+    # Quantification / pre-flight tools
+    # -------------------------------------------------------------------------
+
+    async def validate_ic_params(
+        self,
+        short_call_strike: float,
+        long_call_strike: float,
+        short_put_strike: float,
+        long_put_strike: float,
+    ) -> Dict[str, Any]:
+        """Pre-flight check of IC parameters against live chain data and strategy rules.
+
+        Checks (in order):
+          1. Strike ordering
+          2. Wing width symmetry
+          3. Short strike delta within target range
+          4. Per-side credit within target range
+          5. Credit equality within threshold
+        Returns a summary dict with pass/fail per check and an overall valid flag.
+        """
+        checks: List[Dict[str, Any]] = []
+        all_pass = True
+
+        def fail(name: str, detail: str) -> Dict[str, Any]:
+            nonlocal all_pass
+            all_pass = False
+            return {"check": name, "passed": False, "detail": detail}
+
+        def ok(name: str, detail: str) -> Dict[str, Any]:
+            return {"check": name, "passed": True, "detail": detail}
+
+        call_width = round(long_call_strike - short_call_strike, 2)
+        put_width = round(short_put_strike - long_put_strike, 2)
+
+        if call_width <= 0:
+            checks.append(fail("strike_order_call", f"long_call {long_call_strike} must be > short_call {short_call_strike}"))
+        else:
+            checks.append(ok("strike_order_call", f"call wing width={call_width}pts"))
+
+        if put_width <= 0:
+            checks.append(fail("strike_order_put", f"short_put {short_put_strike} must be > long_put {long_put_strike}"))
+        else:
+            checks.append(ok("strike_order_put", f"put wing width={put_width}pts"))
+
+        if call_width > 0 and put_width > 0:
+            width_diff = abs(call_width - put_width)
+            if width_diff > 5:
+                checks.append(fail(
+                    "wing_width_symmetry",
+                    f"call_width={call_width}pts vs put_width={put_width}pts (diff={width_diff}pts, max allowed=5pts)",
+                ))
+            else:
+                checks.append(ok("wing_width_symmetry", f"call_width={call_width}pts, put_width={put_width}pts"))
+
+        chain = await self.get_option_chain(expiration="0DTE")
+        chain_by_strike: Dict[tuple, Dict] = {
+            (float(o.get("strike", 0)), o.get("option_type", "").lower()): o for o in chain
+        }
+
+        def _mid(opt: Optional[Dict]) -> Optional[float]:
+            if not opt:
+                return None
+            bid, ask = opt.get("bid", 0), opt.get("ask", 0)
+            if bid <= 0 or ask <= 0:
+                return None
+            return round((bid + ask) / 2, 4)
+
+        sc_opt = chain_by_strike.get((short_call_strike, "call"))
+        sp_opt = chain_by_strike.get((short_put_strike, "put"))
+
+        for label, opt, strike in [("short_call", sc_opt, short_call_strike), ("short_put", sp_opt, short_put_strike)]:
+            if opt is None:
+                checks.append(fail(f"chain_data_{label}", f"Strike {strike} not found in live chain"))
+                continue
+            delta = abs(opt.get("delta", 0))
+            if delta < self.min_short_delta or delta > self.max_short_delta:
+                checks.append(fail(
+                    f"delta_{label}",
+                    f"delta={delta:.3f} outside target [{self.min_short_delta},{self.max_short_delta}]",
+                ))
+            else:
+                checks.append(ok(f"delta_{label}", f"delta={delta:.3f}"))
+
+        call_credit: Optional[float] = None
+        put_credit: Optional[float] = None
+
+        lc_opt = chain_by_strike.get((long_call_strike, "call"))
+        lp_opt = chain_by_strike.get((long_put_strike, "put"))
+
+        if sc_opt and lc_opt:
+            sc_mid = _mid(sc_opt)
+            lc_mid = _mid(lc_opt)
+            if sc_mid is not None and lc_mid is not None:
+                call_credit = round(sc_mid - lc_mid, 4)
+                if call_credit < self.min_side_credit or call_credit > self.max_side_credit:
+                    checks.append(fail(
+                        "call_credit_range",
+                        f"call credit=${call_credit:.2f} outside target [${self.min_side_credit:.2f},${self.max_side_credit:.2f}]",
+                    ))
+                else:
+                    checks.append(ok("call_credit_range", f"call credit=${call_credit:.2f}"))
+            else:
+                checks.append(fail("call_credit_range", "Cannot compute call credit — zero bid/ask in chain"))
+        else:
+            checks.append(fail("call_credit_range", f"Missing chain data for call legs ({short_call_strike}/{long_call_strike})"))
+
+        if sp_opt and lp_opt:
+            sp_mid = _mid(sp_opt)
+            lp_mid = _mid(lp_opt)
+            if sp_mid is not None and lp_mid is not None:
+                put_credit = round(sp_mid - lp_mid, 4)
+                if put_credit < self.min_side_credit or put_credit > self.max_side_credit:
+                    checks.append(fail(
+                        "put_credit_range",
+                        f"put credit=${put_credit:.2f} outside target [${self.min_side_credit:.2f},${self.max_side_credit:.2f}]",
+                    ))
+                else:
+                    checks.append(ok("put_credit_range", f"put credit=${put_credit:.2f}"))
+            else:
+                checks.append(fail("put_credit_range", "Cannot compute put credit — zero bid/ask in chain"))
+        else:
+            checks.append(fail("put_credit_range", f"Missing chain data for put legs ({short_put_strike}/{long_put_strike})"))
+
+        if call_credit is not None and put_credit is not None:
+            credit_diff = abs(call_credit - put_credit)
+            if credit_diff > self.credit_equality_threshold:
+                checks.append(fail(
+                    "credit_equality",
+                    f"|call_credit - put_credit|=${credit_diff:.2f} exceeds threshold=${self.credit_equality_threshold:.2f} "
+                    f"(call=${call_credit:.2f}, put=${put_credit:.2f})",
+                ))
+            else:
+                checks.append(ok(
+                    "credit_equality",
+                    f"|call_credit - put_credit|=${credit_diff:.2f} within threshold=${self.credit_equality_threshold:.2f} "
+                    f"(call=${call_credit:.2f}, put=${put_credit:.2f})",
+                ))
+
+        return {
+            "valid": all_pass,
+            "credit_equality_threshold": self.credit_equality_threshold,
+            "call_credit": call_credit,
+            "put_credit": put_credit,
+            "call_width": call_width,
+            "put_width": put_width,
+            "checks": checks,
+        }
+
+    async def get_premium_balance_candidates(
+        self,
+        target_credit_per_side: Optional[float] = None,
+        wing_width: int = 30,
+        max_results: int = 5,
+    ) -> Dict[str, Any]:
+        """Search the live 0DTE chain for IC configurations balanced within credit_equality_threshold.
+
+        Tries wing widths of [wing_width-5, wing_width, wing_width+5] and returns
+        candidates ranked by |call_credit - put_credit|.
+        """
+        if target_credit_per_side is None:
+            target_credit_per_side = round((self.min_side_credit + self.max_side_credit) / 2, 2)
+
+        # Search ±0.05 beyond the strict validator delta range so boundary strikes
+        # aren't missed (e.g. a 0.169 delta call when market is at range edge).
+        # The credit range filter below does the real tightening.
+        search_min_delta = max(0.01, self.min_short_delta - 0.05)
+        search_max_delta = self.max_short_delta + 0.05
+        chain = await self.get_option_chain(
+            expiration="0DTE",
+            min_delta=search_min_delta,
+            max_delta=search_max_delta,
+        )
+        if not chain:
+            return {"error": "No chain data available in target delta range", "candidates": []}
+
+        calls = sorted(
+            [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")],
+            key=lambda o: o.get("strike", 0),
+        )
+        puts = sorted(
+            [o for o in chain if o.get("option_type", "").upper() in ("P", "PUT")],
+            key=lambda o: o.get("strike", 0),
+            reverse=True,
+        )
+
+        full_chain = await self.get_option_chain(expiration="0DTE")
+        chain_by_strike: Dict[tuple, Dict] = {
+            (float(o.get("strike", 0)), o.get("option_type", "").lower()): o for o in full_chain
+        }
+
+        def _mid(opt: Optional[Dict]) -> Optional[float]:
+            if not opt:
+                return None
+            bid, ask = opt.get("bid", 0), opt.get("ask", 0)
+            if bid <= 0 or ask <= 0:
+                return None
+            return round((bid + ask) / 2, 4)
+
+        widths_to_try = sorted({max(5, wing_width - 5), wing_width, wing_width + 5})
+        candidates: List[Dict[str, Any]] = []
+
+        for sc in calls:
+            sc_mid = _mid(sc)
+            if sc_mid is None:
+                continue
+            sc_strike = float(sc.get("strike", 0))
+
+            for sp in puts:
+                sp_mid = _mid(sp)
+                if sp_mid is None:
+                    continue
+                sp_strike = float(sp.get("strike", 0))
+
+                for w in widths_to_try:
+                    lc_strike = sc_strike + w
+                    lp_strike = sp_strike - w
+
+                    lc_opt = chain_by_strike.get((lc_strike, "call"))
+                    lp_opt = chain_by_strike.get((lp_strike, "put"))
+                    if lc_opt is None or lp_opt is None:
+                        continue
+
+                    lc_mid = _mid(lc_opt)
+                    lp_mid = _mid(lp_opt)
+                    if lc_mid is None or lp_mid is None:
+                        continue
+
+                    call_credit = round(sc_mid - lc_mid, 4)
+                    put_credit = round(sp_mid - lp_mid, 4)
+
+                    if call_credit < self.min_side_credit or call_credit > self.max_side_credit:
+                        continue
+                    if put_credit < self.min_side_credit or put_credit > self.max_side_credit:
+                        continue
+
+                    credit_diff = abs(call_credit - put_credit)
+                    if credit_diff > self.credit_equality_threshold:
+                        continue
+
+                    candidates.append({
+                        "short_call_strike": sc_strike,
+                        "long_call_strike": lc_strike,
+                        "short_put_strike": sp_strike,
+                        "long_put_strike": lp_strike,
+                        "wing_width": w,
+                        "call_credit": call_credit,
+                        "put_credit": put_credit,
+                        "total_credit": round(call_credit + put_credit, 4),
+                        "credit_diff": round(credit_diff, 4),
+                        "call_delta": round(abs(sc.get("delta", 0)), 4),
+                        "put_delta": round(abs(sp.get("delta", 0)), 4),
+                    })
+
+        candidates.sort(key=lambda c: c["credit_diff"])
+        candidates = candidates[:max_results]
+
+        top = candidates[0] if candidates else None
+        place_instruction = (
+            f"Place iron condor: short_call={top['short_call_strike']}, "
+            f"long_call={top['long_call_strike']}, "
+            f"short_put={top['short_put_strike']}, "
+            f"long_put={top['long_put_strike']}. "
+            f"Expected call credit ${top['call_credit']:.2f}, "
+            f"put credit ${top['put_credit']:.2f}, "
+            f"total ${top['total_credit']:.2f}."
+            if top else "No balanced configuration found. Accept lower put credit per strategy rules."
+        )
+
+        return {
+            "target_credit_per_side": target_credit_per_side,
+            "credit_equality_threshold": self.credit_equality_threshold,
+            "wing_widths_tried": widths_to_try,
+            "candidates_found": len(candidates),
+            "top_candidate": top,
+            "place_instruction": place_instruction,
+            "candidates": candidates,
+        }
+
+    async def get_skew_snapshot(self, delta_target: float = 0.12) -> Dict[str, Any]:
+        """Return put/call skew metrics at the target delta band.
+
+        Measures:
+          - call_iv / put_iv ratio at the target delta
+          - call_credit / put_credit ratio at the target delta
+          - verdict: 'within_threshold' or 'skew_too_high'
+        """
+        band = 0.03
+        chain = await self.get_option_chain(
+            expiration="0DTE",
+            min_delta=max(0.01, delta_target - band),
+            max_delta=delta_target + band,
+        )
+        if not chain:
+            return {"error": "No chain data in target delta range", "verdict": "unknown"}
+
+        calls = [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")]
+        puts = [o for o in chain if o.get("option_type", "").upper() in ("P", "PUT")]
+
+        def _closest(opts: List[Dict], target: float) -> Optional[Dict]:
+            if not opts:
+                return None
+            return min(opts, key=lambda o: abs(abs(o.get("delta", 0)) - target))
+
+        best_call = _closest(calls, delta_target)
+        best_put = _closest(puts, delta_target)
+
+        if best_call is None or best_put is None:
+            return {"error": "Insufficient call or put data at target delta", "verdict": "unknown"}
+
+        call_iv = best_call.get("iv") or best_call.get("implied_volatility")
+        put_iv = best_put.get("iv") or best_put.get("implied_volatility")
+
+        def _mid(opt: Dict) -> Optional[float]:
+            bid, ask = opt.get("bid", 0), opt.get("ask", 0)
+            if bid <= 0 or ask <= 0:
+                return None
+            return round((bid + ask) / 2, 4)
+
+        call_credit = _mid(best_call)
+        put_credit = _mid(best_put)
+
+        iv_ratio: Optional[float] = None
+        credit_ratio: Optional[float] = None
+
+        if call_iv and put_iv and call_iv > 0:
+            iv_ratio = round(put_iv / call_iv, 4)
+
+        if call_credit and put_credit and call_credit > 0:
+            credit_ratio = round(put_credit / call_credit, 4)
+
+        skew_ratio = iv_ratio if iv_ratio is not None else credit_ratio
+        verdict: str
+        if skew_ratio is None:
+            verdict = "unknown"
+        elif skew_ratio <= self.skew_threshold:
+            verdict = "balanced"
+        else:
+            verdict = "skewed_use_candidates"
+
+        return {
+            "delta_target": delta_target,
+            "skew_threshold": self.skew_threshold,
+            "call_strike": best_call.get("strike"),
+            "call_delta": round(abs(best_call.get("delta", 0)), 4),
+            "call_iv": call_iv,
+            "call_credit": call_credit,
+            "put_strike": best_put.get("strike"),
+            "put_delta": round(abs(best_put.get("delta", 0)), 4),
+            "put_iv": put_iv,
+            "put_credit": put_credit,
+            "iv_ratio": iv_ratio,
+            "credit_ratio": credit_ratio,
+            "skew_ratio_used": skew_ratio,
+            "verdict": verdict,
+            "action_hint": (
+                "Proceed with entry. Standard wing widths should work."
+                if verdict == "balanced"
+                else "Call get_premium_balance_candidates to find adjusted wing widths "
+                     "that bring both sides within the credit equality threshold. "
+                     "If no balanced config exists, prioritize call-side premium and "
+                     "accept a lower put credit per strategy rules."
+            ),
+        }

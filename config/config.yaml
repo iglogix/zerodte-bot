@@ -13,10 +13,8 @@ bot:
 
 # LLM Configuration
 llm:
-  primary_model: "anthropic/claude-sonnet-4-5"       # Primary decision maker
-  validator_model: "openai/gpt-5.2"                 # Virgin eyes validator
-  max_iterations: 10                   # Max tool loop iterations
-  timeout_seconds: 30                  # LLM response timeout
+  advisor_model: "anthropic/claude-haiku-4-5"        # Anomaly detector + regime classifier (fast/cheap)
+  debrief_model: "anthropic/claude-sonnet-4-5"       # EOD debrief + nightly tuner
 
 # Entry Schedule (Eastern Time)
 entry:
@@ -28,7 +26,33 @@ entry:
     - "13:15"
     - "14:15"
     - "15:15"
-  stability_candles: 3  # Consecutive 5-min candles at same level (read by LLM from bot_prompt.md)
+  # Volatility-relative stability thresholds (fractions of today's expected daily move).
+  # Expected daily move = SPX_price × ATM_IV / sqrt(252), derived live from the option chain.
+  # Example at SPX=6900, IV=18%: expected_move ≈ 78pts
+  #   stability_fraction 0.15  → last 3 candles must stay within ~11.7pts
+  #   single_candle_fraction 0.10 → last candle must be < ~7.8pts
+  # Falls back to fallback_stability_pts if IV is unavailable.
+  stability_fraction: 0.15       # Max range of last 3 closes as fraction of expected daily move
+  single_candle_fraction: 0.10   # Max single-candle move as fraction of expected daily move
+  fallback_stability_pts: 8.0    # Absolute fallback threshold (pts) when IV is unavailable
+
+# Strategy Thresholds
+# These are passed to the AI's quantification tools so it can reason about
+# acceptable ranges rather than requiring exact equality.
+strategy:
+  # Maximum allowed difference between call-side and put-side credit (dollars).
+  # e.g. 0.20 means call credit and put credit may differ by up to $20 per contract.
+  credit_equality_threshold: 0.20
+  # Maximum put/call IV skew ratio that still allows entry.
+  # e.g. 1.15 means put-wing IV may be up to 15% higher than call-wing IV.
+  skew_threshold: 1.15
+  # Target delta range for short strikes
+  min_short_delta: 0.10
+  max_short_delta: 0.15
+  # Target credit range per side (dollars per contract)
+  # 10-15 delta SPX 0DTE credits typically range $0.50-$2.00 depending on IV/skew
+  min_side_credit: 0.50
+  max_side_credit: 2.50
 
 # Risk Management
 risk:
@@ -48,9 +72,11 @@ stop_loss:
   stop_market_gap: 30  # Additional points for backup stop
 
 # Cache TTL (seconds)
+# option_chain and quote are in-memory only — short TTL deduplicates calls
+# within a single LLM loop without serving stale prices across cycles.
 cache:
-  option_chain_ttl: 60
-  quote_ttl: 60
+  option_chain_ttl: 10
+  quote_ttl: 10
   account_info_ttl: 60
 
 # Notifications

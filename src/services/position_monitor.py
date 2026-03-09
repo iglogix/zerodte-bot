@@ -44,6 +44,7 @@ class PositionMonitor:
         take_profit_threshold: float = 0.05,
         eod_close_time: time = _MARKET_CLOSE,
         mode: str = "dry_run",
+        eod_debrief=None,
     ):
         self.db = db
         self.cache = cache
@@ -55,8 +56,10 @@ class PositionMonitor:
         self.take_profit_threshold = take_profit_threshold
         self.eod_close_time = eod_close_time
         self.mode = mode
+        self.eod_debrief = eod_debrief
         self._running = False
         self._stop_filled_symbols: set = set()  # symbols confirmed filled via WS
+        self._eod_debrief_done: bool = False  # fire once per session
 
     # -------------------------------------------------------------------------
     # Main loop
@@ -319,6 +322,15 @@ class PositionMonitor:
                     "reason": "eod_forced_close",
                     "result": result,
                 })
+
+        # Fire EOD debrief once per session after all positions closed
+        if self.eod_debrief and not self._eod_debrief_done:
+            self._eod_debrief_done = True
+            logger.info("[EOD] Running EOD debrief...")
+            try:
+                await self.eod_debrief.run()
+            except Exception:
+                logger.exception("[EOD] Debrief failed")
 
     async def _mark_expired(self, trades: List[Dict[str, Any]]):
         """Mark any remaining open trades as expired after 4:15 ET."""

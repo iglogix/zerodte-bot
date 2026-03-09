@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, time as dt_time
 from typing import Any, Dict, List, Optional
 
 from src.models.database import (
@@ -63,6 +63,17 @@ class DatabaseService:
             session.add(trade)
             session.flush()
             return self._trade_to_dict(trade)
+
+    async def get_all_trades_for_date(self, session_date: date) -> List[Dict[str, Any]]:
+        with self._session() as session:
+            start = datetime.combine(session_date, dt_time(0, 0, 0))
+            end = datetime.combine(session_date, dt_time(23, 59, 59))
+            trades = (
+                session.query(IronCondorTrade)
+                .filter(IronCondorTrade.entry_time >= start, IronCondorTrade.entry_time <= end)
+                .all()
+            )
+            return [self._trade_to_dict(t) for t in trades]
 
     async def update_trade(self, trade_id: str, updates: Dict[str, Any]) -> bool:
         with self._session() as session:

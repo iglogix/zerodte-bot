@@ -173,6 +173,23 @@ class TastyTradeClient:
             "Content-Type": "application/json",
         }
 
+    def _market_http_and_url(self):
+        """Return (http_session, base_url) that are guaranteed to match.
+
+        In sandbox mode, if the production market data session opened successfully
+        (_market_http is set), return the production http+url pair.
+        Otherwise fall back to the sandbox http+url so the token always matches
+        the endpoint — preventing a 401 from sending a sandbox token to production.
+        """
+        if self._market_http is not None:
+            return self._market_http, self._market_data_url
+        if self.mode == "sandbox" and self._market_data_url != self.base_url:
+            logger.warning(
+                "Production market data session unavailable — falling back to sandbox URL. "
+                "Set TASTYTRADE_CLIENT_SECRET + TASTYTRADE_REFRESH_TOKEN for live market data in sandbox mode."
+            )
+        return self._http, self.base_url
+
     async def _authenticate_via_http(self):
         """
         Raw OAuth2 refresh-token exchange when SDK is not installed.
@@ -253,8 +270,7 @@ class TastyTradeClient:
 
     async def _get_quote_via_rest(self, symbol: str) -> Dict[str, Any]:
         """REST fallback for quotes."""
-        http = self._market_http or self._http
-        base = self._market_data_url
+        http, base = self._market_http_and_url()
         hdrs = self._market_headers()
         async with http.get(
             f"{base}/market-data/quotes/{symbol}",
@@ -278,8 +294,7 @@ class TastyTradeClient:
         In sandbox mode, reads from production API (cert has no live feed).
         """
         today = date.today().strftime("%Y-%m-%d")
-        http = self._market_http or self._http
-        base = self._market_data_url
+        http, base = self._market_http_and_url()
         async with http.get(
             f"{base}/option-chains/{symbol}/nested",
             headers=self._market_headers(),
@@ -292,6 +307,8 @@ class TastyTradeClient:
         for chain in data.get("data", {}).get("items", []):
             for expiration in chain.get("expirations", []):
                 exp_date = expiration.get("expiration-date", "")
+                if exp_date != today:
+                    continue
                 for strike in expiration.get("strikes", []):
                     strike_price = float(strike.get("strike-price", 0))
                     for side in ["call", "put"]:

@@ -184,19 +184,7 @@ class TradingAgent:
                 if cycle:
                     cycle.add_tool_call(tool_name, args, result, duration_ms)
 
-                # Truncate large payloads (option chains) to avoid context overflow.
-                # The full result is logged to DB; the LLM only needs near-ATM enriched strikes.
-                if tool_name == "get_option_chain" and isinstance(result, list) and len(result) > 30:
-                    enriched = [s for s in result if s.get("bid", 0) > 0]
-                    # Sort by absolute delta proximity to 0.10-0.15 target
-                    enriched.sort(key=lambda s: abs(abs(s.get("delta", 0)) - 0.12))
-                    summary = enriched[:30]
-                    tool_content = json.dumps(
-                        {"items": summary, "total_count": len(result), "enriched_count": len(enriched)},
-                        default=str,
-                    )
-                else:
-                    tool_content = json.dumps(result, default=str)
+                tool_content = json.dumps(result, default=str)
 
                 messages.append({
                     "role": "tool",
