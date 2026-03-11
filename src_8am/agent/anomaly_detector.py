@@ -19,6 +19,9 @@ class OrbAnomalyDetector:
     def __init__(self, config: Dict[str, Any]):
         self._config = config
         self._risk = config.get("risk", {})
+        orb_filter = config.get("strategy", {}).get("orb_range_filter", {})
+        self._min_range_pts: float = orb_filter.get("min_pts", 2.0)
+        self._max_range_pts: float = orb_filter.get("max_pts", 30.0)
 
     async def check(
         self,
@@ -36,9 +39,9 @@ class OrbAnomalyDetector:
 
         if orb_levels:
             range_pts = orb_levels.get("range_pts", 0)
-            if range_pts < 2.0:
+            if range_pts < self._min_range_pts:
                 reasons.append(f"orb_range_too_narrow_{range_pts:.1f}pts")
-            if range_pts > 30.0:
+            if range_pts > self._max_range_pts:
                 reasons.append(f"orb_range_too_wide_{range_pts:.1f}pts")
 
         if account_info:

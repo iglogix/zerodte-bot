@@ -30,6 +30,7 @@ class OrbOptionsService:
         self._cfg = config
         self._opt_cfg = config.get("options", {})
         self._strategy_cfg = config.get("strategy", {})
+        self._product_code: str = config.get("bot", {}).get("symbol", "ES")
 
         self._spread_width: float = self._opt_cfg.get("spread_width_pts", 5.0)
         self._target_delta: float = self._opt_cfg.get("target_short_delta", 0.16)
@@ -37,25 +38,28 @@ class OrbOptionsService:
         self._min_credit: float = self._opt_cfg.get("min_credit_per_spread", 0.50)
         self._tp_pct: float = self._opt_cfg.get("tp_pct_of_credit", 0.50)
         self._sl_mult: float = self._opt_cfg.get("sl_mult_of_credit", 2.0)
+        self._atm_filter_width: float = self._opt_cfg.get("atm_filter_width_pts", 150.0)
 
     # -------------------------------------------------------------------------
     # Option chain
     # -------------------------------------------------------------------------
 
-    async def get_0dte_chain(self, spx_price: float) -> List[Dict[str, Any]]:
+    async def get_0dte_chain(self, underlying_price: float) -> List[Dict[str, Any]]:
         """
-        Fetch SPX 0DTE option chain filtered to near-ATM strikes (±150 pts).
+        Fetch ES 0DTE futures option chain filtered to near-ATM strikes (±150 pts).
         Returns list enriched with bid/ask/delta.
         """
         try:
-            chain = await self._tt.get_option_chain("SPX")
+            chain = await self._tt.get_future_option_chain(
+                self._product_code, underlying_price=underlying_price
+            )
             today = date.today().isoformat()
             chain = [o for o in chain if str(o.get("expiration", "")).startswith(today)]
-            if spx_price:
-                chain = [o for o in chain if abs(o.get("strike", 0) - spx_price) <= 150]
+            if underlying_price:
+                chain = [o for o in chain if abs(o.get("strike", 0) - underlying_price) <= self._atm_filter_width]
             return chain
         except Exception:
-            logger.exception("Failed to fetch SPX 0DTE chain")
+            logger.exception("Failed to fetch %s 0DTE chain", self._product_code)
             return []
 
     # -------------------------------------------------------------------------
@@ -240,9 +244,11 @@ class OrbOptionsService:
             "expiration": date.today().isoformat(),
         }
 
-    @staticmethod
-    def _build_symbol(side: str, strike: float) -> str:
-        """Build a SPXW OCC symbol for today's expiry."""
+    def _build_symbol(self, side: str, strike: float) -> str:
+        """Build a futures option symbol for today's expiry.
+        Uses the option_root from config (default 'EW' for ES weekly options).
+        """
+        option_root = self._opt_cfg.get("option_root", "EW")
         today = date.today().strftime("%y%m%d")
         strike_int = int(strike)
-        return f"SPXW{today}{side}{strike_int:08d}"
+        return f"{option_root}{today}{side}{strike_int:08d}"

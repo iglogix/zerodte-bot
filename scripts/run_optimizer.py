@@ -123,6 +123,18 @@ def main():
               f"WR={full_report.get('win_rate', 0)*100:.1f}%  "
               f"total_pnl=${full_report.get('total_pnl_usd', 0):,.0f}")
 
+    # -----------------------------------------------------------------------
+    # 5. Save optimized params to config file
+    # -----------------------------------------------------------------------
+    if best_params:
+        opt_path = str(out_dir / "optimized_params.yaml")
+        opt.save_optimized_config(
+            best_params,
+            oos_report=oos_report,
+            fold_results=fold_results,
+            output_path=opt_path,
+        )
+
 
 if __name__ == "__main__":
     main()

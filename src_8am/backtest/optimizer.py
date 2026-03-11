@@ -24,8 +24,11 @@ import multiprocessing
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import yaml
 
 from src_8am.backtest.options_engine import OrbOptionsBacktestEngine
 from src_8am.backtest.options_report import generate_options_report
@@ -552,6 +555,72 @@ class GridSearchOptimizer:
                   f"total_pnl=${oos_report.get('total_pnl_usd', 0):,.0f}  "
                   f"maxDD=${oos_report.get('max_dd_usd', 0):,.0f}")
         print(sep)
+
+    # -----------------------------------------------------------------------
+    # Save optimized config
+    # -----------------------------------------------------------------------
+
+    def save_optimized_config(
+        self,
+        best_params: Dict[str, Any],
+        oos_report: Optional[Dict[str, Any]] = None,
+        fold_results: Optional[List[Dict[str, Any]]] = None,
+        output_path: str = "config/optimized_params.yaml",
+    ):
+        """Write winning params to a YAML config file for the live bot."""
+        now_str = datetime.now().isoformat(timespec="seconds")
+
+        # Map grid params back to config structure
+        strategy_cfg = {
+            "midline_tolerance_pts": best_params.get("midline_tolerance"),
+            "orb_range_filter": {
+                "min_pts": best_params.get("min_orb_range_pts"),
+            },
+        }
+        options_cfg = {
+            "target_short_delta": best_params.get("target_short_delta"),
+            "spread_width_pts": best_params.get("spread_width_pts"),
+            "tp_pct_of_credit": best_params.get("tp_pct_of_credit"),
+        }
+
+        dump_data: Dict[str, Any] = {
+            "optimized_at": now_str,
+            "strategy": strategy_cfg,
+            "options": options_cfg,
+        }
+
+        if oos_report:
+            pf = oos_report.get("profit_factor", 0)
+            dump_data["_oos_metrics"] = {
+                "sharpe": round(oos_report.get("sharpe", 0), 2),
+                "win_rate": round(oos_report.get("win_rate", 0), 4),
+                "profit_factor": round(float(pf), 2),
+                "trades": oos_report.get("trades", 0),
+                "total_pnl_usd": round(
+                    oos_report.get("total_pnl_usd", 0), 2
+                ),
+                "max_dd_usd": round(
+                    oos_report.get("max_dd_usd", 0), 2
+                ),
+            }
+
+        if fold_results:
+            dump_data["_cv_folds"] = len(fold_results)
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(
+                "# Optimized parameters from walk-forward CV\n"
+                f"# Generated: {now_str}\n"
+                "# Apply to config_8am_options.yaml or "
+                "load as override\n\n"
+            )
+            yaml.dump(
+                dump_data, f,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+        print(f"Optimized params saved -> {output_path}")
 
     # -----------------------------------------------------------------------
     # Output

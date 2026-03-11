@@ -116,9 +116,11 @@ class ToolHandlers:
         from datetime import date
         chain = await self.cache.get_option_chain_with_fallback("SPX", max_age_seconds=60)
 
-        # Always filter to today's expiry (0DTE) — the full chain spans all expirations
-        today = date.today().isoformat()
-        chain = [opt for opt in chain if str(opt.get("expiration", "")).startswith(today)]
+        # Filter to today's expiry (0DTE) if options have expiration data
+        has_expiration = any(opt.get("expiration") for opt in chain)
+        if has_expiration:
+            today = date.today().isoformat()
+            chain = [opt for opt in chain if str(opt.get("expiration", "")).startswith(today)]
 
         # Only keep enriched strikes (bid > 0 means Greeks were fetched)
         enriched = [opt for opt in chain if opt.get("bid", 0) > 0]

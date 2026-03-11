@@ -95,7 +95,7 @@ class OrbOptionsBotOrchestrator:
             self._tt_client = TastyTradeClient(mode=self.mode)
             await self._tt_client.connect()
         else:
-            self._tt_client = _DryRunTTClient()
+            self._tt_client = _DryRunTTClient(config=self.config)
 
         self._market_data = OrbMarketData(tt_client=self._tt_client, config=self.config)
         self._options_service = OrbOptionsService(tt_client=self._tt_client, config=self.config)
@@ -184,10 +184,12 @@ class _DryRunTTClient:
     All prices are synthetic but use realistic Black-Scholes calculations.
     """
 
-    def __init__(self):
-        self._base_price = 5500.0  # Base ES/SPX price
+    def __init__(self, config: Dict[str, Any] = None):
+        self._config = config or {}
+        self._base_price = 5500.0  # Base ES price
         self._price_drift = 0.0    # Accumulated price drift for simulation
         self._last_candle_time = None
+        self._option_root = self._config.get("options", {}).get("option_root", "EW")
 
     async def connect(self): pass
     async def disconnect(self): pass
@@ -281,8 +283,8 @@ class _DryRunTTClient:
     # Options chain methods required by OrbOptionsService
     # -------------------------------------------------------------------------
 
-    async def get_option_chain(self, symbol: str):
-        """Return a synthetic SPX chain for dry-run testing with realistic BS deltas."""
+    async def get_future_option_chain(self, product_code: str, underlying_price: float = 0.0):
+        """Return a synthetic ES chain for dry-run testing with realistic BS deltas."""
         import math
         from datetime import date as dt_date
 
@@ -297,39 +299,44 @@ class _DryRunTTClient:
 
         today = dt_date.today().isoformat()
         dt_str = today.replace("-", "")[2:]
-        spx = 5500.0
-        iv = 0.15        # ~15% IV typical for 0DTE SPX
+        base = underlying_price if underlying_price > 0 else self._base_price
+        iv = self._config.get("options", {}).get("assumed_iv", 0.15)
+        step = int(self._config.get("options", {}).get("strike_step_pts", 5))
+        atm_width = int(self._config.get("options", {}).get("atm_filter_width_pts", 150))
         t = 2.0 / 252    # ~2h remaining post-09:30 (realistic for entry window)
         sqrt_t = math.sqrt(t)
         chain = []
 
-        for strike in range(5200, 5800, 5):
+        lo = int(base - atm_width * 2)
+        hi = int(base + atm_width * 2)
+        for strike in range(lo, hi, step):
             k = float(strike)
             # BS d1 for call delta
-            d1 = (math.log(spx / k) + 0.5 * iv * iv * t) / (iv * sqrt_t)
+            d1 = (math.log(base / k) + 0.5 * iv * iv * t) / (iv * sqrt_t)
             call_delta = round(_ncdf(d1), 4)
             put_delta = round(call_delta - 1.0, 4)
 
             # BS call/put prices: C = S*N(d1) - K*N(d2), P = K*N(-d2) - S*N(-d1)
             d2 = d1 - iv * sqrt_t
-            call_mid = max(0.05, spx * _ncdf(d1) - k * _ncdf(d2))
-            put_mid = max(0.05, k * _ncdf(-d2) - spx * _ncdf(-d1))
+            call_mid = max(0.05, base * _ncdf(d1) - k * _ncdf(d2))
+            put_mid = max(0.05, k * _ncdf(-d2) - base * _ncdf(-d1))
             call_bid = round(call_mid * 0.95, 2)
             put_bid = round(put_mid * 0.95, 2)
 
+            root = self._option_root
             chain.append({
                 "strike": k, "option_type": "call",
                 "bid": call_bid, "ask": round(call_bid + 0.10, 2),
                 "delta": call_delta, "expiration": today,
-                "symbol": f"SPXW{dt_str}C{strike:08d}",
-                "streamer_symbol": f".SPXW{dt_str}C{strike}",
+                "symbol": f"{root}{dt_str}C{strike:08d}",
+                "streamer_symbol": f".{root}{dt_str}C{strike}",
             })
             chain.append({
                 "strike": k, "option_type": "put",
                 "bid": put_bid, "ask": round(put_bid + 0.10, 2),
                 "delta": put_delta, "expiration": today,
-                "symbol": f"SPXW{dt_str}P{strike:08d}",
-                "streamer_symbol": f".SPXW{dt_str}P{strike}",
+                "symbol": f"{root}{dt_str}P{strike:08d}",
+                "streamer_symbol": f".{root}{dt_str}P{strike}",
             })
         return chain
 

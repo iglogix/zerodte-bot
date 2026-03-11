@@ -272,8 +272,9 @@ class TastyTradeClient:
         """REST fallback for quotes."""
         http, base = self._market_http_and_url()
         hdrs = self._market_headers()
+        rest_symbol = symbol.lstrip("/")
         async with http.get(
-            f"{base}/market-data/quotes/{symbol}",
+            f"{base}/market-data/quotes/{rest_symbol}",
             headers=hdrs,
         ) as resp:
             resp.raise_for_status()
@@ -525,6 +526,66 @@ class TastyTradeClient:
 
         return options
 
+    async def get_future_option_chain(
+        self, product_code: str, underlying_price: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """Get 0DTE futures option chain (e.g. ES) with Greeks.
+        Uses /futures-option-chains/{symbol}/nested endpoint.
+        In sandbox mode, reads from production API (cert has no live feed).
+        """
+        today = date.today().strftime("%Y-%m-%d")
+        symbol = product_code.lstrip("/")
+        http, base = self._market_http_and_url()
+        async with http.get(
+            f"{base}/futures-option-chains/{symbol}/nested",
+            headers=self._market_headers(),
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+
+        options = []
+        for subchain in data.get("data", {}).get("option-chains", []):
+            for expiration in subchain.get("expirations", []):
+                exp_date = expiration.get("expiration-date", "")
+                if exp_date != today:
+                    continue
+                for strike in expiration.get("strikes", []):
+                    strike_price = float(strike.get("strike-price", 0))
+                    for side in ["call", "put"]:
+                        sym = strike.get(side, "").strip()
+                        streamer_sym = strike.get(f"{side}-streamer-symbol", "")
+                        if not sym:
+                            continue
+                        options.append({
+                            "symbol": sym,
+                            "streamer_symbol": streamer_sym,
+                            "strike": strike_price,
+                            "option_type": side,
+                            "expiration": exp_date,
+                            "bid": 0.0,
+                            "ask": 0.0,
+                            "last": 0.0,
+                            "volume": 0,
+                            "open_interest": 0,
+                            "delta": 0.0,
+                            "gamma": 0.0,
+                            "theta": 0.0,
+                            "vega": 0.0,
+                            "iv": 0.0,
+                        })
+
+        if not options:
+            return options
+
+        try:
+            options = await self._enrich_option_chain_greeks(
+                options, spx_price=underlying_price
+            )
+        except Exception as exc:
+            logger.warning("Future option chain Greeks enrichment failed: %s", exc)
+
+        return options
+
     async def get_5min_candles(self, symbol: str, count: int = 6) -> List[Dict[str, Any]]:
         """
         Fetch the last N completed 5-minute candles for a symbol via DXLink.
@@ -614,42 +675,67 @@ class TastyTradeClient:
             self._build_leg(f"SPXW{today}P{int(order['long_put_strike'])}", "Buy to Open", qty),
         ]
 
+        credit = order.get("credit", 0)
         payload = {
             "time-in-force": "Day",
-            "order-type": "Net Credit",
+            "order-type": "Limit",
+            "price": str(credit) if credit else None,
+            "price-effect": "Credit",
             "legs": legs,
         }
+        payload = {k: v for k, v in payload.items() if v is not None}
 
         async with self._http.post(
             f"{self.base_url}/accounts/{self.account_number}/orders",
             headers=self._headers(),
             json=payload,
         ) as resp:
+            if resp.status >= 400:
+                body = await resp.text()
+                logger.error("Iron condor order rejected (%s): %s", resp.status, body)
             resp.raise_for_status()
             data = await resp.json()
             return {"order_id": str(data["data"]["order"]["id"])}
 
     async def _place_credit_spread(self, order: Dict[str, Any]) -> Dict[str, Any]:
-        today = date.today().strftime("%y%m%d")
         qty = order.get("quantity", 1)
-        side = "C" if "call" in order["order_type"] else "P"
+
+        # Use explicit symbols if provided (futures options), else build SPXW symbols
+        if "short_symbol" in order and "long_symbol" in order:
+            short_sym = order["short_symbol"]
+            long_sym = order["long_symbol"]
+            inst_type = order.get("instrument_type", "Future Option")
+        else:
+            today = date.today().strftime("%y%m%d")
+            side = "C" if "call" in order["order_type"] else "P"
+            short_sym = f"SPXW{today}{side}{int(order['short_strike'])}"
+            long_sym = f"SPXW{today}{side}{int(order['long_strike'])}"
+            inst_type = "Equity Option"
 
         legs = [
-            self._build_leg(f"SPXW{today}{side}{int(order['short_strike'])}", "Sell to Open", qty),
-            self._build_leg(f"SPXW{today}{side}{int(order['long_strike'])}", "Buy to Open", qty),
+            self._build_leg(short_sym, "Sell to Open", qty, instrument_type=inst_type),
+            self._build_leg(long_sym, "Buy to Open", qty, instrument_type=inst_type),
         ]
 
+        credit = order.get("credit", 0)
         payload = {
             "time-in-force": "Day",
-            "order-type": "Net Credit",
+            "order-type": "Limit",
+            "price": str(credit) if credit else None,
+            "price-effect": "Credit",
             "legs": legs,
         }
+        # Remove None values
+        payload = {k: v for k, v in payload.items() if v is not None}
 
         async with self._http.post(
             f"{self.base_url}/accounts/{self.account_number}/orders",
             headers=self._headers(),
             json=payload,
         ) as resp:
+            if resp.status >= 400:
+                body = await resp.text()
+                logger.error("Credit spread order rejected (%s): %s", resp.status, body)
             resp.raise_for_status()
             data = await resp.json()
             return {"order_id": str(data["data"]["order"]["id"])}
@@ -738,9 +824,12 @@ class TastyTradeClient:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _build_leg(symbol: str, action: str, quantity: int) -> Dict[str, Any]:
+    def _build_leg(
+        symbol: str, action: str, quantity: int,
+        instrument_type: str = "Equity Option",
+    ) -> Dict[str, Any]:
         return {
-            "instrument-type": "Equity Option",
+            "instrument-type": instrument_type,
             "symbol": symbol,
             "quantity": quantity,
             "action": action,

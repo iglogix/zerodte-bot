@@ -111,23 +111,60 @@ class DualLLMValidator:
             await self._log(result, primary_approval, secondary_approval)
             return result
 
-        primary_action = (primary_approval or {}).get("action", "reject")
-        secondary_action = (secondary_approval or {}).get("action", "reject")
+        p = primary_approval or {}
+        s = secondary_approval or {}
+
+        # Both responses must contain "action" to be valid
+        if "action" not in p or "action" not in s:
+            result = {
+                "execute": False,
+                "agreed": False,
+                "error": True,
+                "error_reason": "One or both LLMs returned invalid response (missing 'action')",
+                "primary_decision": primary_approval,
+                "secondary_decision": secondary_approval,
+            }
+            await self._notify_error(result)
+            await self._log(result, primary_approval, secondary_approval)
+            return result
+
+        primary_action = p["action"]
+        secondary_action = s["action"]
 
         logger.info(
             "Validator: primary=%s reason=%r | secondary=%s reason=%r",
-            primary_action,
-            (primary_approval or {}).get("reasoning", "")[:120],
-            secondary_action,
-            (secondary_approval or {}).get("reasoning", "")[:120],
+            primary_action, p.get("reasoning", "")[:120],
+            secondary_action, s.get("reasoning", "")[:120],
         )
 
-        if primary_action != "approve":
+        # Compare key fields for disagreement
+        _COMPARE_FIELDS = [
+            ("action", "action/entry"),
+            ("timing", "timing"),
+            ("order_sequence", "sequence"),
+            ("stop_loss_amount", "stop-loss"),
+            ("short_call_strike", "strike"),
+            ("long_call_strike", "strike"),
+            ("short_put_strike", "strike"),
+            ("long_put_strike", "strike"),
+        ]
+
+        disagreements = []
+        for field, label in _COMPARE_FIELDS:
+            pv, sv = p.get(field), s.get(field)
+            if pv is not None and sv is not None and pv != sv:
+                disagreements.append((field, label, pv, sv))
+
+        if disagreements:
+            _, label, pv, sv = disagreements[0]
             result = {
                 "execute": False,
                 "agreed": False,
                 "error": False,
-                "disagreement_reason": f"Primary validator rejected: {(primary_approval or {}).get('reasoning', '')[:200]}",
+                "action": primary_action,
+                "disagreement_reason": (
+                    f"LLMs disagree on {label}: primary={pv}, secondary={sv}"
+                ),
                 "primary_decision": primary_approval,
                 "secondary_decision": secondary_approval,
             }
@@ -135,24 +172,17 @@ class DualLLMValidator:
             await self._log(result, primary_approval, secondary_approval)
             return result
 
-        if secondary_action != "approve":
-            result = {
-                "execute": False,
-                "agreed": False,
-                "error": False,
-                "disagreement_reason": f"Secondary validator rejected: {(secondary_approval or {}).get('reasoning', '')[:200]}",
-                "primary_decision": primary_approval,
-                "secondary_decision": secondary_approval,
-            }
-            await self._notify_disagreement(result, primary_approval, secondary_approval)
-            await self._log(result, primary_approval, secondary_approval)
-            return result
-
+        # Both agree on all fields
+        execute = primary_action == "enter_trade"
         result = {
-            "execute": True,
+            "execute": execute,
             "agreed": True,
             "error": False,
-            "action": "approve",
+            "action": primary_action,
+            "timing_agreed": p.get("timing") == s.get("timing") if "timing" in p else True,
+            "order_sequence_agreed": p.get("order_sequence") == s.get("order_sequence") if "order_sequence" in p else True,
+            "order_sequence": p.get("order_sequence"),
+            "stop_loss_agreed": p.get("stop_loss_amount") == s.get("stop_loss_amount") if "stop_loss_amount" in p else True,
             "primary_decision": primary_approval,
             "secondary_decision": secondary_approval,
         }
@@ -168,13 +198,16 @@ class DualLLMValidator:
         messages: Optional[List[Dict[str, Any]]] = None,
         proposed_trade: Optional[Dict[str, Any]] = None,
     ) -> Dict:
+        kwargs: Dict[str, Any] = {
+            "market_data": market_data,
+            "prompt": prompt,
+        }
+        if messages is not None:
+            kwargs["messages"] = messages
+        if proposed_trade is not None:
+            kwargs["proposed_trade"] = proposed_trade
         return await asyncio.wait_for(
-            llm.get_approval(
-                market_data=market_data,
-                prompt=prompt,
-                messages=messages,
-                proposed_trade=proposed_trade,
-            ),
+            llm.get_decision(**kwargs),
             timeout=self.timeout_seconds,
         )
 

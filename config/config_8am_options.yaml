@@ -22,6 +22,7 @@ strategy:
 # Entry trigger: midline retest (same as futures variant)
 # Exit: TP at 50% credit | SL at 200% credit | EOD expire/close
 options:
+  option_root: "EW"               # symbol root for 0DTE options (EW = ES weekly, SPXW = SPX weekly)
   spread_width_pts: 5             # distance between short and long strike
   strike_step_pts: 5              # round strikes to nearest N points (SPX uses 5)
   target_short_delta: 0.16        # ~1-SD OTM target (16-delta)
@@ -29,6 +30,7 @@ options:
   min_credit_per_spread: 0.50     # minimum credit to accept the spread ($50 per contract)
   tp_pct_of_credit: 0.50          # close at 50% of max profit
   sl_mult_of_credit: 2.0          # close at 200% of credit received
+  atm_filter_width_pts: 150       # only consider strikes within ±N pts of current price
   monitor_poll_seconds: 30        # how often to check spread mark price
   assumed_iv: 0.15                # fallback IV if iv_source=fixed or VIX data missing
   # Backtest data sources
@@ -54,7 +56,7 @@ logging:
   log_dir: "logs_8am_options"
 
 market_data:
-  dxlink_symbol: "/ESH26:XCME"   # ES front-month futures (update quarterly: H/M/U/Z, expires 3rd Friday)
+  dxlink_symbol: "auto"   # "auto" = detect front-month, or explicit like "/ESH26:XCME"
 
 # Market constants for Black-Scholes time-to-expiration calculations
 # These vary by product and calendar year

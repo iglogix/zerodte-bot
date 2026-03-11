@@ -5,11 +5,12 @@ for all live ORB market data needs.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, date, time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
+
+from src_8am.utils.contract_utils import get_dxlink_symbol, get_contract_info
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,23 @@ class OrbMarketData:
     def __init__(self, tt_client, config: Dict[str, Any]):
         self._tt = tt_client
         self._config = config
-        self._dxlink_symbol: str = config.get("market_data", {}).get(
-            "dxlink_symbol", "/ESH5:XCME"
-        )
+
+        # Auto-detect front-month contract unless explicitly overridden in config
+        configured_symbol = config.get("market_data", {}).get("dxlink_symbol")
+        if configured_symbol and configured_symbol != "auto":
+            self._dxlink_symbol = configured_symbol
+            logger.info("Using configured DXLink symbol: %s", self._dxlink_symbol)
+        else:
+            self._dxlink_symbol = get_dxlink_symbol()
+            contract_info = get_contract_info()
+            logger.info(
+                "Auto-detected front-month: %s (%s, expires %s, %d days)",
+                self._dxlink_symbol,
+                contract_info["month_name"],
+                contract_info["expiration"],
+                contract_info["days_to_expiry"],
+            )
+
         self._orb_candle_cache: Optional[Dict[str, Any]] = None
         self._orb_candle_date: Optional[date] = None
 

@@ -123,7 +123,7 @@ class OrbOptionsToolHandlers:
 
     async def get_spread_candidates(self) -> Dict[str, Any]:
         """
-        Fetch SPX chain and compute the spread to sell based on current bias.
+        Fetch ES futures option chain and compute the spread to sell based on current bias.
         Returns the spread selection dict (strikes, credit, TP/SL levels).
         """
         start = time.monotonic()
@@ -133,13 +133,13 @@ class OrbOptionsToolHandlers:
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            spx_price = await self._md.get_current_price()
-            if spx_price is None:
-                result = {"error": "no_spx_price"}
+            es_price = await self._md.get_current_price()
+            if es_price is None:
+                result = {"error": "no_underlying_price"}
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            chain = await self._opts.get_0dte_chain(spx_price)
+            chain = await self._opts.get_0dte_chain(es_price)
             if not chain:
                 result = {"error": "empty_option_chain"}
                 await self._log("get_spread_candidates", {}, result, start)
@@ -147,11 +147,11 @@ class OrbOptionsToolHandlers:
 
             if self._breakout_bias == "long":
                 spread = self._opts.select_put_spread(
-                    chain, self._orb_levels["low"], spx_price
+                    chain, self._orb_levels["low"], es_price
                 )
             else:
                 spread = self._opts.select_call_spread(
-                    chain, self._orb_levels["high"], spx_price
+                    chain, self._orb_levels["high"], es_price
                 )
 
             if spread is None:
@@ -159,7 +159,7 @@ class OrbOptionsToolHandlers:
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            result = {**spread, "spx_price": spx_price, "bias": self._breakout_bias}
+            result = {**spread, "underlying_price": es_price, "bias": self._breakout_bias}
             await self._log("get_spread_candidates", {}, result, start)
             return result
         except Exception as exc:
@@ -231,6 +231,10 @@ class OrbOptionsToolHandlers:
                     "order_type": spread_type,
                     "short_strike": spread["short_strike"],
                     "long_strike": spread["long_strike"],
+                    "short_symbol": spread["short_symbol"],
+                    "long_symbol": spread["long_symbol"],
+                    "instrument_type": "Future Option",
+                    "credit": spread.get("credit", 0),
                     "quantity": qty,
                 }
                 raw = await self._tt.place_order(order)
