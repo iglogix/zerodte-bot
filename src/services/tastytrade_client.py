@@ -530,35 +530,31 @@ class TastyTradeClient:
         self, product_code: str, underlying_price: float = 0.0
     ) -> List[Dict[str, Any]]:
         """Get 0DTE futures option chain (e.g. ES) with Greeks.
-        Uses /futures-option-chains/{symbol}/nested endpoint.
-        In sandbox mode, reads from production API (cert has no live feed).
+        Uses the tastytrade SDK's NestedFutureOptionChain for proper auth.
+        In sandbox mode, uses the production session (cert has no live feed).
         """
+        from tastytrade.instruments import NestedFutureOptionChain  # type: ignore
+
         today = date.today().strftime("%Y-%m-%d")
-        symbol = product_code.lstrip("/")
-        http, base = self._market_http_and_url()
-        async with http.get(
-            f"{base}/futures-option-chains/{symbol}/nested",
-            headers=self._market_headers(),
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        session = self._market_sdk_session or self._sdk_session
+        chain = await NestedFutureOptionChain.a_get(session, product_code)
 
         options = []
-        for subchain in data.get("data", {}).get("option-chains", []):
-            for expiration in subchain.get("expirations", []):
-                exp_date = expiration.get("expiration-date", "")
+        for subchain in chain.option_chains:
+            for expiration in subchain.expirations:
+                exp_date = str(expiration.expiration_date)
                 if exp_date != today:
                     continue
-                for strike in expiration.get("strikes", []):
-                    strike_price = float(strike.get("strike-price", 0))
+                for strike in expiration.strikes:
+                    strike_price = float(strike.strike_price)
                     for side in ["call", "put"]:
-                        sym = strike.get(side, "").strip()
-                        streamer_sym = strike.get(f"{side}-streamer-symbol", "")
+                        sym = getattr(strike, side, None)
+                        streamer_sym = getattr(strike, f"{side}_streamer_symbol", "")
                         if not sym:
                             continue
                         options.append({
                             "symbol": sym,
-                            "streamer_symbol": streamer_sym,
+                            "streamer_symbol": streamer_sym or "",
                             "strike": strike_price,
                             "option_type": side,
                             "expiration": exp_date,
