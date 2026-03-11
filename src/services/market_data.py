@@ -226,7 +226,7 @@ class CachedMarketData:
         """Store a 5-min candle. Deduplicates by (symbol, data_type, timestamp)."""
         ts = candle.get("timestamp")
         if ts is None:
-            logger.warning("Candle missing timestamp, skipping")
+            logger.error("Candle missing timestamp, skipping")
             return
 
         candle_ts = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))

@@ -110,3 +110,94 @@ class TestTastyTradeClientLeg:
         )
         assert leg["instrument-type"] == "Future Option"
         assert leg["symbol"] == "./EW1H26C5800:XCME"
+
+
+class TestOrderPlacementLogging:
+    """Verify successful order placement is logged at INFO level."""
+
+    @pytest.mark.asyncio
+    async def test_iron_condor_success_logs_info(self):
+        import logging
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.services.tastytrade_client import TastyTradeClient
+
+        tt = TastyTradeClient.__new__(TastyTradeClient)
+        tt.mode = "sandbox"
+        tt.base_url = "https://api.cert.tastyworks.com"
+        tt.account_number = "TEST123"
+        tt._sdk_session = None
+        tt._market_sdk_session = None
+        tt._access_token = "fake-token"
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 201
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = AsyncMock(return_value={
+            "data": {"order": {"id": "IC-42"}}
+        })
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        tt._http = MagicMock()
+        tt._http.post = MagicMock(return_value=mock_resp)
+
+        order = {
+            "order_type": "iron_condor",
+            "short_call_strike": 5900,
+            "long_call_strike": 5930,
+            "short_put_strike": 5800,
+            "long_put_strike": 5770,
+            "quantity": 1,
+            "credit": 2.50,
+        }
+
+        with patch("src.services.tastytrade_client.logger") as mock_logger:
+            result = await tt._place_iron_condor(order)
+            mock_logger.info.assert_any_call(
+                "Iron condor order placed successfully: order_id=%s", "IC-42"
+            )
+        assert result["order_id"] == "IC-42"
+
+    @pytest.mark.asyncio
+    async def test_credit_spread_success_logs_info(self):
+        import logging
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.services.tastytrade_client import TastyTradeClient
+
+        tt = TastyTradeClient.__new__(TastyTradeClient)
+        tt.mode = "sandbox"
+        tt.base_url = "https://api.cert.tastyworks.com"
+        tt.account_number = "TEST123"
+        tt._sdk_session = None
+        tt._market_sdk_session = None
+        tt._access_token = "fake-token"
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 201
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = AsyncMock(return_value={
+            "data": {"order": {"id": "CS-99"}}
+        })
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        tt._http = MagicMock()
+        tt._http.post = MagicMock(return_value=mock_resp)
+
+        order = {
+            "order_type": "call_credit_spread",
+            "short_symbol": "./EW1H26C5900:XCME",
+            "long_symbol": "./EW1H26C5930:XCME",
+            "instrument_type": "Future Option",
+            "quantity": 1,
+            "credit": 1.20,
+        }
+
+        with patch("src.services.tastytrade_client.logger") as mock_logger:
+            result = await tt._place_credit_spread(order)
+            mock_logger.info.assert_any_call(
+                "Credit spread order placed successfully: order_id=%s", "CS-99"
+            )
+        assert result["order_id"] == "CS-99"

@@ -125,5 +125,5 @@ class AnomalyDetector:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        logger.warning("AnomalyDetector: unparseable LLM response: %r", content[:200])
+        logger.error("AnomalyDetector: unparseable LLM response: %r", content[:200])
         return {"status": "ok", "note": "unparseable_response_failing_open"}

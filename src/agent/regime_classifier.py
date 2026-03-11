@@ -141,5 +141,5 @@ class RegimeClassifier:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        logger.warning("RegimeClassifier: unparseable LLM response: %r", content[:200])
+        logger.error("RegimeClassifier: unparseable LLM response: %r", content[:200])
         return {"verdict": "enter", "reasoning": "unparseable_response_failing_open", "confidence": 0.0}

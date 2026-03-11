@@ -206,7 +206,7 @@ class LLMClient:
                 pass
 
         # Last resort: Claude returned prose — infer action from keywords
-        logger.warning("Validator could not parse JSON from response: %s", content[:300])
+        logger.error("Validator could not parse JSON from response: %s", content[:300])
         action = "enter_trade" if any(w in content.lower() for w in ["enter", "approve", "proceed", "execute"]) else "wait"
         return {"action": action, "reasoning": content[:200]}
 
@@ -315,6 +315,6 @@ class LLMClient:
                 pass
 
         # Keyword inference
-        logger.warning("Approval LLM could not parse JSON: %s", content[:300])
+        logger.error("Approval LLM could not parse JSON: %s", content[:300])
         action = "approve" if any(w in content.lower() for w in ["approve", "yes", "proceed", "looks good"]) else "reject"
         return {"action": action, "reasoning": content[:200]}

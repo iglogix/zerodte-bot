@@ -141,5 +141,5 @@ class OrbRegimeClassifier:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        logger.warning("OrbRegimeClassifier: unparseable response: %r", content[:200])
+        logger.error("OrbRegimeClassifier: unparseable response: %r", content[:200])
         return {"verdict": "enter", "reasoning": "unparseable_response_failing_open", "confidence": 0.0}

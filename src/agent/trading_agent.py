@@ -74,7 +74,7 @@ class TradingAgent:
 
         while iteration < self.max_iterations:
             iteration += 1
-            logger.debug("Tool loop iteration %d/%d", iteration, self.max_iterations)
+            logger.info("Tool loop iteration %d/%d", iteration, self.max_iterations)
 
             llm_response = await self.llm_client.chat(
                 messages,

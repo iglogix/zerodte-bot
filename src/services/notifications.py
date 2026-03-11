@@ -114,6 +114,6 @@ class NotificationService:
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status >= 400:
-                        logger.warning("Webhook returned status %d", resp.status)
+                        logger.error("Webhook returned status %d", resp.status)
         except Exception:
             logger.exception("Failed to send webhook notification")

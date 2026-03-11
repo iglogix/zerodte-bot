@@ -125,7 +125,7 @@ class DecisionEngine:
                         iv_source,
                     )
         except Exception:
-            logger.warning("get_atm_iv failed — using fallback stability threshold")
+            logger.error("get_atm_iv failed — using fallback stability threshold")
 
         # Resolve thresholds: IV-relative when available, absolute fallback otherwise
         if expected_move and expected_move > 0:

@@ -351,7 +351,7 @@ class PositionMonitor:
         try:
             return await self.cache.get_cached_quote(symbol, max_age_seconds=60)
         except Exception:
-            logger.warning("Could not fetch quote for %s", symbol)
+            logger.error("Could not fetch quote for %s", symbol)
             return None
 
     async def _is_position_closed(self, symbol: str) -> bool:
@@ -399,9 +399,9 @@ class PositionMonitor:
             return
         try:
             await self.tool_handlers.cancel_order(stop_order_id)
-            logger.debug("[TRAILING-STOP] Cancelled old stop %s", stop_order_id)
+            logger.info("[TRAILING-STOP] Cancelled old stop %s", stop_order_id)
         except Exception:
-            logger.warning("Could not cancel stop order %s", stop_order_id)
+            logger.error("Could not cancel stop order %s", stop_order_id)
 
     async def _notify_stop_triggered(
         self,

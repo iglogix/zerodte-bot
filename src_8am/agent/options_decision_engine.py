@@ -267,7 +267,7 @@ class OrbOptionsDecisionEngine:
             if short_q is not None and long_q is not None:
                 return round(short_q - long_q, 2)
         except Exception:
-            logger.debug("Spread mark fetch failed", exc_info=True)
+            logger.info("Spread mark fetch failed", exc_info=True)
         return None
 
     async def _tt_mark(self, symbol: str) -> Optional[float]:

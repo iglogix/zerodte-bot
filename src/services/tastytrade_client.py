@@ -155,7 +155,7 @@ class TastyTradeClient:
             self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
             logger.info("Sandbox market data session opened against production API")
         except Exception as exc:
-            logger.warning("Could not open sandbox market data session: %s", exc)
+            logger.error("Could not open sandbox market data session: %s", exc)
 
     def _market_headers(self) -> Dict[str, str]:
         """Headers for read-only market data requests (production in sandbox).
@@ -383,7 +383,7 @@ class TastyTradeClient:
             return candles[:count]
 
         except Exception as exc:
-            logger.warning("get_candles failed for %s: %s", symbol, exc)
+            logger.error("get_candles failed for %s: %s", symbol, exc)
             return []
 
     async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
@@ -446,7 +446,7 @@ class TastyTradeClient:
         try:
             options = await self._enrich_option_chain_greeks(options, spx_price=spx_price)
         except Exception as exc:
-            logger.warning("Option chain Greeks enrichment failed: %s", exc)
+            logger.error("Option chain Greeks enrichment failed: %s", exc)
 
         return options
 
@@ -578,7 +578,7 @@ class TastyTradeClient:
                 options, spx_price=underlying_price
             )
         except Exception as exc:
-            logger.warning("Future option chain Greeks enrichment failed: %s", exc)
+            logger.error("Future option chain Greeks enrichment failed: %s", exc)
 
         return options
 
@@ -621,7 +621,7 @@ class TastyTradeClient:
             candles.sort(key=lambda x: x["timestamp"])
             return candles[-count:]
         except Exception as exc:
-            logger.warning("DXLink candles failed for %s: %s", symbol, exc)
+            logger.error("DXLink candles failed for %s: %s", symbol, exc)
             return []
 
     async def get_account_info(self) -> Dict[str, Any]:
@@ -691,7 +691,9 @@ class TastyTradeClient:
                 logger.error("Iron condor order rejected (%s): %s", resp.status, body)
             resp.raise_for_status()
             data = await resp.json()
-            return {"order_id": str(data["data"]["order"]["id"])}
+            order_id = str(data["data"]["order"]["id"])
+            logger.info("Iron condor order placed successfully: order_id=%s", order_id)
+            return {"order_id": order_id}
 
     async def _place_credit_spread(self, order: Dict[str, Any]) -> Dict[str, Any]:
         qty = order.get("quantity", 1)
@@ -734,7 +736,9 @@ class TastyTradeClient:
                 logger.error("Credit spread order rejected (%s): %s", resp.status, body)
             resp.raise_for_status()
             data = await resp.json()
-            return {"order_id": str(data["data"]["order"]["id"])}
+            order_id = str(data["data"]["order"]["id"])
+            logger.info("Credit spread order placed successfully: order_id=%s", order_id)
+            return {"order_id": order_id}
 
     async def _place_close_order(self, order: Dict[str, Any]) -> Dict[str, Any]:
         symbol = order.get("symbol", "")

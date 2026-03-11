@@ -108,7 +108,7 @@ class EodDebrief:
 
                     summary["cycles"].append(cycle_summary)
                 except Exception:
-                    logger.warning("Could not read decision file %s", json_file)
+                    logger.error("Could not read decision file %s", json_file)
 
         # Read trade outcomes from DB
         if self.db:
@@ -130,7 +130,7 @@ class EodDebrief:
                         "status": t.get("status"),
                     })
             except Exception:
-                logger.warning("Could not fetch trades from DB for EOD debrief")
+                logger.error("Could not fetch trades from DB for EOD debrief")
 
         # Compute aggregates
         executed = [c for c in summary["cycles"] if c["outcome"] == "executed"]
@@ -188,4 +188,4 @@ class EodDebrief:
                     "summary": markdown,
                 })
             except Exception:
-                logger.warning("Failed to send EOD debrief notification")
+                logger.error("Failed to send EOD debrief notification")
