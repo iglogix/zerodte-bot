@@ -937,6 +937,10 @@ def main():
                         help="Symbols to include from test-dir (default: all)")
     parser.add_argument("--oversample-otm", type=int, default=0,
                         help="Oversample OTM options N times in training set (0=disabled, 3 recommended)")
+    parser.add_argument("--finetune", default=None,
+                        help="Path to pretrained model for fine-tuning (freezes all but last 2 layers)")
+    parser.add_argument("--finetune-lr", type=float, default=1e-4,
+                        help="Learning rate for fine-tuning (default: 1e-4, lower than full training)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -1131,6 +1135,52 @@ def main():
     ann.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         ann.optimizer, T_max=args.epochs, eta_min=1e-5
     )
+
+    # Fine-tuning: load pretrained weights, freeze early layers
+    if args.finetune:
+        print(f"\n  Fine-tuning from {args.finetune}")
+        pretrained = torch.load(args.finetune, map_location=DEVICE, weights_only=False)
+        state = pretrained["state_dict"]
+        model_state = ann.model.state_dict()
+        loaded = 0
+        for k, v in state.items():
+            if k in model_state and model_state[k].shape == v.shape:
+                model_state[k] = v
+                loaded += 1
+        ann.model.load_state_dict(model_state)
+        print(f"  Loaded {loaded}/{len(state)} layers from pretrained model")
+
+        # Load normalization stats if available
+        if pretrained.get("x_mean") is not None:
+            ann.x_mean = pretrained["x_mean"]
+            ann.x_std = pretrained["x_std"]
+            print("  Loaded feature normalization from pretrained")
+
+        # Freeze all but last 2 layers
+        if ann.v5:
+            # PriceNetV5: freeze input_proj, block1, skip1, block2, skip2
+            for name, param in ann.model.named_parameters():
+                if not any(s in name for s in ["block3", "skip3", "output"]):
+                    param.requires_grad = False
+        else:
+            # PriceNet: freeze all but last Linear + LayerNorm + output
+            layers = list(ann.model.net)
+            for layer in layers[:-4]:  # freeze all but last block + output
+                for param in layer.parameters():
+                    param.requires_grad = False
+
+        trainable = sum(p.numel() for p in ann.model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in ann.model.parameters())
+        print(f"  Trainable: {trainable:,} / {total:,} parameters")
+
+        # Use lower LR for fine-tuning
+        ann.optimizer = torch.optim.AdamW(
+            filter(lambda p: p.requires_grad, ann.model.parameters()),
+            lr=args.finetune_lr, weight_decay=1e-5
+        )
+        ann.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            ann.optimizer, T_max=args.epochs, eta_min=1e-6
+        )
 
     best_val_loss = float("inf")
     no_improve = 0
