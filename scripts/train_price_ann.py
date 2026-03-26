@@ -525,14 +525,57 @@ class PriceNet(nn.Module):
         return self.net(x)  # shape: (batch, n_outputs)
 
 
+class PriceNetV5(nn.Module):
+    """Option price predictor with residual (skip) connections.
+
+    Architecture: features -> proj(256) -> ResBlock(256,128) -> ResBlock(128,64)
+                  -> ResBlock(64,32) -> output
+    Skip connections help smooth interpolation across the vol surface.
+    """
+
+    def __init__(self, n_features: int = N_FEATURES_V5, n_outputs: int = 2):
+        super().__init__()
+        self.input_proj = nn.Sequential(
+            nn.Linear(n_features, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+        )
+        self.block1 = self._make_block(256, 128)
+        self.skip1 = nn.Linear(256, 128)
+        self.block2 = self._make_block(128, 64)
+        self.skip2 = nn.Linear(128, 64)
+        self.block3 = self._make_block(64, 32)
+        self.skip3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, n_outputs)
+
+    @staticmethod
+    def _make_block(in_dim: int, out_dim: int) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            nn.LayerNorm(out_dim),
+            nn.GELU(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.input_proj(x)
+        h = self.block1(h) + self.skip1(h)
+        h = self.block2(h) + self.skip2(h)
+        h = self.block3(h) + self.skip3(h)
+        return self.output(h)
+
+
 class PriceANN:
     """Wrapper for training, inference, serialization."""
 
     def __init__(self, lr: float = 1e-3, n_features: int = N_FEATURES,
-                 n_outputs: int = 2, target: str = "both"):
+                 n_outputs: int = 2, target: str = "both", v5: bool = False):
         self.n_outputs = n_outputs
         self.target = target  # "both", "bid", or "ask"
-        self.model = PriceNet(n_features=n_features, n_outputs=n_outputs).to(DEVICE)
+        self.v5 = v5
+        if v5:
+            self.model = PriceNetV5(n_features=n_features, n_outputs=n_outputs).to(DEVICE)
+        else:
+            self.model = PriceNet(n_features=n_features, n_outputs=n_outputs).to(DEVICE)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=lr, weight_decay=1e-5
         )
@@ -611,10 +654,14 @@ class PriceANN:
         return (bid + ask) / 2
 
     def save(self, path: str, use_vol: bool = False, otm_only: bool = False,
-             v4: bool = False):
-        n_feat = self.model.net[0].in_features
-        n_out = self.model.net[-1].out_features
-        version = "v4" if v4 else "v3"
+             v4: bool = False, v5: bool = False):
+        if self.v5:
+            n_feat = self.model.input_proj[0].in_features
+            n_out = self.model.output.out_features
+        else:
+            n_feat = self.model.net[0].in_features
+            n_out = self.model.net[-1].out_features
+        version = "v5" if v5 else ("v4" if v4 else "v3")
         outputs = {
             "both": ["norm_bid", "norm_ask"],
             "bid": ["norm_bid"],
@@ -627,10 +674,11 @@ class PriceANN:
             "symbols": SYMBOL_ORDER,
             "n_features": n_feat,
             "n_outputs": n_out,
-            "architecture": "PriceNet",
+            "architecture": "PriceNetV5" if v5 else "PriceNet",
             "use_vol": use_vol,
             "otm_only": otm_only,
             "v4": v4,
+            "v5": v5,
             "target": self.target,
             "version": version,
             "outputs": outputs,
@@ -643,7 +691,8 @@ class PriceANN:
         n_feat = data.get("n_features", N_FEATURES)
         n_out = data.get("n_outputs", 2)
         target = data.get("target", "both")
-        ann = cls(n_features=n_feat, n_outputs=n_out, target=target)
+        v5 = data.get("v5", False)
+        ann = cls(n_features=n_feat, n_outputs=n_out, target=target, v5=v5)
         ann.model.load_state_dict(data["state_dict"])
         ann.x_mean = data.get("x_mean")
         ann.x_std = data.get("x_std")
