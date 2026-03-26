@@ -568,10 +568,12 @@ class PriceANN:
     """Wrapper for training, inference, serialization."""
 
     def __init__(self, lr: float = 1e-3, n_features: int = N_FEATURES,
-                 n_outputs: int = 2, target: str = "both", v5: bool = False):
+                 n_outputs: int = 2, target: str = "both", v5: bool = False,
+                 loss_fn: str = "mse"):
         self.n_outputs = n_outputs
         self.target = target  # "both", "bid", or "ask"
         self.v5 = v5
+        self.loss_fn = loss_fn
         if v5:
             self.model = PriceNetV5(n_features=n_features, n_outputs=n_outputs).to(DEVICE)
         else:
@@ -582,6 +584,20 @@ class PriceANN:
         self.scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
         self.x_mean: np.ndarray | None = None
         self.x_std: np.ndarray | None = None
+
+    def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute loss based on configured loss function."""
+        if self.loss_fn == "msle":
+            # For v5 BS-residual targets, values are log-ratios (can be negative)
+            # Use plain MSE since targets are already in log space
+            return nn.functional.mse_loss(pred, target)
+        elif self.loss_fn == "weighted":
+            # Weighted MSE: emphasize cheap options where target is small
+            w = 1.0 / torch.clamp(target.abs(), min=0.0001)
+            w = w / w.mean()  # normalize so mean weight = 1
+            return (w * (pred - target) ** 2).mean()
+        else:
+            return nn.functional.mse_loss(pred, target)
 
     def _to_tensor(self, x_np: np.ndarray) -> torch.Tensor:
         if self.x_mean is not None and self.x_std is not None:
@@ -602,7 +618,7 @@ class PriceANN:
             y_batch = torch.tensor(y[idx], dtype=torch.float32, device=DEVICE)
 
             pred = self.model(X_batch)  # (batch, 2)
-            loss = nn.functional.mse_loss(pred, y_batch)
+            loss = self._compute_loss(pred, y_batch)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -828,6 +844,8 @@ def main():
                         help="Max training records (0=unlimited). Use to control memory.")
     parser.add_argument("--test-dir", default=None,
                         help="Separate JSONL directory for external test set (e.g. ES collected data)")
+    parser.add_argument("--loss", choices=["mse", "msle", "weighted"], default="mse",
+                        help="Loss function: mse (default), msle (log-space), weighted (inverse-price)")
     parser.add_argument("--test-symbols", nargs="+", default=None,
                         help="Symbols to include from test-dir (default: all)")
     args = parser.parse_args()
