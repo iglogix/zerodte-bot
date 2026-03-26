@@ -935,6 +935,8 @@ def main():
                         help="Loss function: mse (default), msle (log-space), weighted (inverse-price)")
     parser.add_argument("--test-symbols", nargs="+", default=None,
                         help="Symbols to include from test-dir (default: all)")
+    parser.add_argument("--oversample-otm", type=int, default=0,
+                        help="Oversample OTM options N times in training set (0=disabled, 3 recommended)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -1080,6 +1082,27 @@ def main():
     X_test, y_test = X[tst_idx], y[tst_idx]
     test_records = [records[i] for i in tst_idx]
     train_records = [records[i] for i in trn_idx]
+
+    # OTM oversampling
+    if args.oversample_otm > 0:
+        otm_mask = np.zeros(len(X_trn), dtype=bool)
+        for j in range(len(X_trn)):
+            r = train_records[j]
+            if r["is_call"] == 1.0 and r["moneyness"] > 1.0:
+                otm_mask[j] = True
+            elif r["is_call"] == 0.0 and r["moneyness"] < 1.0:
+                otm_mask[j] = True
+        n_otm = int(otm_mask.sum())
+        if n_otm > 0:
+            otm_X = X_trn[otm_mask]
+            otm_y = y_trn[otm_mask]
+            otm_recs = [train_records[j] for j in range(len(train_records)) if otm_mask[j]]
+            for _ in range(args.oversample_otm - 1):  # -1 because originals already included
+                X_trn = np.concatenate([X_trn, otm_X])
+                y_trn = np.concatenate([y_trn, otm_y])
+                train_records = train_records + otm_recs
+            print(f"  OTM oversampling: {n_otm:,} OTM samples x{args.oversample_otm} "
+                  f"-> {len(X_trn):,} total training samples")
 
     print(f"\nSplit (random 70/15/15):")
     print(f"  train={len(y_trn):,}, val={len(y_val):,}, test={len(y_test):,}")
