@@ -1008,15 +1008,24 @@ def main():
 
         # Reconstruct minimal records for evaluate()
         meta_strikes = npz["meta_strikes"]
+        meta_timestamps = npz["meta_timestamps"] if "meta_timestamps" in npz else meta_dates
         records = [
             {"symbol": str(meta_symbols[i]), "spot": float(meta_spots[i]),
              "obs_date": str(meta_dates[i]), "bid": float(meta_bids[i]),
              "ask": float(meta_asks[i]), "moneyness": float(meta_moneyness[i]),
              "is_call": float(meta_is_call[i]), "tte_hours": float(meta_tte[i]),
              "strike": float(meta_strikes[i]),
-             "mid": (float(meta_bids[i]) + float(meta_asks[i])) / 2}
+             "mid": (float(meta_bids[i]) + float(meta_asks[i])) / 2,
+             "timestamp": str(meta_timestamps[i]),
+             "market_iv": float(npz["meta_market_iv"][i]) if "meta_market_iv" in npz else 0.0}
             for i in range(len(X))
         ]
+
+        if v5:
+            print("  Rebuilding v5 features from NPZ metadata...")
+            X, y = build_features(records, use_vol=use_vol, v4=True, v5=True,
+                                   vix_map=vix_map, target=target)
+            n_feat = X.shape[1]
 
         n_feat = X.shape[1]
         dates = sorted(set(str(d) for d in meta_dates))
