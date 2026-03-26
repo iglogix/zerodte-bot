@@ -307,6 +307,7 @@ def load_jsonl_files(data_dir: Path, symbols: list[str] | None = None,
         records.append({
             "symbol": sym,
             "obs_date": obs_date,
+            "timestamp": ts_str,
             "strike": strike,
             "spot": spot,
             "bid": r["bid"],
@@ -388,8 +389,53 @@ def _compute_realized_vol(records: list[dict]) -> dict[tuple[str, str], float]:
     return vol_map
 
 
+def _compute_atm_iv(records: list[dict], vix_map: dict[str, float]) -> dict[str, float]:
+    """Get ATM IV per date. Uses VIX as proxy (annualized, divide by 100).
+
+    Returns {date_str: atm_iv_annualized}.
+    """
+    atm_iv_map: dict[str, float] = {}
+    for date_str, vix_val in vix_map.items():
+        atm_iv_map[date_str] = vix_val / 100.0
+    return atm_iv_map
+
+
+def _compute_realized_vol_5min(records: list[dict]) -> dict[tuple[str, str], float]:
+    """Compute 5-minute realized vol per (symbol, date).
+
+    Samples spot every ~5 min (dedup by 5-min bucket), computes stdev of log returns.
+    """
+    from collections import defaultdict
+    bucketed: dict[tuple[str, str], dict[int, float]] = defaultdict(dict)
+    for r in records:
+        ts_str = r.get("timestamp", r.get("obs_date", ""))
+        try:
+            parts = ts_str.replace("T", " ").split(" ")
+            if len(parts) < 2:
+                continue
+            time_parts = parts[1].split(":")
+            hour = int(time_parts[0])
+            minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+            bucket = hour * 12 + minute // 5
+        except (ValueError, IndexError):
+            continue
+        key = (r["symbol"], r["obs_date"])
+        bucketed[key][bucket] = r["spot"]
+
+    vol_map: dict[tuple[str, str], float] = {}
+    for key, buckets in bucketed.items():
+        spots = [buckets[b] for b in sorted(buckets.keys())]
+        if len(spots) >= 5:
+            arr = np.array(spots)
+            log_ret = np.diff(np.log(arr))
+            vol_map[key] = float(np.std(log_ret))
+        else:
+            vol_map[key] = 0.0
+    return vol_map
+
+
 def build_features(records: list[dict], use_vol: bool = False,
-                    v4: bool = False,
+                    v4: bool = False, v5: bool = False,
                     vix_map: dict[str, float] | None = None,
                     target: str = "both") -> tuple[np.ndarray, np.ndarray]:
     """
@@ -412,7 +458,10 @@ def build_features(records: list[dict], use_vol: bool = False,
     SYMBOL_ALIASES = {"ES": "SPX", "SPY": "SPX"}
     sym_to_idx = {s: i for i, s in enumerate(SYMBOL_ORDER)}
 
-    if v4:
+    if v5:
+        n_feat = N_FEATURES_V5
+        base_feat = N_BASE_FEATURES + N_EXT_FEATURES + N_V5_EXT  # 5 + 3 + 3 = 11
+    elif v4:
         n_feat = N_FEATURES_V4
         base_feat = N_BASE_FEATURES + N_EXT_FEATURES  # 5 + 3 = 8
     elif use_vol:
@@ -422,7 +471,9 @@ def build_features(records: list[dict], use_vol: bool = False,
         n_feat = N_FEATURES
         base_feat = N_BASE_FEATURES  # 5
 
-    vol_map = _compute_realized_vol(records) if (use_vol or v4) else {}
+    vol_map = _compute_realized_vol(records) if (use_vol or v4 or v5) else {}
+    atm_iv_map = _compute_atm_iv(records, vix_map) if v5 else {}
+    vol_5min_map = _compute_realized_vol_5min(records) if v5 else {}
     if vix_map is None:
         vix_map = {}
 
@@ -440,7 +491,20 @@ def build_features(records: list[dict], use_vol: bool = False,
         X[i, 3] = math.sqrt(tte) if tte > 0 else 0
         X[i, 4] = r["is_call"]
 
-        if v4:
+        if v5:
+            # v4 features first (indices 5-7)
+            vix_val = vix_map.get(r["obs_date"], 0.0)
+            X[i, 5] = vix_val / 100.0 if vix_val else 0.0
+            vol_key = (r["symbol"], r["obs_date"])
+            X[i, 6] = vol_map.get(vol_key, 0.0)
+            ts_str = r.get("timestamp", r.get("obs_date", ""))
+            X[i, 7] = _time_of_day_frac(ts_str)
+            # v5 features (indices 8-10)
+            atm_iv = atm_iv_map.get(r["obs_date"], 0.15)
+            X[i, 8] = atm_iv
+            X[i, 9] = math.log(m) * atm_iv if m > 0 else 0  # iv_skew_proxy
+            X[i, 10] = vol_5min_map.get(vol_key, 0.0)
+        elif v4:
             # VIX normalized (divide by 100 to keep ~0.1-0.5 range)
             vix_val = vix_map.get(r["obs_date"], 0.0)
             X[i, 5] = vix_val / 100.0 if vix_val else 0.0
@@ -461,13 +525,34 @@ def build_features(records: list[dict], use_vol: bool = False,
             X[i, base_feat + si] = 1.0
 
         # Target
-        if target == "bid":
-            y[i, 0] = r["bid"] / spot if spot > 0 else 0
-        elif target == "ask":
-            y[i, 0] = r["ask"] / spot if spot > 0 else 0
+        if v5:
+            # BS-residual: log(market_price / BS_price)
+            tte_years = tte / (252.0 * 6.5)  # trading hours to years
+            atm_iv = atm_iv_map.get(r["obs_date"], 0.15)
+            is_call_bool = r["is_call"] == 1.0
+            bs = _bs_price(spot, r["strike"], tte_years, atm_iv, is_call_bool)
+            bs_norm = max(bs / spot, PRICE_FLOOR / spot)  # normalized BS, floored
+
+            if target == "bid":
+                raw = max(r["bid"] / spot, PRICE_FLOOR / spot)
+                y[i, 0] = math.log(raw / bs_norm)
+            elif target == "ask":
+                raw = max(r["ask"] / spot, PRICE_FLOOR / spot)
+                y[i, 0] = math.log(raw / bs_norm)
+            else:
+                raw_bid = max(r["bid"] / spot, PRICE_FLOOR / spot)
+                raw_ask = max(r["ask"] / spot, PRICE_FLOOR / spot)
+                y[i, 0] = math.log(raw_bid / bs_norm)
+                y[i, 1] = math.log(raw_ask / bs_norm)
         else:
-            y[i, 0] = r["bid"] / spot if spot > 0 else 0
-            y[i, 1] = r["ask"] / spot if spot > 0 else 0
+            # Existing v3/v4 target (price / spot)
+            if target == "bid":
+                y[i, 0] = r["bid"] / spot if spot > 0 else 0
+            elif target == "ask":
+                y[i, 0] = r["ask"] / spot if spot > 0 else 0
+            else:
+                y[i, 0] = r["bid"] / spot if spot > 0 else 0
+                y[i, 1] = r["ask"] / spot if spot > 0 else 0
 
     return X, y
 
@@ -835,6 +920,8 @@ def main():
     parser.add_argument("--use-vol", action="store_true", help="Add realized vol as input feature")
     parser.add_argument("--v4", action="store_true",
                         help="Use v4 features: +VIX, +realized_vol, +time_of_day")
+    parser.add_argument("--v5", action="store_true",
+                        help="Use v5 features: v4 + atm_iv, iv_skew_proxy, realized_vol_5min; BS-residual targets")
     parser.add_argument("--target", choices=["both", "bid", "ask"], default="both",
                         help="Train target: 'both' (dual output), 'bid', or 'ask' (single output)")
     parser.add_argument("--vix-csv", default="data/vix_daily.csv", help="Path to VIX daily CSV")
@@ -856,11 +943,12 @@ def main():
     use_vol = args.use_vol
     otm_only = args.otm_only
     v4 = args.v4
+    v5 = args.v5
     target = args.target
 
     n_out = 1 if target in ("bid", "ask") else 2
     vix_map: dict[str, float] = {}
-    if v4:
+    if v4 or v5:
         vix_map = load_vix_daily(args.vix_csv)
 
     # -----------------------------------------------------------------------
@@ -911,7 +999,9 @@ def main():
         mode_str = []
         if otm_only:
             mode_str.append("OTM-only")
-        if v4:
+        if v5:
+            mode_str.append("v5 features (BS-residual targets)")
+        elif v4:
             mode_str.append("v4 features (VIX+vol+ToD)")
         elif use_vol:
             mode_str.append("with vol feature")
@@ -936,15 +1026,17 @@ def main():
                 print(f"  {sym}: {sym_counts[sym]:,}")
         print(f"  Dates: {dates[0]} → {dates[-1]}")
 
-        if v4:
+        if v5:
+            n_feat = N_FEATURES_V5
+        elif v4:
             n_feat = N_FEATURES_V4
         elif use_vol:
             n_feat = N_FEATURES_VOL
         else:
             n_feat = N_FEATURES
 
-        X, y = build_features(records, use_vol=use_vol, v4=v4, vix_map=vix_map,
-                               target=target)
+        X, y = build_features(records, use_vol=use_vol, v4=v4, v5=v5,
+                               vix_map=vix_map, target=target)
 
     print(f"\nFeature matrix: {X.shape}, Target: {y.shape}")
     if n_out == 2:
@@ -1009,7 +1101,8 @@ def main():
     print(f"\n  Device: {DEVICE}")
 
     # Train
-    ann = PriceANN(lr=args.lr, n_features=n_feat, n_outputs=n_out, target=target)
+    ann = PriceANN(lr=args.lr, n_features=n_feat, n_outputs=n_out, target=target,
+                   v5=v5, loss_fn=args.loss)
     ann.x_mean = x_mean
     ann.x_std = x_std
     ann.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -1076,7 +1169,7 @@ def main():
                 print(f"    {sym}: {cnt:,}")
 
             X_ext, y_ext = build_features(ext_records, use_vol=use_vol, v4=v4,
-                                           vix_map=vix_map, target=target)
+                                           v5=v5, vix_map=vix_map, target=target)
             evaluate(ann, X_ext, y_ext, ext_records, label="External (OOS)")
         else:
             print("  No records loaded from external test dir")
@@ -1089,7 +1182,7 @@ def main():
     if target != "both":
         suffix += f"_{target}"
     model_path = os.path.join(args.out_dir, f"price_ann{suffix}.pt")
-    ann.save(model_path, use_vol=use_vol, otm_only=otm_only, v4=v4)
+    ann.save(model_path, use_vol=use_vol, otm_only=otm_only, v4=v4, v5=v5)
 
     # OTM credit-spread zone analysis (bid/ask)
     print(f"\n{'='*70}")
