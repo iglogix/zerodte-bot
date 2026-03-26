@@ -578,6 +578,15 @@ def _time_of_day_frac(ts_str: str) -> float:
         return 0.5
 
 
+def _v5_pred_to_price(pred_log_ratio: float, spot: float, strike: float,
+                      tte_hours: float, is_call: bool, atm_iv: float) -> float:
+    """Convert v5 log-residual prediction back to option price in points."""
+    tte_years = tte_hours / (252.0 * 6.5)
+    bs = _bs_price(spot, strike, tte_years, atm_iv, is_call)
+    bs = max(bs, PRICE_FLOOR)
+    return bs * math.exp(pred_log_ratio)
+
+
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
@@ -805,7 +814,8 @@ class PriceANN:
 # Evaluation
 # ---------------------------------------------------------------------------
 def evaluate(ann: PriceANN, X: np.ndarray, y: np.ndarray,
-             records: list[dict], label: str = "Test"):
+             records: list[dict], label: str = "Test",
+             v5: bool = False, vix_map: dict[str, float] | None = None):
     """Compute and print evaluation metrics.
 
     y shape: (n, 2) for dual-output or (n, 1) for single-output.
@@ -898,6 +908,27 @@ def evaluate(ann: PriceANN, X: np.ndarray, y: np.ndarray,
     print(f"\n  Error distribution (mid):")
     print(f"    Within 0.1% of spot: {pct_within_1:.1f}%")
     print(f"    Within 0.5% of spot: {pct_within_5:.1f}%")
+
+    if v5 and vix_map:
+        # Denormalized error analysis for v5 (log-residuals -> prices)
+        abs_errors = []
+        abs_prices = []
+        for i, r in enumerate(records):
+            atm_iv = vix_map.get(r["obs_date"], 15.0) / 100.0
+            is_call_bool = r["is_call"] == 1.0
+            pred_price = _v5_pred_to_price(
+                float(pred_mid[i]), r["spot"], r["strike"],
+                r["tte_hours"], is_call_bool, atm_iv)
+            mkt_price = r["mid"]
+            abs_errors.append(abs(pred_price - mkt_price))
+            abs_prices.append(mkt_price)
+        abs_errors_arr = np.array(abs_errors)
+        abs_prices_arr = np.array(abs_prices)
+        mape = float(np.mean(abs_errors_arr / np.maximum(abs_prices_arr, PRICE_FLOOR))) * 100
+        rmse_dollars = float(np.sqrt(np.mean(abs_errors_arr ** 2)))
+        print(f"\n  Denormalized (v5 -> price):")
+        print(f"    MAPE: {mape:.1f}%")
+        print(f"    RMSE: ${rmse_dollars:.2f}")
 
     return {"rmse": rmse_mid, "mae": mae_mid, "r2": r2_mid, "pred": pred}
 
@@ -1115,7 +1146,9 @@ def main():
     x_mean = X_trn.mean(axis=0)
     x_std = X_trn.std(axis=0)
     # Don't normalize one-hot columns (keep them 0/1)
-    if v4:
+    if v5:
+        oh_start = N_BASE_FEATURES + N_EXT_FEATURES + N_V5_EXT  # 5+3+3=11
+    elif v4:
         oh_start = N_BASE_FEATURES + N_EXT_FEATURES
     elif use_vol:
         oh_start = N_BASE_FEATURES + 1
@@ -1219,10 +1252,10 @@ def main():
     ann.model.load_state_dict(best_state)
 
     # Evaluate on held-out test set
-    evaluate(ann, X_test, y_test, test_records, label="Test")
+    evaluate(ann, X_test, y_test, test_records, label="Test", v5=v5, vix_map=vix_map)
 
     # Also evaluate on training data for comparison
-    evaluate(ann, X_trn, y_trn, train_records[:len(y_trn)], label="Train")
+    evaluate(ann, X_trn, y_trn, train_records[:len(y_trn)], label="Train", v5=v5, vix_map=vix_map)
 
     # External test set (e.g. ES collected data to test SPX-trained model)
     if args.test_dir:
@@ -1243,13 +1276,13 @@ def main():
 
             X_ext, y_ext = build_features(ext_records, use_vol=use_vol, v4=v4,
                                            v5=v5, vix_map=vix_map, target=target)
-            evaluate(ann, X_ext, y_ext, ext_records, label="External (OOS)")
+            evaluate(ann, X_ext, y_ext, ext_records, label="External (OOS)", v5=v5, vix_map=vix_map)
         else:
             print("  No records loaded from external test dir")
 
     # Save
     os.makedirs(args.out_dir, exist_ok=True)
-    suffix = "_v4" if v4 else "_v3"
+    suffix = "_v5" if v5 else ("_v4" if v4 else "_v3")
     if otm_only:
         suffix += "_otm"
     if target != "both":
