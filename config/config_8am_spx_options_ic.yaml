@@ -1,0 +1,80 @@
+bot:
+  name: "spx-0dte-options-bot"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "SPX"
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.50
+  orb_range_filter:
+    min_pts: 5.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# SPX 0DTE credit spreads using SPY*10 as price proxy
+# Same ORB logic as ES variant, but with SPX option specs
+options:
+  option_root: "SPXW"              # SPX weekly options
+  spread_width_pts: 5              # SPX uses 5-pt wide spreads
+  strike_step_pts: 5               # SPX strikes at 5-pt intervals
+  target_short_delta: 0.12         # starting point, will be optimized
+  max_short_delta: 0.25
+  min_credit_per_spread: 0.30
+  tp_pct_of_credit: 0.25           # starting point, will be optimized
+  sl_mult_of_credit: 0             # 0=disabled
+  spread_mode: "iron_condor"        # "directional" (PCS or CCS) or "iron_condor" (both sides)
+  hold_put_breach: false            # true=don't exit on PUT breach (price tends to recover at low delta)
+  slippage_per_spread: 0.10        # SPX has tighter spreads than ES options
+  pricing_uncertainty_per_leg: 0.25 # worst-case ANN pricing error per leg ($0.50/spread)
+  atm_filter_width_pts: 150
+  quantity: 1
+  contract_multiplier: 100         # SPX options = $100 per point (vs ES = $50)
+  monitor_poll_seconds: 30
+  assumed_iv: 0.15
+  pricing_model: "bs"             # "bs" = Black-Scholes | "bachelier" = normal model (better for 0DTE)
+  iv_correction_factor: 1.0       # multiplier on IV to correct BS underestimation of 0DTE ITM probability
+  # Data sources for backtest
+  # SpyLoader scales SPY*10 → SPX in bars, so engine uses them directly
+  underlying_source: "bars"        # "bars" = use bar prices | "daily_csv" = fetch SPY daily CSV * 10
+  iv_source: "vix"                 # use daily VIX9D/VIX
+
+risk:
+  max_loss_per_trade_usd: 50000    # wider due to $100 multiplier
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "spx_options_bot.db"
+  cache_db: "data/spx_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_spx_options"
+
+market_data:
+  dxlink_symbol: "auto"
+
+# SPX options settle at 4:00 PM ET (PM-settled, cash)
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+backtest:
+  data_dir: "data"
+  data_file: "data/spy_1m.csv"     # SPY 1-min bars from MarketData.app
+  data_source: "spy"               # "databento" or "spy" — selects loader in optimizer
+  price_scale: 10.0                # multiply bar prices by this (SPY * 10 ≈ SPX)
+  start_date: "2022-05-11"         # SPX 0DTE daily expirations started
+  end_date: "2026-02-28"

@@ -629,9 +629,11 @@ class PriceNet(nn.Module):
 
     Architecture: features → 256 → 128 → 64 → 32 → n_outputs
     Uses LayerNorm + GELU for stable training.
+    Softplus ensures non-negative output (option prices can't be negative).
     """
 
-    def __init__(self, n_features: int = N_FEATURES, n_outputs: int = 2):
+    def __init__(self, n_features: int = N_FEATURES, n_outputs: int = 2,
+                 nonneg: bool = True):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_features, 256),
@@ -648,9 +650,13 @@ class PriceNet(nn.Module):
             nn.GELU(),
             nn.Linear(32, n_outputs),
         )
+        self.softplus = nn.Softplus(beta=5.0) if nonneg else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)  # shape: (batch, n_outputs)
+        out = self.net(x)  # shape: (batch, n_outputs)
+        if self.softplus is not None:
+            out = self.softplus(out)
+        return out
 
 
 class PriceNetV5(nn.Module):
@@ -843,6 +849,7 @@ class PriceANN:
             "bid": ["norm_bid"],
             "ask": ["norm_ask"],
         }.get(self.target, ["norm_bid", "norm_ask"])
+        nonneg = hasattr(self.model, 'softplus') and self.model.softplus is not None
         torch.save({
             "state_dict": self.model.state_dict(),
             "x_mean": self.x_mean,
@@ -855,6 +862,7 @@ class PriceANN:
             "otm_only": otm_only,
             "v4": v4,
             "v5": v5,
+            "nonneg": nonneg,
             "target": self.target,
             "version": version,
             "outputs": outputs,
@@ -987,6 +995,60 @@ def evaluate(ann: PriceANN, X: np.ndarray, y: np.ndarray,
         print(f"    MAPE: {mape:.1f}%")
         print(f"    RMSE: ${rmse_dollars:.2f}")
 
+        # Delta-zone breakdown: approximate BS delta per sample, bucket by |delta|
+        from scipy.stats import norm as sp_norm
+        tte_arr = np.array([r["tte_hours"] for r in records], dtype=np.float64)
+        strikes_arr = np.array([r["strike"] for r in records], dtype=np.float64)
+        is_call_arr = np.array([r["is_call"] for r in records], dtype=np.float64)
+        tte_years = tte_arr / (252.0 * 6.5)
+        # Use VIX as IV proxy; fall back to 0.20 if unavailable
+        if vix_map:
+            iv_arr = np.array([vix_map.get(r.get("obs_date", ""), 20.0) / 100.0
+                               for r in records], dtype=np.float64)
+        else:
+            iv_arr = np.full(len(records), 0.20, dtype=np.float64)
+
+        valid = (tte_years > 0) & (iv_arr > 0) & (spots > 0) & (strikes_arr > 0)
+        abs_delta = np.zeros(len(records), dtype=np.float64)
+        if valid.any():
+            sqrt_t = np.sqrt(tte_years[valid])
+            d1 = (np.log(spots[valid] / strikes_arr[valid]) +
+                  0.5 * iv_arr[valid]**2 * tte_years[valid]) / (iv_arr[valid] * sqrt_t)
+            call_delta = sp_norm.cdf(d1)
+            put_delta = call_delta - 1.0
+            abs_delta[valid] = np.where(is_call_arr[valid] > 0.5,
+                                        call_delta, np.abs(put_delta))
+
+        # Delta buckets relevant to credit spread trading
+        buckets = [
+            ("0.03-0.08 (deep OTM)", 0.03, 0.08),
+            ("0.08-0.12 (far OTM)",  0.08, 0.12),
+            ("0.12-0.18 (target)",   0.12, 0.18),
+            ("0.18-0.25 (near ATM)", 0.18, 0.25),
+            ("0.25-0.40 (ATM-ish)",  0.25, 0.40),
+        ]
+        print(f"\n  Delta-zone breakdown:")
+        print(f"    {'Zone':<22} {'N':>8}  {'RMSE($)':>8}  {'MAE($)':>8}  "
+              f"{'MAPE':>7}  {'AvgMid':>7}  {'AvgErr':>7}")
+        print(f"    {'-'*75}")
+        for zone_name, lo, hi in buckets:
+            mask = (abs_delta >= lo) & (abs_delta < hi)
+            n_zone = int(mask.sum())
+            if n_zone < 10:
+                print(f"    {zone_name:<22} {n_zone:>8}  {'--':>8}")
+                continue
+            zone_pred = pred_prices[mask]
+            zone_mkt = mids[mask]
+            zone_err = zone_pred - zone_mkt
+            zone_abs_err = np.abs(zone_err)
+            zone_rmse = float(np.sqrt(np.mean(zone_err ** 2)))
+            zone_mae = float(np.mean(zone_abs_err))
+            zone_mape = float(np.mean(zone_abs_err / np.maximum(zone_mkt, PRICE_FLOOR))) * 100
+            zone_avg_mid = float(np.mean(zone_mkt))
+            zone_bias = float(np.mean(zone_err))
+            print(f"    {zone_name:<22} {n_zone:>8,}  {zone_rmse:>8.2f}  {zone_mae:>8.2f}  "
+                  f"{zone_mape:>6.1f}%  {zone_avg_mid:>7.2f}  {zone_bias:>+7.2f}")
+
     return {"rmse": rmse_mid, "mae": mae_mid, "r2": r2_mid, "pred": pred}
 
 
@@ -1014,7 +1076,8 @@ def main():
                         help="Train target: 'both' (dual output), 'bid', or 'ask' (single output)")
     parser.add_argument("--vix-csv", default="data/vix_daily.csv", help="Path to VIX daily CSV")
     parser.add_argument("--temporal-split", action="store_true",
-                        help="Split by date (train=oldest 70%%, val=next 15%%, test=newest 15%%) instead of random")
+                        help="Sort days chronologically before splitting (oldest->train, newest->test). "
+                             "Default: random day shuffle (valid for 0DTE since each day is independent)")
     parser.add_argument("--max-records", type=int, default=0,
                         help="Max training records (0=unlimited). Use to control memory.")
     parser.add_argument("--test-dir", default=None,
@@ -1157,37 +1220,51 @@ def main():
         print(f"  {target} range: [{y[:, 0].min():.6f}, {y[:, 0].max():.6f}]")
         print(f"  {target} mean:  {y[:, 0].mean():.6f}")
 
-    # Split: temporal or random
-    # Use numpy arrays for splitting (avoid creating 2M+ Python dicts)
+    # -----------------------------------------------------------------------
+    # Day-level split: each 0DTE day is an independent data chunk.
+    # Split by whole days to prevent intraday leakage across sets.
+    # Default: random day shuffle (days are independent — no time-series).
+    # --temporal-split: sort days chronologically (for comparison only).
+    # -----------------------------------------------------------------------
     n = len(X)
     if records is not None:
         all_dates_arr = np.array([r["obs_date"] for r in records], dtype="U10")
     else:
         all_dates_arr = meta_dates  # from NPZ
 
+    # Group row indices by date
+    unique_dates = np.unique(all_dates_arr)
+    date_to_indices: dict[str, np.ndarray] = {}
+    for d in unique_dates:
+        date_to_indices[str(d)] = np.where(all_dates_arr == d)[0]
+
+    n_days = len(unique_dates)
+    n_test_days = max(1, int(0.15 * n_days))
+    n_val_days = max(1, int(0.15 * n_days))
+    n_train_days = n_days - n_test_days - n_val_days
+
     if args.temporal_split:
-        sorted_idx = np.argsort(all_dates_arr)
-        n_test = int(0.15 * n)
-        n_val = int(0.15 * n)
-        n_train = n - n_test - n_val
-        trn_idx = sorted_idx[:n_train]
-        val_idx = sorted_idx[n_train:n_train + n_val]
-        tst_idx = sorted_idx[n_train + n_val:]
-        trn_dates = sorted(set(all_dates_arr[trn_idx]))
-        val_dates = sorted(set(all_dates_arr[val_idx]))
-        tst_dates = sorted(set(all_dates_arr[tst_idx]))
-        print(f"\nTemporal split (70/15/15):")
-        print(f"  train: {trn_dates[0]}..{trn_dates[-1]} ({len(trn_dates)} days)")
-        print(f"  val:   {val_dates[0]}..{val_dates[-1]} ({len(val_dates)} days)")
-        print(f"  test:  {tst_dates[0]}..{tst_dates[-1]} ({len(tst_dates)} days)")
+        # Sort days chronologically (oldest → train, middle → val, newest → test)
+        day_order = np.array(sorted(unique_dates))
+        split_label = "Temporal day-level"
     else:
-        idx_all = np.random.permutation(n)
-        n_test = int(0.15 * n)
-        n_val = int(0.15 * n)
-        n_train = n - n_test - n_val
-        trn_idx = idx_all[:n_train]
-        val_idx = idx_all[n_train:n_train + n_val]
-        tst_idx = idx_all[n_train + n_val:]
+        # Random day shuffle — valid because 0DTE days are independent
+        day_order = np.array(sorted(unique_dates))
+        np.random.shuffle(day_order)
+        split_label = "Random day-level"
+
+    trn_days = day_order[:n_train_days]
+    val_days = day_order[n_train_days:n_train_days + n_val_days]
+    tst_days = day_order[n_train_days + n_val_days:]
+
+    # Expand day-level splits back to row indices
+    trn_idx = np.concatenate([date_to_indices[str(d)] for d in trn_days])
+    val_idx = np.concatenate([date_to_indices[str(d)] for d in val_days])
+    tst_idx = np.concatenate([date_to_indices[str(d)] for d in tst_days])
+
+    # Shuffle row order within each split (intra-day order doesn't matter for training)
+    np.random.shuffle(trn_idx)
+    np.random.shuffle(val_idx)
 
     X_trn, y_trn = X[trn_idx], y[trn_idx]
     X_val, y_val = X[val_idx], y[val_idx]
@@ -1220,8 +1297,16 @@ def main():
             print(f"  OTM oversampling: {n_otm:,} OTM samples x{args.oversample_otm} "
                   f"-> {len(X_trn):,} total training samples")
 
-    print(f"\nSplit (random 70/15/15):")
-    print(f"  train={len(y_trn):,}, val={len(y_val):,}, test={len(y_test):,}")
+    trn_days_sorted = sorted(trn_days)
+    val_days_sorted = sorted(val_days)
+    tst_days_sorted = sorted(tst_days)
+    print(f"\n{split_label} split (70/15/15):")
+    print(f"  train: {len(trn_days)} days, {len(y_trn):,} samples "
+          f"({trn_days_sorted[0]}..{trn_days_sorted[-1]})")
+    print(f"  val:   {len(val_days)} days, {len(y_val):,} samples "
+          f"({val_days_sorted[0]}..{val_days_sorted[-1]})")
+    print(f"  test:  {len(tst_days)} days, {len(y_test):,} samples "
+          f"({tst_days_sorted[0]}..{tst_days_sorted[-1]})")
 
     # Normalize features (fit on training data only)
     x_mean = X_trn.mean(axis=0)
