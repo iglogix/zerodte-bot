@@ -62,7 +62,7 @@ PRICE_FLOOR = 0.05  # minimum price for log targets (avoids log(0))
 
 def _bs_price(spot: float, strike: float, tte_years: float, iv: float,
               is_call: bool) -> float:
-    """Black-Scholes option price. Returns 0 if inputs are degenerate."""
+    """Black-Scholes option price (scalar). Returns 0 if inputs are degenerate."""
     if tte_years <= 0 or iv <= 0 or spot <= 0 or strike <= 0:
         return 0.0
     from scipy.stats import norm
@@ -72,6 +72,28 @@ def _bs_price(spot: float, strike: float, tte_years: float, iv: float,
     if is_call:
         return float(spot * norm.cdf(d1) - strike * norm.cdf(d2))
     return float(strike * norm.cdf(-d2) - spot * norm.cdf(-d1))
+
+
+def _bs_price_vec(spots: np.ndarray, strikes: np.ndarray, tte_years: np.ndarray,
+                  ivs: np.ndarray, is_call: np.ndarray) -> np.ndarray:
+    """Vectorized Black-Scholes option price. ~100x faster than per-sample loop."""
+    from scipy.stats import norm as sp_norm
+    prices = np.zeros(len(spots), dtype=np.float64)
+    valid = (tte_years > 0) & (ivs > 0) & (spots > 0) & (strikes > 0)
+    if not valid.any():
+        return prices
+    s = spots[valid]
+    k = strikes[valid]
+    t = tte_years[valid]
+    v = ivs[valid]
+    ic = is_call[valid]
+    sqrt_t = np.sqrt(t)
+    d1 = (np.log(s / k) + 0.5 * v * v * t) / (v * sqrt_t)
+    d2 = d1 - v * sqrt_t
+    call_price = s * sp_norm.cdf(d1) - k * sp_norm.cdf(d2)
+    put_price = k * sp_norm.cdf(-d2) - s * sp_norm.cdf(-d1)
+    prices[valid] = np.where(ic > 0.5, call_price, put_price)
+    return prices
 
 
 def load_vix_daily(csv_path: str = "data/vix_daily.csv") -> dict[str, float]:
@@ -478,81 +500,93 @@ def build_features(records: list[dict], use_vol: bool = False,
         vix_map = {}
 
     n_out = 1 if target in ("bid", "ask") else 2
-    X = np.zeros((len(records), n_feat), dtype=np.float32)
-    y = np.zeros((len(records), n_out), dtype=np.float32)
+    n = len(records)
+    X = np.zeros((n, n_feat), dtype=np.float32)
+    y = np.zeros((n, n_out), dtype=np.float32)
 
+    # Vectorized base features (all versions)
+    print("  Building base features (vectorized)...", flush=True)
+    moneyness_arr = np.array([r["moneyness"] for r in records], dtype=np.float32)
+    tte_arr = np.array([r["tte_hours"] for r in records], dtype=np.float32)
+    is_call_arr = np.array([r["is_call"] for r in records], dtype=np.float32)
+    safe_m = np.maximum(moneyness_arr, 1e-8)
+    X[:, 0] = moneyness_arr
+    X[:, 1] = np.log(safe_m)
+    X[:, 2] = tte_arr
+    X[:, 3] = np.sqrt(np.maximum(tte_arr, 0))
+    X[:, 4] = is_call_arr
+
+    if v5 or v4:
+        print("  Building extended features...", flush=True)
+        vix_arr = np.array([vix_map.get(r["obs_date"], 0.0) / 100.0 for r in records], dtype=np.float32)
+        vol_arr = np.array([vol_map.get((r["symbol"], r["obs_date"]), 0.0) for r in records], dtype=np.float32)
+        tod_arr = np.array([_time_of_day_frac(r.get("timestamp", r.get("obs_date", ""))) for r in records], dtype=np.float32)
+        X[:, 5] = vix_arr
+        X[:, 6] = vol_arr
+        X[:, 7] = tod_arr
+
+    if v5:
+        atm_iv_arr = np.array([atm_iv_map.get(r["obs_date"], 0.15) for r in records], dtype=np.float32)
+        X[:, 8] = atm_iv_arr
+        X[:, 9] = np.log(safe_m) * atm_iv_arr  # iv_skew_proxy
+        vol5_arr = np.array([vol_5min_map.get((r["symbol"], r["obs_date"]), 0.0) for r in records], dtype=np.float32)
+        X[:, 10] = vol5_arr
+
+    # One-hot symbols
     for i, r in enumerate(records):
-        m = r["moneyness"]
-        tte = r["tte_hours"]
-        spot = r["spot"]
-        X[i, 0] = m
-        X[i, 1] = math.log(m) if m > 0 else 0
-        X[i, 2] = tte
-        X[i, 3] = math.sqrt(tte) if tte > 0 else 0
-        X[i, 4] = r["is_call"]
-
-        if v5:
-            # v4 features first (indices 5-7)
-            vix_val = vix_map.get(r["obs_date"], 0.0)
-            X[i, 5] = vix_val / 100.0 if vix_val else 0.0
-            vol_key = (r["symbol"], r["obs_date"])
-            X[i, 6] = vol_map.get(vol_key, 0.0)
-            ts_str = r.get("timestamp", r.get("obs_date", ""))
-            X[i, 7] = _time_of_day_frac(ts_str)
-            # v5 features (indices 8-10)
-            atm_iv = atm_iv_map.get(r["obs_date"], 0.15)
-            X[i, 8] = atm_iv
-            X[i, 9] = math.log(m) * atm_iv if m > 0 else 0  # iv_skew_proxy
-            X[i, 10] = vol_5min_map.get(vol_key, 0.0)
-        elif v4:
-            # VIX normalized (divide by 100 to keep ~0.1-0.5 range)
-            vix_val = vix_map.get(r["obs_date"], 0.0)
-            X[i, 5] = vix_val / 100.0 if vix_val else 0.0
-            # Realized vol
-            vol_key = (r["symbol"], r["obs_date"])
-            X[i, 6] = vol_map.get(vol_key, 0.0)
-            # Time of day (fraction: 0=market open 9:30, 1=close 16:00)
-            ts_str = r.get("timestamp", r.get("obs_date", ""))
-            X[i, 7] = _time_of_day_frac(ts_str)
-        elif use_vol:
-            vol_key = (r["symbol"], r["obs_date"])
-            X[i, 5] = vol_map.get(vol_key, 0.0)
-
-        # One-hot symbol (with aliases: ES->SPX, SPY->SPX)
         mapped_sym = SYMBOL_ALIASES.get(r["symbol"], r["symbol"])
         si = sym_to_idx.get(mapped_sym)
         if si is not None:
             X[i, base_feat + si] = 1.0
 
-        # Target
-        if v5:
-            # BS-residual: log(market_price / BS_price)
-            tte_years = tte / (252.0 * 6.5)  # trading hours to years
-            atm_iv = atm_iv_map.get(r["obs_date"], 0.15)
-            is_call_bool = r["is_call"] == 1.0
-            bs = _bs_price(spot, r["strike"], tte_years, atm_iv, is_call_bool)
-            bs_norm = max(bs / spot, PRICE_FLOOR / spot)  # normalized BS, floored
+    # Per-record features for use_vol only (v4/v5 handled above)
+    if not v5 and not v4 and use_vol:
+        for i, r in enumerate(records):
+            vol_key = (r["symbol"], r["obs_date"])
+            X[i, 5] = vol_map.get(vol_key, 0.0)
 
-            if target == "bid":
-                raw = max(r["bid"] / spot, PRICE_FLOOR / spot)
-                y[i, 0] = math.log(raw / bs_norm)
-            elif target == "ask":
-                raw = max(r["ask"] / spot, PRICE_FLOOR / spot)
-                y[i, 0] = math.log(raw / bs_norm)
-            else:
-                raw_bid = max(r["bid"] / spot, PRICE_FLOOR / spot)
-                raw_ask = max(r["ask"] / spot, PRICE_FLOOR / spot)
-                y[i, 0] = math.log(raw_bid / bs_norm)
-                y[i, 1] = math.log(raw_ask / bs_norm)
+    # Targets for v3/v4 (v5 targets computed vectorized below)
+    if not v5:
+        spots_arr = np.array([r["spot"] for r in records], dtype=np.float32)
+        bids_arr = np.array([r["bid"] for r in records], dtype=np.float32)
+        asks_arr = np.array([r["ask"] for r in records], dtype=np.float32)
+        safe_spots = np.maximum(spots_arr, 1e-8)
+        if target == "bid":
+            y[:, 0] = bids_arr / safe_spots
+        elif target == "ask":
+            y[:, 0] = asks_arr / safe_spots
         else:
-            # Existing v3/v4 target (price / spot)
-            if target == "bid":
-                y[i, 0] = r["bid"] / spot if spot > 0 else 0
-            elif target == "ask":
-                y[i, 0] = r["ask"] / spot if spot > 0 else 0
-            else:
-                y[i, 0] = r["bid"] / spot if spot > 0 else 0
-                y[i, 1] = r["ask"] / spot if spot > 0 else 0
+            y[:, 0] = bids_arr / safe_spots
+            y[:, 1] = asks_arr / safe_spots
+
+    # v5 targets: vectorized BS-residual log(market_price / BS_price)
+    if v5:
+        print("  Computing BS-residual targets (vectorized)...", flush=True)
+        spots_arr = np.array([r["spot"] for r in records], dtype=np.float64)
+        strikes_arr = np.array([r["strike"] for r in records], dtype=np.float64)
+        tte_arr = np.array([r["tte_hours"] for r in records], dtype=np.float64)
+        tte_years_arr = tte_arr / (252.0 * 6.5)
+        ivs_arr = np.array([atm_iv_map.get(r["obs_date"], 0.15) for r in records], dtype=np.float64)
+        is_call_arr = np.array([r["is_call"] for r in records], dtype=np.float64)
+
+        bs_prices = _bs_price_vec(spots_arr, strikes_arr, tte_years_arr, ivs_arr, is_call_arr)
+        bs_norm = np.maximum(bs_prices / spots_arr, PRICE_FLOOR / spots_arr)
+
+        if target == "bid":
+            raw = np.maximum(np.array([r["bid"] for r in records], dtype=np.float64) / spots_arr,
+                             PRICE_FLOOR / spots_arr)
+            y[:, 0] = np.log(raw / bs_norm).astype(np.float32)
+        elif target == "ask":
+            raw = np.maximum(np.array([r["ask"] for r in records], dtype=np.float64) / spots_arr,
+                             PRICE_FLOOR / spots_arr)
+            y[:, 0] = np.log(raw / bs_norm).astype(np.float32)
+        else:
+            raw_bid = np.maximum(np.array([r["bid"] for r in records], dtype=np.float64) / spots_arr,
+                                 PRICE_FLOOR / spots_arr)
+            raw_ask = np.maximum(np.array([r["ask"] for r in records], dtype=np.float64) / spots_arr,
+                                 PRICE_FLOOR / spots_arr)
+            y[:, 0] = np.log(raw_bid / bs_norm).astype(np.float32)
+            y[:, 1] = np.log(raw_ask / bs_norm).astype(np.float32)
 
     return X, y
 
@@ -627,7 +661,8 @@ class PriceNetV5(nn.Module):
     Skip connections help smooth interpolation across the vol surface.
     """
 
-    def __init__(self, n_features: int = N_FEATURES_V5, n_outputs: int = 2):
+    def __init__(self, n_features: int = N_FEATURES_V5, n_outputs: int = 2,
+                 nonneg: bool = True):
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(n_features, 256),
@@ -641,6 +676,8 @@ class PriceNetV5(nn.Module):
         self.block3 = self._make_block(64, 32)
         self.skip3 = nn.Linear(64, 32)
         self.output = nn.Linear(32, n_outputs)
+        self.nonneg = nonneg
+        self.softplus = nn.Softplus(beta=5.0) if nonneg else None
 
     @staticmethod
     def _make_block(in_dim: int, out_dim: int) -> nn.Sequential:
@@ -655,7 +692,10 @@ class PriceNetV5(nn.Module):
         h = self.block1(h) + self.skip1(h)
         h = self.block2(h) + self.skip2(h)
         h = self.block3(h) + self.skip3(h)
-        return self.output(h)
+        out = self.output(h)
+        if self.softplus is not None:
+            out = self.softplus(out)
+        return out
 
 
 class PriceANN:
@@ -698,29 +738,55 @@ class PriceANN:
             x_np = (x_np - self.x_mean) / (self.x_std + 1e-8)
         return torch.tensor(x_np, dtype=torch.float32, device=DEVICE)
 
-    def train_epoch(self, X: np.ndarray, y: np.ndarray, batch_size: int = 2048) -> float:
-        """y shape: (n, 2) — columns are [norm_bid, norm_ask]."""
+    def preload_gpu(self, X: np.ndarray, y: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
+        """Normalize and move all data to GPU once. Returns (X_gpu, y_gpu)."""
+        if self.x_mean is not None and self.x_std is not None:
+            X_norm = (X - self.x_mean) / (self.x_std + 1e-8)
+        else:
+            X_norm = X
+        X_gpu = torch.tensor(X_norm, dtype=torch.float32, device=DEVICE)
+        y_gpu = torch.tensor(y, dtype=torch.float32, device=DEVICE)
+        return X_gpu, y_gpu
+
+    def train_epoch(self, X: np.ndarray, y: np.ndarray, batch_size: int = 2048,
+                    X_gpu: torch.Tensor | None = None,
+                    y_gpu: torch.Tensor | None = None) -> float:
+        """Train one epoch. If X_gpu/y_gpu provided, uses pre-loaded GPU tensors."""
         self.model.train()
-        n = X.shape[0]
-        indices = np.random.permutation(n)
-        total_loss = 0.0
-        n_batches = 0
 
-        for start in range(0, n, batch_size):
-            idx = indices[start : start + batch_size]
-            X_batch = self._to_tensor(X[idx])
-            y_batch = torch.tensor(y[idx], dtype=torch.float32, device=DEVICE)
-
-            pred = self.model(X_batch)  # (batch, 2)
-            loss = self._compute_loss(pred, y_batch)
-
-            self.optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            self.optimizer.step()
-
-            total_loss += loss.item()
-            n_batches += 1
+        if X_gpu is not None and y_gpu is not None:
+            n = X_gpu.shape[0]
+            indices = torch.randperm(n, device=DEVICE)
+            total_loss = 0.0
+            n_batches = 0
+            for start in range(0, n, batch_size):
+                idx = indices[start : start + batch_size]
+                pred = self.model(X_gpu[idx])
+                loss = self._compute_loss(pred, y_gpu[idx])
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.optimizer.step()
+                total_loss += loss.item()
+                n_batches += 1
+        else:
+            # Fallback: CPU numpy path
+            n = X.shape[0]
+            indices = np.random.permutation(n)
+            total_loss = 0.0
+            n_batches = 0
+            for start in range(0, n, batch_size):
+                idx = indices[start : start + batch_size]
+                X_batch = self._to_tensor(X[idx])
+                y_batch = torch.tensor(y[idx], dtype=torch.float32, device=DEVICE)
+                pred = self.model(X_batch)
+                loss = self._compute_loss(pred, y_batch)
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                self.optimizer.step()
+                total_loss += loss.item()
+                n_batches += 1
 
         if self.scheduler is not None:
             self.scheduler.step()
@@ -909,24 +975,15 @@ def evaluate(ann: PriceANN, X: np.ndarray, y: np.ndarray,
     print(f"    Within 0.1% of spot: {pct_within_1:.1f}%")
     print(f"    Within 0.5% of spot: {pct_within_5:.1f}%")
 
-    if v5 and vix_map:
-        # Denormalized error analysis for v5 (log-residuals -> prices)
-        abs_errors = []
-        abs_prices = []
-        for i, r in enumerate(records):
-            atm_iv = vix_map.get(r["obs_date"], 15.0) / 100.0
-            is_call_bool = r["is_call"] == 1.0
-            pred_price = _v5_pred_to_price(
-                float(pred_mid[i]), r["spot"], r["strike"],
-                r["tte_hours"], is_call_bool, atm_iv)
-            mkt_price = r["mid"]
-            abs_errors.append(abs(pred_price - mkt_price))
-            abs_prices.append(mkt_price)
-        abs_errors_arr = np.array(abs_errors)
-        abs_prices_arr = np.array(abs_prices)
-        mape = float(np.mean(abs_errors_arr / np.maximum(abs_prices_arr, PRICE_FLOOR))) * 100
+    # Denormalized OTM accuracy (option price MAPE — the metric that matters)
+    if records:
+        spots = np.array([r["spot"] for r in records])
+        mids = np.array([r["mid"] for r in records])
+        pred_prices = pred_mid * spots  # denormalize: norm_price * spot = price
+        abs_errors_arr = np.abs(pred_prices - mids)
+        mape = float(np.mean(abs_errors_arr / np.maximum(mids, PRICE_FLOOR))) * 100
         rmse_dollars = float(np.sqrt(np.mean(abs_errors_arr ** 2)))
-        print(f"\n  Denormalized (v5 -> price):")
+        print(f"\n  Denormalized (price):")
         print(f"    MAPE: {mape:.1f}%")
         print(f"    RMSE: ${rmse_dollars:.2f}")
 
@@ -1006,26 +1063,33 @@ def main():
         meta_is_call = npz["meta_is_call"]
         meta_tte = npz["meta_tte"]
 
-        # Reconstruct minimal records for evaluate()
+        # Store metadata arrays — defer record creation to only test/eval indices
         meta_strikes = npz["meta_strikes"]
         meta_timestamps = npz["meta_timestamps"] if "meta_timestamps" in npz else meta_dates
-        records = [
-            {"symbol": str(meta_symbols[i]), "spot": float(meta_spots[i]),
-             "obs_date": str(meta_dates[i]), "bid": float(meta_bids[i]),
-             "ask": float(meta_asks[i]), "moneyness": float(meta_moneyness[i]),
-             "is_call": float(meta_is_call[i]), "tte_hours": float(meta_tte[i]),
-             "strike": float(meta_strikes[i]),
-             "mid": (float(meta_bids[i]) + float(meta_asks[i])) / 2,
-             "timestamp": str(meta_timestamps[i]),
-             "market_iv": float(npz["meta_market_iv"][i]) if "meta_market_iv" in npz else 0.0}
-            for i in range(len(X))
-        ]
+        meta_market_iv = npz["meta_market_iv"] if "meta_market_iv" in npz else np.zeros(len(X))
 
-        if v5:
-            print("  Rebuilding v5 features from NPZ metadata...")
-            X, y = build_features(records, use_vol=use_vol, v4=True, v5=True,
-                                   vix_map=vix_map, target=target)
-            n_feat = X.shape[1]
+        def _make_records(indices):
+            """Create record dicts only for given indices (lazy, avoids 2M+ dicts)."""
+            return [
+                {"symbol": str(meta_symbols[i]), "spot": float(meta_spots[i]),
+                 "obs_date": str(meta_dates[i]), "bid": float(meta_bids[i]),
+                 "ask": float(meta_asks[i]), "moneyness": float(meta_moneyness[i]),
+                 "is_call": float(meta_is_call[i]), "tte_hours": float(meta_tte[i]),
+                 "strike": float(meta_strikes[i]),
+                 "mid": (float(meta_bids[i]) + float(meta_asks[i])) / 2,
+                 "timestamp": str(meta_timestamps[i]),
+                 "market_iv": float(meta_market_iv[i])}
+                for i in indices
+            ]
+        # Placeholder — real records built lazily after split
+        records = None
+
+        npz_is_v5 = bool(npz["v5"][0]) if "v5" in npz else False
+        if v5 and npz_is_v5:
+            print(f"  NPZ has v5 features ({X.shape[1]} dims), targets are price/spot")
+        elif v5 and not npz_is_v5:
+            print("  WARNING: NPZ is v4 but --v5 requested. Use v5 NPZ for best results.")
+            print("  Using v4 features with v5 architecture (no v5-specific features)")
 
         n_feat = X.shape[1]
         dates = sorted(set(str(d) for d in meta_dates))
@@ -1070,7 +1134,7 @@ def main():
         for sym in SYMBOL_ORDER:
             if sym in sym_counts:
                 print(f"  {sym}: {sym_counts[sym]:,}")
-        print(f"  Dates: {dates[0]} → {dates[-1]}")
+        print(f"  Dates: {dates[0]} -> {dates[-1]}")
 
         if v5:
             n_feat = N_FEATURES_V5
@@ -1094,20 +1158,24 @@ def main():
         print(f"  {target} mean:  {y[:, 0].mean():.6f}")
 
     # Split: temporal or random
-    n = len(records)
+    # Use numpy arrays for splitting (avoid creating 2M+ Python dicts)
+    n = len(X)
+    if records is not None:
+        all_dates_arr = np.array([r["obs_date"] for r in records], dtype="U10")
+    else:
+        all_dates_arr = meta_dates  # from NPZ
+
     if args.temporal_split:
-        # Sort indices by date, then split chronologically
-        all_dates = [r["obs_date"] for r in records]
-        sorted_idx = np.array(sorted(range(n), key=lambda i: all_dates[i]))
+        sorted_idx = np.argsort(all_dates_arr)
         n_test = int(0.15 * n)
         n_val = int(0.15 * n)
         n_train = n - n_test - n_val
         trn_idx = sorted_idx[:n_train]
         val_idx = sorted_idx[n_train:n_train + n_val]
         tst_idx = sorted_idx[n_train + n_val:]
-        trn_dates = sorted(set(all_dates[i] for i in trn_idx))
-        val_dates = sorted(set(all_dates[i] for i in val_idx))
-        tst_dates = sorted(set(all_dates[i] for i in tst_idx))
+        trn_dates = sorted(set(all_dates_arr[trn_idx]))
+        val_dates = sorted(set(all_dates_arr[val_idx]))
+        tst_dates = sorted(set(all_dates_arr[tst_idx]))
         print(f"\nTemporal split (70/15/15):")
         print(f"  train: {trn_dates[0]}..{trn_dates[-1]} ({len(trn_dates)} days)")
         print(f"  val:   {val_dates[0]}..{val_dates[-1]} ({len(val_dates)} days)")
@@ -1124,27 +1192,31 @@ def main():
     X_trn, y_trn = X[trn_idx], y[trn_idx]
     X_val, y_val = X[val_idx], y[val_idx]
     X_test, y_test = X[tst_idx], y[tst_idx]
-    test_records = [records[i] for i in tst_idx]
-    train_records = [records[i] for i in trn_idx]
 
-    # OTM oversampling
+    # Build records lazily — only for test/train eval (not all 2M+)
+    if records is not None:
+        test_records = [records[i] for i in tst_idx]
+        train_records = [records[i] for i in trn_idx]
+    else:
+        # NPZ path: build only test records now, train records deferred
+        print("  Building test records for evaluation...", flush=True)
+        test_records = _make_records(tst_idx)
+        train_records = None  # built later if needed
+
+    # OTM oversampling (uses numpy arrays, not records)
     if args.oversample_otm > 0:
-        otm_mask = np.zeros(len(X_trn), dtype=bool)
-        for j in range(len(X_trn)):
-            r = train_records[j]
-            if r["is_call"] == 1.0 and r["moneyness"] > 1.0:
-                otm_mask[j] = True
-            elif r["is_call"] == 0.0 and r["moneyness"] < 1.0:
-                otm_mask[j] = True
+        trn_is_call = meta_is_call[trn_idx] if records is None else np.array([r["is_call"] for r in train_records])
+        trn_moneyness = meta_moneyness[trn_idx] if records is None else np.array([r["moneyness"] for r in train_records])
+        otm_mask = ((trn_is_call > 0.5) & (trn_moneyness > 1.0)) | \
+                   ((trn_is_call < 0.5) & (trn_moneyness < 1.0))
         n_otm = int(otm_mask.sum())
         if n_otm > 0:
             otm_X = X_trn[otm_mask]
             otm_y = y_trn[otm_mask]
-            otm_recs = [train_records[j] for j in range(len(train_records)) if otm_mask[j]]
-            for _ in range(args.oversample_otm - 1):  # -1 because originals already included
-                X_trn = np.concatenate([X_trn, otm_X])
-                y_trn = np.concatenate([y_trn, otm_y])
-                train_records = train_records + otm_recs
+            extras = [otm_X] * (args.oversample_otm - 1)
+            extras_y = [otm_y] * (args.oversample_otm - 1)
+            X_trn = np.concatenate([X_trn] + extras)
+            y_trn = np.concatenate([y_trn] + extras_y)
             print(f"  OTM oversampling: {n_otm:,} OTM samples x{args.oversample_otm} "
                   f"-> {len(X_trn):,} total training samples")
 
@@ -1228,9 +1300,18 @@ def main():
     no_improve = 0
     best_state = None
 
+    # Pre-load training data to GPU for fast epochs
+    if str(DEVICE) != "cpu":
+        print(f"  Pre-loading {len(X_trn):,} training samples to GPU...", flush=True)
+        X_trn_gpu, y_trn_gpu = ann.preload_gpu(X_trn, y_trn)
+        print(f"  GPU memory: {torch.cuda.memory_allocated() / 1024**2:.0f} MB")
+    else:
+        X_trn_gpu, y_trn_gpu = None, None
+
     print(f"\nTraining for up to {args.epochs} epochs (patience={args.patience})...\n")
     for epoch in range(args.epochs):
-        train_loss = ann.train_epoch(X_trn, y_trn, batch_size=args.batch_size)
+        train_loss = ann.train_epoch(X_trn, y_trn, batch_size=args.batch_size,
+                                     X_gpu=X_trn_gpu, y_gpu=y_trn_gpu)
 
         # Validation loss
         val_pred = ann.predict(X_val)
@@ -1263,8 +1344,16 @@ def main():
     # Evaluate on held-out test set
     evaluate(ann, X_test, y_test, test_records, label="Test", v5=v5, vix_map=vix_map)
 
-    # Also evaluate on training data for comparison
-    evaluate(ann, X_trn, y_trn, train_records[:len(y_trn)], label="Train", v5=v5, vix_map=vix_map)
+    # Also evaluate on training data for comparison (subsample to avoid building 6M records)
+    if train_records is None:
+        # NPZ path: build records for a subsample of training data
+        trn_sample_n = min(50000, len(trn_idx))
+        trn_sample_idx = trn_idx[:trn_sample_n]
+        train_records_sample = _make_records(trn_sample_idx)
+        evaluate(ann, X_trn[:trn_sample_n], y_trn[:trn_sample_n],
+                 train_records_sample, label="Train", v5=v5, vix_map=vix_map)
+    else:
+        evaluate(ann, X_trn, y_trn, train_records[:len(y_trn)], label="Train", v5=v5, vix_map=vix_map)
 
     # External test set (e.g. ES collected data to test SPX-trained model)
     if args.test_dir:

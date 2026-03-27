@@ -27,7 +27,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.train_price_ann import (
     load_jsonl_files, build_features, load_vix_daily,
-    N_FEATURES, N_FEATURES_V4, N_FEATURES_VOL, SYMBOL_ORDER,
+    N_FEATURES, N_FEATURES_V4, N_FEATURES_V5, N_FEATURES_VOL, SYMBOL_ORDER,
     _compute_tte_hours,
 )
 from collections import defaultdict
@@ -40,6 +40,7 @@ def main():
                         help=f"Symbols to include. Choices: {SYMBOL_ORDER}")
     parser.add_argument("--otm-only", action="store_true", help="OTM options only")
     parser.add_argument("--v4", action="store_true", help="v4 features (VIX+vol+ToD)")
+    parser.add_argument("--v5", action="store_true", help="v5 features (v4 + atm_iv, skew, vol_5min + BS-residual targets)")
     parser.add_argument("--vix-csv", default="data/vix_daily.csv", help="VIX daily CSV")
     parser.add_argument("--max-records", type=int, default=0, help="Max records (0=all)")
     parser.add_argument("--em-filter", type=float, default=0,
@@ -50,14 +51,19 @@ def main():
     data_dir = Path(args.data_dir)
     symbols = [s.upper() for s in args.symbols] if args.symbols else None
 
-    # Load VIX (needed for v4 features and/or EM filter)
+    v5 = args.v5
+    if v5:
+        args.v4 = True  # v5 implies v4
+    # Load VIX (needed for v4/v5 features and/or EM filter)
     vix_map = load_vix_daily(args.vix_csv) if (args.v4 or args.em_filter > 0) else {}
 
     # Load and filter records
     mode_parts = []
     if args.otm_only:
         mode_parts.append("OTM")
-    if args.v4:
+    if v5:
+        mode_parts.append("v5")
+    elif args.v4:
         mode_parts.append("v4")
     if args.em_filter > 0:
         mode_parts.append(f"EM{args.em_filter}")
@@ -107,13 +113,16 @@ def main():
     for sym in SYMBOL_ORDER:
         if sym in sym_counts:
             print(f"  {sym}: {sym_counts[sym]:,}")
-    print(f"  Dates: {dates[0]} → {dates[-1]}")
+    print(f"  Dates: {dates[0]} -> {dates[-1]}")
 
-    # Build feature arrays for all three targets
+    # Build feature arrays
+    # X uses v5 features (19 dims) if --v5, targets are always price/spot (not BS-residual)
     print("\nBuilding feature matrices...")
-    X_both, y_both = build_features(records, v4=args.v4, vix_map=vix_map, target="both")
-    _, y_bid = build_features(records, v4=args.v4, vix_map=vix_map, target="bid")
-    _, y_ask = build_features(records, v4=args.v4, vix_map=vix_map, target="ask")
+    X_both, _ = build_features(records, v4=args.v4, v5=v5, vix_map=vix_map, target="both")
+    # Targets: always price/spot normalization (BS-residual computed at train time if needed)
+    _, y_both = build_features(records, v4=args.v4, v5=False, vix_map=vix_map, target="both")
+    _, y_bid = build_features(records, v4=args.v4, v5=False, vix_map=vix_map, target="bid")
+    _, y_ask = build_features(records, v4=args.v4, v5=False, vix_map=vix_map, target="ask")
 
     print(f"  X: {X_both.shape}  y_both: {y_both.shape}  y_bid: {y_bid.shape}  y_ask: {y_ask.shape}")
 
@@ -143,6 +152,7 @@ def main():
         y_both=y_both,
         y_bid=y_bid,
         y_ask=y_ask,
+        v5=np.array([v5]),
         meta_symbols=meta_symbols,
         meta_spots=meta_spots,
         meta_strikes=meta_strikes,
@@ -159,9 +169,10 @@ def main():
     size_mb = out_path.stat().st_size / 1024 / 1024
     print(f"\nSaved: {out_path} ({size_mb:.1f} MB)")
     print(f"  {len(records):,} samples, {X_both.shape[1]} features")
+    ver = "--v5" if v5 else ("--v4" if args.v4 else "")
     print(f"\nTo train:")
-    print(f"  python scripts/train_price_ann.py --npz {out_path} --target bid --otm-only --v4")
-    print(f"  python scripts/train_price_ann.py --npz {out_path} --target ask --otm-only --v4")
+    print(f"  python scripts/train_price_ann.py --npz {out_path} --target bid --otm-only {ver}")
+    print(f"  python scripts/train_price_ann.py --npz {out_path} --target ask --otm-only {ver}")
 
 
 if __name__ == "__main__":
