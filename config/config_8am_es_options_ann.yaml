@@ -1,0 +1,76 @@
+bot:
+  name: "8am-orb-options-bot"
+  timezone: "America/New_York"
+  mode: "sandbox"         # dry_run | manual | sandbox | live
+  symbol: "ES"            # ES futures / 0DTE ES options
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.50   # optimized (WF-CV 2026-03-12)
+  orb_range_filter:
+    min_pts: 5.0                # optimized (WF-CV 2026-03-12)
+    max_pts: 30.0               # skip extreme gap/event days
+  skip_nfp_fridays: true        # skip first Friday of month (NFP release at 8:30 AM)
+  skip_fomc_days: true          # skip FOMC announcement days (statement at 2:00 PM)
+  skip_cpi_days: true           # skip CPI release days (8:30 AM, gaps through ORB)
+
+# ORB options logic — IV surface ANN variant
+# Uses trained ANN to predict IV = f(moneyness, TTE, is_call) instead of flat IV + skew table
+options:
+  option_root: "EW"
+  spread_width_pts: 5
+  strike_step_pts: 5
+  target_short_delta: 0.12        # optimized (WF-CV 2026-03-12)
+  max_short_delta: 0.25
+  min_credit_per_spread: 0.50
+  tp_pct_of_credit: 0.25          # optimized (WF-CV 2026-03-12)
+  sl_mult_of_credit: 0
+  hold_put_breach: false
+  slippage_per_spread: 0.12
+  atm_filter_width_pts: 150
+  quantity: 1
+  contract_multiplier: 50
+  monitor_poll_seconds: 30
+  assumed_iv: 0.15                # fallback IV
+  pricing_model: "bs"
+  iv_correction_factor: 1.0
+  iv_skew_table: ""               # disabled — ANN replaces skew table
+  iv_ann_table: "models/iv_ann_table.json"  # precomputed IV surface from ANN
+  # Backtest data sources
+  underlying_source: "bars"
+  iv_source: "ann"                # "ann" = use IV surface ANN for per-strike IV predictions
+
+risk:
+  max_loss_per_trade_usd: 25000
+  max_daily_loss_usd: 25000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "orb_options_bot.db"
+  cache_db: "data/orb_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_8am_options"
+
+market_data:
+  dxlink_symbol: "auto"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+backtest:
+  data_dir: "data"
+  data_file: "glbx-mdp3-20210227-20260226.ohlcv-1m.csv"
+  start_date: "2022-04-25"
+  end_date: "2024-12-31"

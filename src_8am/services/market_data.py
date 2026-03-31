@@ -50,6 +50,29 @@ class OrbMarketData:
         self._orb_candle_date: Optional[date] = None
 
     # -------------------------------------------------------------------------
+    # Contract symbol verification
+    # -------------------------------------------------------------------------
+
+    async def verify_contract_symbol(self):
+        """Cross-check the calendar-derived contract symbol against the option
+        chain to prevent contract month mismatch (e.g. ESM26 vs ESH26 on
+        expiration day).  If the option chain shows a different underlying,
+        switch to it.
+        """
+        try:
+            chain_symbol = await self._tt.get_active_futures_contract("ES")
+            if chain_symbol and chain_symbol != self._dxlink_symbol:
+                logger.warning(
+                    "Contract mismatch: calendar=%s, option-chain=%s — switching to %s",
+                    self._dxlink_symbol,
+                    chain_symbol,
+                    chain_symbol,
+                )
+                self._dxlink_symbol = chain_symbol
+        except Exception:
+            logger.debug("Could not verify contract symbol via option chain, using %s", self._dxlink_symbol)
+
+    # -------------------------------------------------------------------------
     # ORB candle (08:00–08:15 15-min bar)
     # -------------------------------------------------------------------------
 
@@ -106,6 +129,23 @@ class OrbMarketData:
             return candles or []
         except Exception:
             logger.exception("Failed to fetch 5-min candles")
+            return []
+
+    # -------------------------------------------------------------------------
+    # 1-min candles (for recording / IV comparison)
+    # -------------------------------------------------------------------------
+
+    async def get_1min_candles(self, count: int = 1) -> List[Dict[str, Any]]:
+        """Return the last `count` 1-min bars for the DXLink symbol."""
+        try:
+            candles = await self._tt.get_candles(
+                symbol=self._dxlink_symbol,
+                interval="1m",
+                count=count,
+            )
+            return candles or []
+        except Exception:
+            logger.exception("Failed to fetch 1-min candles")
             return []
 
     # -------------------------------------------------------------------------

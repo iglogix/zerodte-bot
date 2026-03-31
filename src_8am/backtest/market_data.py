@@ -18,7 +18,7 @@ class MarketDataLoader:
     Loads and caches SPY and VIX daily data for backtest use.
 
     SPY is scaled by 10 to approximate SPX index levels.
-    VIX9D is preferred for IV; falls back to VIX if unavailable.
+    IV priority: VIX1D (1-day) > VIX9D (9-day) > VIX (30-day).
     """
 
     def __init__(
@@ -27,16 +27,19 @@ class MarketDataLoader:
         spy_file: str = "spy_daily.csv",
         vix_file: str = "vix_daily.csv",
         vix9d_file: str = "vix9d_daily.csv",
+        vix1d_file: str = "vix1d_daily.csv",
     ):
         self._data_dir = data_dir
         self._spy_file = spy_file
         self._vix_file = vix_file
         self._vix9d_file = vix9d_file
+        self._vix1d_file = vix1d_file
 
         # Lazy-loaded caches
         self._spy_df: Optional[pd.DataFrame] = None
         self._vix_df: Optional[pd.DataFrame] = None
         self._vix9d_df: Optional[pd.DataFrame] = None
+        self._vix1d_df: Optional[pd.DataFrame] = None
 
         # Date -> values lookup caches
         self._spy_cache: Dict[date, Dict[str, float]] = {}
@@ -60,6 +63,13 @@ class MarketDataLoader:
             if os.path.exists(path):
                 self._vix9d_df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
         return self._vix9d_df
+
+    def _load_vix1d(self) -> Optional[pd.DataFrame]:
+        if self._vix1d_df is None:
+            path = os.path.join(self._data_dir, self._vix1d_file)
+            if os.path.exists(path):
+                self._vix1d_df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
+        return self._vix1d_df
 
     def get_spy_ohlc(self, session_date: date) -> Optional[Dict[str, float]]:
         """
@@ -96,7 +106,7 @@ class MarketDataLoader:
         """
         Get implied volatility for a given date.
 
-        Prefers VIX9D (9-day IV, better for 0DTE), falls back to VIX.
+        Priority: VIX1D (1-day) > VIX9D (9-day) > VIX (30-day).
         Returns value as decimal (e.g., 0.15 for 15% IV).
 
         Args:
@@ -112,7 +122,16 @@ class MarketDataLoader:
         if isinstance(session_date, datetime):
             session_date = session_date.date()
 
-        # Try VIX9D first
+        # Try VIX1D first (best for 0DTE — actual 1-day implied vol)
+        vix1d_df = self._load_vix1d()
+        if vix1d_df is not None:
+            matches = vix1d_df[vix1d_df.index.date == session_date]
+            if not matches.empty:
+                iv = float(matches.iloc[0]["Close"]) / 100.0
+                self._iv_cache[session_date] = iv
+                return iv
+
+        # Try VIX9D (9-day IV)
         vix9d_df = self._load_vix9d()
         if vix9d_df is not None:
             matches = vix9d_df[vix9d_df.index.date == session_date]
@@ -121,7 +140,7 @@ class MarketDataLoader:
                 self._iv_cache[session_date] = iv
                 return iv
 
-        # Fall back to VIX
+        # Fall back to VIX (30-day)
         vix_df = self._load_vix()
         matches = vix_df[vix_df.index.date == session_date]
         if not matches.empty:
@@ -141,6 +160,11 @@ class MarketDataLoader:
         """Check if IV data exists for a given date."""
         if isinstance(session_date, datetime):
             session_date = session_date.date()
+
+        vix1d_df = self._load_vix1d()
+        if vix1d_df is not None:
+            if not vix1d_df[vix1d_df.index.date == session_date].empty:
+                return True
 
         vix9d_df = self._load_vix9d()
         if vix9d_df is not None:

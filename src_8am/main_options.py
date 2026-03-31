@@ -49,7 +49,7 @@ def _setup_logging(log_dir: str, level: str = "INFO"):
     )
 
 
-def _load_config(config_path: str = "config/config_8am_options.yaml") -> Dict[str, Any]:
+def _load_config(config_path: str = "config/config_8am_es_options.yaml") -> Dict[str, Any]:
     with open(config_path) as f:
         return yaml.safe_load(f)
 
@@ -71,6 +71,7 @@ class OrbOptionsBotOrchestrator:
         self._tt_client = None
         self._tool_handlers = None
         self._decision_engine = None
+        self._candle_recorder = None
 
     async def initialize(self):
         from src_8am.services.db_service import OrbDatabaseService
@@ -98,6 +99,9 @@ class OrbOptionsBotOrchestrator:
             self._tt_client = _DryRunTTClient(config=self.config)
 
         self._market_data = OrbMarketData(tt_client=self._tt_client, config=self.config)
+        # Verify contract symbol against option chain to prevent expiration-day mismatch
+        if self.mode != "dry_run":
+            await self._market_data.verify_contract_symbol()
         self._options_service = OrbOptionsService(tt_client=self._tt_client, config=self.config)
 
         self._tool_handlers = OrbOptionsToolHandlers(
@@ -122,12 +126,25 @@ class OrbOptionsBotOrchestrator:
             mode=self.mode,
         )
 
+        # CandleRecorder — saves 1-min candles and compares ANN IV to market
+        from src_8am.services.candle_recorder import CandleRecorder
+        self._candle_recorder = CandleRecorder(
+            market_data=self._market_data,
+            config=self.config,
+            options_service=self._options_service,
+            tt_client=self._tt_client,
+        )
+
         logger.info("ORB Options bot initialized — mode: %s", self.mode.upper())
 
     async def run_day(self):
         """Run a full trading day: wait for 08:15, setup, wait for 09:30, entry watch."""
         from zoneinfo import ZoneInfo
         ET = ZoneInfo("America/New_York")
+
+        # Start candle recording as early as possible
+        if self._candle_recorder:
+            self._candle_recorder.start()
         strategy = self.config.get("strategy", {})
 
         orb_end_str = strategy.get("orb_window_end", "08:15")
@@ -168,6 +185,8 @@ class OrbOptionsBotOrchestrator:
         await self._decision_engine.run_entry_watch_loop()
 
     async def shutdown(self):
+        if self._candle_recorder:
+            await self._candle_recorder.stop()
         if self._tt_client and not isinstance(self._tt_client, _DryRunTTClient):
             try:
                 await self._tt_client.disconnect()
@@ -365,7 +384,7 @@ def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
 
 
 async def main_async(args: argparse.Namespace):
-    config_path = getattr(args, "config", "config/config_8am_options.yaml")
+    config_path = getattr(args, "config", "config/config_8am_es_options.yaml")
     config = _load_config(config_path)
 
     log_cfg = config.get("logging", {})
@@ -387,7 +406,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="8AM ORB Options Bot — SPX 0DTE credit spread seller",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Mode priority: CLI flag > ORB_BOT_MODE env var > config_8am_options.yaml bot.mode
+        epilog="""Mode priority: CLI flag > ORB_BOT_MODE env var > config_8am_es_options.yaml bot.mode
 
 Examples:
   python -m src_8am.main_options                   # dry-run
@@ -402,7 +421,7 @@ Examples:
                             help="TastyTrade sandbox (cert) environment")
     mode_group.add_argument("--live", action="store_true",
                             help="TastyTrade production (real money)")
-    parser.add_argument("--config", default="config/config_8am_options.yaml")
+    parser.add_argument("--config", default="config/config_8am_es_options.yaml")
     args = parser.parse_args()
 
     loop = asyncio.new_event_loop()

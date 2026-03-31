@@ -39,15 +39,16 @@ def _get_contract_months_for_year(year: int) -> list[Tuple[int, int, date]]:
 
 def get_front_month_contract(
     reference_date: date | None = None,
-    roll_days_before_expiry: int = 3,
+    roll_days_before_expiry: int = 0,
 ) -> Tuple[str, date]:
     """
     Determine the front-month ES contract symbol based on reference date.
 
     Args:
         reference_date: Date to calculate from (defaults to today)
-        roll_days_before_expiry: Days before expiration when volume shifts
-                                  to next contract (default 8 trading days)
+        roll_days_before_expiry: Days before expiration to roll to next contract.
+                                  Default 0: stay on current contract until expiry
+                                  (0DTE options are listed until expiration day).
 
     Returns:
         Tuple of (contract_code, expiration_date)
@@ -56,7 +57,9 @@ def get_front_month_contract(
     Example:
         >>> get_front_month_contract(date(2026, 3, 1))
         ('ESH26', date(2026, 3, 20))
-        >>> get_front_month_contract(date(2026, 3, 15))  # Close to expiry, rolls to June
+        >>> get_front_month_contract(date(2026, 3, 20))  # Expiration day, stays on H
+        ('ESH26', date(2026, 3, 20))
+        >>> get_front_month_contract(date(2026, 3, 21))  # Day after expiry, rolls to June
         ('ESM26', date(2026, 6, 19))
     """
     if reference_date is None:
@@ -75,8 +78,9 @@ def get_front_month_contract(
     for yr, month, expiry in contracts:
         roll_date = expiry - timedelta(days=roll_calendar_days)
 
-        # If we're before the roll date, this is the front month
-        if reference_date < roll_date:
+        # If we're on or before the roll date, this is the front month.
+        # 0DTE options trade through expiration day, so stay on current contract.
+        if reference_date <= roll_date:
             month_code = CONTRACT_MONTHS[month]
             year_suffix = str(yr)[-2:]  # Last 2 digits: 2026 -> "26"
             return f"ES{month_code}{year_suffix}", expiry

@@ -106,4 +106,4 @@ LLMs are used only as **advisors**, not as the decision-maker:
 
 ### Configuration
 
-`config/config.yaml` is the primary config. Alternative configs (`config_8am.yaml`, `config_8am_options.yaml`) exist for the 8AM ORB break-and-retest strategy variant. All strategy thresholds (delta, credit, skew) and stability parameters are configurable without code changes.
+`config/config.yaml` is the primary config. Strategy-specific configs use the naming convention `config_8am_{symbol}_options.yaml` (e.g. `config_8am_es_options.yaml`, `config_8am_spx_options.yaml`). Optimizer and chart scripts auto-derive a results subdirectory from the config name (e.g. `results/8am_es_options/`). All strategy thresholds (delta, credit, skew) and stability parameters are configurable without code changes.

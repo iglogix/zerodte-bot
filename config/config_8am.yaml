@@ -27,7 +27,7 @@ risk:
 
 market_data:
   provider: "dxlink"              # dxlink (TastyTrade) for all live data
-  dxlink_symbol: "/ESH5:XCME"    # override: auto-resolved from TT instruments API if blank
+  dxlink_symbol: "auto"           # auto-resolved from TT instruments API
 
 llm:
   advisor_model: "anthropic/claude-haiku-4-5"

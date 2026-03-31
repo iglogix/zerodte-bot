@@ -124,7 +124,7 @@ Used for Black-Scholes time-to-expiration calculations. May vary by product or c
 
 | Parameter | Config Key | Options | Description |
 |-----------|------------|---------|-------------|
-| Underlying Source | `options.underlying_source` | `es`, `spy` | Price source for option pricing |
+| Underlying Source | `options.underlying_source` | `bars`, `daily_csv` | Price source for option pricing (`bars` = use bar prices, `daily_csv` = fetch SPY daily CSV * 10) |
 | IV Source | `options.iv_source` | `fixed`, `vix` | IV source for Black-Scholes |
 | Data Directory | `backtest.data_dir` | `data` | Location of SPY/VIX CSV files |
 
@@ -186,7 +186,8 @@ DEFAULT_GRID = {
 
 | File | Purpose |
 |------|---------|
-| `config/config_8am_options.yaml` | Primary configuration |
+| `config/config_8am_es_options.yaml` | ES strategy configuration |
+| `config/config_8am_spx_options.yaml` | SPX strategy configuration |
 | `src_8am/backtest/options_engine.py` | Backtest engine |
 | `src_8am/backtest/optimizer.py` | Walkforward optimizer |
 | `src_8am/backtest/market_data.py` | SPY/VIX data loader |

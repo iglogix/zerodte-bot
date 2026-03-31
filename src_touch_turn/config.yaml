@@ -1,0 +1,45 @@
+bot:
+  name: "touch-turn-scalper"
+  timezone: "America/New_York"
+  mode: "dry_run"
+  symbol: "ES"
+
+strategy:
+  # First 15-min candle defines the opening range
+  orb_candle_start: "09:30"       # market open (RTH)
+  orb_candle_end:   "09:45"       # first 15-min candle close
+  trading_window_end: "11:00"     # 90 minutes after open — cancel unfilled orders
+  eod_force_close: "15:50"        # force close any open position
+
+  # ATR confirmation: opening candle range must be >= atr_pct of 14-day ATR
+  atr_period: 14
+  atr_min_pct: 0.25               # 25% of daily ATR
+
+  # Fibonacci-based TP (2:1 R:R enforced)
+  # Fib retracement drawn from high to low of the 15-min candle:
+  #   38.2% level = low + 0.382 * range  (long TP: 38.2% retracement up from low)
+  #   61.8% level = low + 0.618 * range  (short TP: 38.2% retracement down from high)
+  # Both yield TP distance = 0.382 * opening_range from entry
+  # SL distance = TP distance / 2 (enforces 2:1 R:R)
+  fib_tp_long: 0.382              # fib retracement level for long TP
+  fib_tp_short: 0.618             # fib retracement level for short TP
+
+  # Event filters
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+risk:
+  position_size: 1                # number of contracts per trade
+  contract_multiplier: 50         # ES futures = $50/pt
+  max_daily_loss_usd: 5000
+  slippage_per_side_pts: 0.25     # slippage in pts per side (applied on entry + exit)
+
+backtest:
+  data_file: "glbx-mdp3-20210227-20260226.ohlcv-1m.csv"
+  start_date: "2022-04-25"
+  end_date: "2024-12-31"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_touch_turn"

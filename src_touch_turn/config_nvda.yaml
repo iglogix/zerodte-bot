@@ -1,0 +1,37 @@
+bot:
+  name: "touch-turn-nvda"
+  timezone: "America/New_York"
+  mode: "dry_run"
+  symbol: "NVDA"
+
+strategy:
+  orb_candle_start: "09:30"
+  orb_candle_end:   "09:45"
+  trading_window_end: "11:00"
+  eod_force_close: "15:50"
+
+  atr_period: 14
+  atr_min_pct: 0.25
+
+  fib_tp_long: 0.382
+  fib_tp_short: 0.618
+
+  skip_nfp_fridays: false
+  skip_fomc_days: false
+  skip_cpi_days: false
+
+risk:
+  position_size: 100              # shares per trade
+  contract_multiplier: 1          # equities = $1/share (no leverage multiplier)
+  max_daily_loss_usd: 5000
+  slippage_per_side_pts: 0.02     # ~2 cents slippage per side for NVDA
+
+backtest:
+  data_source: "equity"           # "databento" (ES) or "equity" (CSV from MarketData.app)
+  data_file: "data/nvda_1m.csv"
+  start_date: "2022-01-01"
+  end_date: "2024-12-31"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_touch_turn_nvda"

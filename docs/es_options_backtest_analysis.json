@@ -5,7 +5,7 @@
     "reason": "ES 0DTE daily options available since April 25, 2022"
   },
   "configuration": {
-    "underlying_source": "es",
+    "underlying_source": "bars",
     "iv_source": "vix",
     "target_delta": 0.16,
     "spread_width": 5,

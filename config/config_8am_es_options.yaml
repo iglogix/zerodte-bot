@@ -3,18 +3,19 @@ bot:
   timezone: "America/New_York"
   mode: "sandbox"         # dry_run | manual | sandbox | live
   symbol: "ES"            # ES futures / 0DTE ES options
-  quantity: 1             # number of spreads
 
 strategy:
   orb_window_start: "08:00"
   orb_window_end:   "08:15"
   market_open:      "09:30"
   eod_force_close:  "15:50"
-  midline_tolerance_pts: 0.50   # SPX tolerance slightly wider than ES (index pts)
+  midline_tolerance_pts: 0.50   # optimized (WF-CV 2026-03-12)
   orb_range_filter:
-    min_pts: 2.0                # skip days with tiny ORB range
+    min_pts: 5.0                # optimized (WF-CV 2026-03-12)
     max_pts: 30.0               # skip extreme gap/event days
   skip_nfp_fridays: true        # skip first Friday of month (NFP release at 8:30 AM)
+  skip_fomc_days: true          # skip FOMC announcement days (statement at 2:00 PM)
+  skip_cpi_days: true           # skip CPI release days (8:30 AM, gaps through ORB)
 
 # ORB options logic:
 #   LONG  bias (breakout above ORB high) → sell PUT  credit spread below ORB low
@@ -25,21 +26,28 @@ options:
   option_root: "EW"               # symbol root for 0DTE options (EW = ES weekly, SPXW = SPX weekly)
   spread_width_pts: 5             # distance between short and long strike
   strike_step_pts: 5              # round strikes to nearest N points (SPX uses 5)
-  target_short_delta: 0.16        # ~1-SD OTM target (16-delta)
+  target_short_delta: 0.12        # optimized (WF-CV 2026-03-12), was 0.16
   max_short_delta: 0.25           # reject if short strike delta > this
   min_credit_per_spread: 0.50     # minimum credit to accept the spread ($50 per contract)
-  tp_pct_of_credit: 0.50          # close at 50% of max profit
-  sl_mult_of_credit: 2.0          # close at 200% of credit received
+  tp_pct_of_credit: 0.25          # optimized (WF-CV 2026-03-12), was 0.50
+  sl_mult_of_credit: 0             # 0=disabled (exit on breach only), or e.g. 3.0 = close at 300% of credit
+  hold_put_breach: false            # true=don't exit on PUT breach (price tends to recover at low delta)
+  slippage_per_spread: 0.12        # estimated round-trip slippage deducted from credit (entry+exit)
   atm_filter_width_pts: 150       # only consider strikes within ±N pts of current price
+  quantity: 1                      # number of spreads per trade (position sizing)
+  contract_multiplier: 50         # dollars per point: ES options = $50, SPX options = $100
   monitor_poll_seconds: 30        # how often to check spread mark price
   assumed_iv: 0.15                # fallback IV if iv_source=fixed or VIX data missing
+  pricing_model: "bs"             # "bs" = Black-Scholes | "bachelier" = normal model (better for 0DTE)
+  iv_correction_factor: 1.0       # multiplier on IV to correct BS underestimation of 0DTE ITM probability
+  iv_skew_table: "models/iv_skew_table.json"  # empirical IV skew correction from BBO data
   # Backtest data sources
-  underlying_source: "es"         # "es" = use ES bars directly, "spy" = use SPY*10 as SPX proxy
-  iv_source: "vix"                # "fixed" = use assumed_iv, "vix" = use daily VIX9D/VIX
+  underlying_source: "bars"       # "bars" = use bar prices | "daily_csv" = fetch SPY daily CSV * 10
+  iv_source: "vix"                    # "fixed" = use assumed_iv, "vix" = daily VIX9D/VIX, "realized" = from bars
 
 risk:
-  max_loss_per_trade_usd: 500     # max loss per spread in dollars (spread_width - credit) * 100
-  max_daily_loss_usd: 1000        # halt if cumulative realized loss exceeds this
+  max_loss_per_trade_usd: 25000   # max loss per trade total: (width - credit) * multiplier * qty
+  max_daily_loss_usd: 25000       # halt if cumulative realized loss exceeds this
   max_buying_power_pct: 50.0
 
 llm:
@@ -71,7 +79,7 @@ backtest:
   data_dir: "data"                # directory containing spy_daily.csv, vix_daily.csv, vix9d_daily.csv
   data_file: "glbx-mdp3-20210227-20260226.ohlcv-1m.csv"  # ES 1-min bars (unzipped)
   start_date: "2022-04-25"        # 0DTE ES options launched this date
-  end_date: "2024-12-31"
+  end_date: "2026-02-26"
 
 # Contract selection logic (handled in options_engine.py):
 #   - Multiple ES contracts trade simultaneously during roll periods (H/M/U/Z)

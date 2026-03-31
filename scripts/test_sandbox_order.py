@@ -18,7 +18,7 @@ from src.services.tastytrade_client import TastyTradeClient
 
 async def main():
     # Load config
-    cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "config_8am_options.yaml")
+    cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "config_8am_es_options.yaml")
     with open(cfg_path) as f:
         config = yaml.safe_load(f)
 

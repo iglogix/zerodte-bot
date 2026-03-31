@@ -51,3 +51,12 @@ htmlcov/
 
 # Large data files
 *.zip
+*.csv
+*.csv.zst
+*.npz
+models/
+results/
+manifest.json
+metadata.json
+condition.json
+0dte_bot

@@ -14,9 +14,11 @@ User-Agent header must be <product>/<version> — required by TastyTrade API.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -74,6 +76,16 @@ class TastyTradeClient:
         self._market_token: Optional[str] = None
         self._market_sdk_session = None  # production OAuthSession for DXLink in sandbox
 
+        # Persistent DXLink quote streamer (replaces per-call open/close)
+        self._quote_streamer = None
+        self._quote_feed_task: Optional[asyncio.Task] = None
+        self._latest_quotes: Dict[str, Dict[str, Any]] = {}
+        self._quote_symbols: set = set()
+        self._quote_streamer_lock = asyncio.Lock()
+        # Symbols that should bypass DXLink and go straight to REST
+        # (futures options with spaces don't stream via DXLink)
+        self._dxlink_rest_only: set = set()
+
     async def __aenter__(self):
         await self.connect()
         return self
@@ -91,7 +103,20 @@ class TastyTradeClient:
         if self.mode == "sandbox":
             await self._connect_market_data_session()
 
+    async def refresh_session(self):
+        """Re-authenticate to get a fresh session token (tokens expire after 15 min)."""
+        if self.mode == "dry_run":
+            return
+        try:
+            await self._authenticate()
+            if self.mode == "sandbox":
+                await self._connect_market_data_session()
+            logger.info("TastyTrade session refreshed successfully")
+        except Exception as exc:
+            logger.error("TastyTrade session refresh failed: %s", exc)
+
     async def disconnect(self):
+        await self._close_quote_streamer()
         if self._http:
             await self._http.close()
             self._http = None
@@ -115,19 +140,76 @@ class TastyTradeClient:
             await self._authenticate_via_http()
 
     async def _authenticate_via_sdk(self):
-        """Use OAuthSession from the tastytrade SDK (v10+)."""
-        from tastytrade import OAuthSession  # type: ignore
+        """Use Session from the tastytrade SDK.
+
+        Uses username + remember_token (no 2FA) with dxfeed_tos_compliant=False
+        to get 'live' level DXLink streamer tokens that actually work for
+        futures/options streaming.
+
+        Falls back to OAuth2 (provider_secret + refresh_token) if credentials
+        are not available — but OAuth2 only gets 'api' level tokens (limited).
+        """
+        from tastytrade import Session as TTSession  # type: ignore
 
         is_test = self.mode == "sandbox"
+        pfx = "TASTYTRADE_SANDBOX_" if is_test else "TASTYTRADE_"
+        username = os.environ.get(f"{pfx}USERNAME", "")
+        password = os.environ.get(f"{pfx}PASSWORD", "")
+
+        # Try remember_token login (no 2FA, gets live DXLink tokens)
+        remember_token_path = Path("data/remember_token.txt")
+        remember_token = None
+        if remember_token_path.exists():
+            remember_token = remember_token_path.read_text().strip()
+
         loop = asyncio.get_event_loop()
-        self._sdk_session = await loop.run_in_executor(
-            None,
-            lambda: OAuthSession(self.provider_secret, self.refresh_token, is_test=is_test),
-        )
-        self._access_token = self._sdk_session.session_token
-        logger.info(
-            "TastyTrade OAuth2 authenticated via OAuthSession (mode=%s, is_test=%s)",
-            self.mode, is_test,
+
+        if username and (remember_token or password):
+            try:
+                kwargs = {"login": username, "is_test": is_test,
+                          "remember_me": True, "dxfeed_tos_compliant": False}
+                if remember_token:
+                    kwargs["remember_token"] = remember_token
+                else:
+                    kwargs["password"] = password
+
+                self._sdk_session = await loop.run_in_executor(
+                    None, lambda: TTSession(**kwargs),
+                )
+                # Save new remember token for next login
+                if self._sdk_session.remember_token:
+                    remember_token_path.parent.mkdir(parents=True, exist_ok=True)
+                    remember_token_path.write_text(self._sdk_session.remember_token)
+
+                self._access_token = self._sdk_session.session_token
+                logger.info(
+                    "TastyTrade authenticated via Session (mode=%s, dxlink=live)",
+                    self.mode,
+                )
+                return
+            except Exception as exc:
+                logger.warning("Session login failed (%s), trying OAuth2 fallback", exc)
+
+        # Fallback: username + password (no remember_token)
+        if username and password:
+            self._sdk_session = await loop.run_in_executor(
+                None,
+                lambda: TTSession(username, password=password, is_test=is_test,
+                                  remember_me=True, dxfeed_tos_compliant=False),
+            )
+            if self._sdk_session.remember_token:
+                remember_token_path.parent.mkdir(parents=True, exist_ok=True)
+                remember_token_path.write_text(self._sdk_session.remember_token)
+            self._access_token = self._sdk_session.session_token
+            logger.info(
+                "TastyTrade authenticated via password (mode=%s, dxlink=live)",
+                self.mode,
+            )
+            return
+
+        raise RuntimeError(
+            "TastyTrade authentication failed — set TASTYTRADE_USERNAME + "
+            "TASTYTRADE_PASSWORD in .env and run device challenge once"
         )
 
     async def _connect_market_data_session(self):
@@ -135,25 +217,51 @@ class TastyTradeClient:
         Sandbox only: open a second session against production for read-only
         market data (quotes, option chains). Uses production credentials.
         """
+        from tastytrade import Session as TTSession  # type: ignore
+
+        username = os.environ.get("TASTYTRADE_USERNAME", "")
+        remember_token_path = Path("data/remember_token.txt")
+        remember_token = None
+        if remember_token_path.exists():
+            remember_token = remember_token_path.read_text().strip()
+
+        loop = asyncio.get_event_loop()
+
+        # Try remember_token login for live DXLink tokens
+        if username and remember_token:
+            try:
+                prod_session = await loop.run_in_executor(
+                    None,
+                    lambda: TTSession(username, remember_token=remember_token,
+                                      is_test=False, remember_me=True,
+                                      dxfeed_tos_compliant=False),
+                )
+                self._market_sdk_session = prod_session
+                self._market_token = prod_session.session_token
+                self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
+                logger.info("Sandbox market data session opened (dxlink=live)")
+                return
+            except Exception as exc:
+                logger.warning("Sandbox market data login failed: %s", exc)
+
+        # Fallback: OAuth2
         prod_secret = os.environ.get("TASTYTRADE_CLIENT_SECRET", "")
         prod_token = os.environ.get("TASTYTRADE_REFRESH_TOKEN", "")
         if not prod_secret or not prod_token:
             logger.warning(
-                "Sandbox market data: no production credentials found — "
-                "set TASTYTRADE_CLIENT_SECRET + TASTYTRADE_REFRESH_TOKEN"
+                "Sandbox market data: no credentials found — "
+                "set TASTYTRADE_USERNAME + remember_token or CLIENT_SECRET + REFRESH_TOKEN"
             )
             return
         try:
-            from tastytrade import OAuthSession  # type: ignore
-            loop = asyncio.get_event_loop()
             prod_session = await loop.run_in_executor(
                 None,
-                lambda: OAuthSession(prod_secret, prod_token, is_test=False),
+                lambda: TTSession(prod_secret, prod_token, is_test=False),
             )
             self._market_sdk_session = prod_session
             self._market_token = prod_session.session_token
             self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
-            logger.info("Sandbox market data session opened against production API")
+            logger.info("Sandbox market data session opened (dxlink=api, OAuth2 fallback)")
         except Exception as exc:
             logger.error("Could not open sandbox market data session: %s", exc)
 
@@ -167,7 +275,7 @@ class TastyTradeClient:
             token = self._sdk_session.session_token or ""
         else:
             token = self._market_token or self._access_token or ""
-        auth = f"Bearer {token}" if token else ""
+        auth = token or ""
         return {
             "Authorization": auth,
             "Content-Type": "application/json",
@@ -227,7 +335,7 @@ class TastyTradeClient:
             token = self._sdk_session.session_token or ""
         else:
             token = self._access_token or ""
-        auth = f"Bearer {token}" if token else ""
+        auth = token or ""
         return {
             "Authorization": auth,
             "Content-Type": "application/json",
@@ -239,52 +347,134 @@ class TastyTradeClient:
 
     async def get_quote(self, symbol: str) -> Dict[str, Any]:
         """
-        Get real-time quote via DXLinkStreamer (works for SPX and all symbols).
+        Get real-time quote via persistent DXLinkStreamer.
         In sandbox mode uses the production session (cert has no live feed).
+        Falls back to REST if the streamer is unavailable.
+        Futures options (symbol contains spaces) skip DXLink entirely.
         """
+        # Futures options like "./ESH6 EW2H6 260313P6630" don't stream via DXLink
+        if " " in symbol or symbol in self._dxlink_rest_only:
+            return await self._get_quote_via_rest(symbol)
         try:
             return await self._get_quote_via_dxlink(symbol)
         except Exception as exc:
             logger.warning("DXLink quote failed for %s: %s — falling back to REST", symbol, exc)
+            self._dxlink_rest_only.add(symbol)
             return await self._get_quote_via_rest(symbol)
 
-    async def _get_quote_via_dxlink(self, symbol: str) -> Dict[str, Any]:
-        """Fetch a single quote snapshot via DXLinkStreamer."""
+    # -- Persistent DXLink quote streamer ------------------------------------
+
+    async def _ensure_quote_streamer(self, symbol: str):
+        """Ensure the persistent DXLink streamer is running and subscribed to *symbol*."""
         from tastytrade import DXLinkStreamer  # type: ignore
         from tastytrade.dxfeed import Quote    # type: ignore
 
-        session = self._market_sdk_session or self._sdk_session
-        async with DXLinkStreamer(session) as streamer:
-            await streamer.subscribe(Quote, [symbol])
-            quote = await asyncio.wait_for(streamer.get_event(Quote), timeout=10)
-            bid = float(quote.bid_price or 0)
-            ask = float(quote.ask_price or 0)
-            price = (bid + ask) / 2 if bid and ask else bid or ask
-            return {
-                "symbol": symbol,
-                "price": price,
-                "bid": bid,
-                "ask": ask,
-                "timestamp": datetime.now().isoformat(),
-            }
+        async with self._quote_streamer_lock:
+            # (Re)create streamer if it died or was never started
+            if self._quote_streamer is None:
+                session = self._market_sdk_session or self._sdk_session
+                streamer = DXLinkStreamer(session)
+                self._quote_streamer = await streamer.__aenter__()
+                self._quote_symbols.clear()
+                self._quote_feed_task = asyncio.create_task(
+                    self._quote_feed_loop(), name="dxlink-quote-feed"
+                )
+                logger.info("Persistent DXLink quote streamer started")
+
+            if symbol not in self._quote_symbols:
+                await self._quote_streamer.subscribe(Quote, [symbol])
+                self._quote_symbols.add(symbol)
+                logger.info("DXLink subscribed to %s", symbol)
+
+    async def _quote_feed_loop(self):
+        """Background task: read quote events and keep _latest_quotes fresh."""
+        from tastytrade.dxfeed import Quote  # type: ignore
+
+        while True:
+            try:
+                event = await self._quote_streamer.get_event(Quote)
+                sym = event.event_symbol
+                bid = float(event.bid_price or 0)
+                ask = float(event.ask_price or 0)
+                mid = (bid + ask) / 2 if bid and ask else bid or ask
+                self._latest_quotes[sym] = {
+                    "symbol": sym,
+                    "price": mid,
+                    "bid": bid,
+                    "ask": ask,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning("Quote feed error: %s — streamer will reconnect on next request", exc)
+                # Mark streamer as dead so _ensure_quote_streamer recreates it
+                async with self._quote_streamer_lock:
+                    self._quote_streamer = None
+                    self._quote_symbols.clear()
+                return
+
+    async def _close_quote_streamer(self):
+        """Shut down the persistent streamer and its background task."""
+        if self._quote_feed_task and not self._quote_feed_task.done():
+            self._quote_feed_task.cancel()
+            try:
+                await self._quote_feed_task
+            except asyncio.CancelledError:
+                pass
+        self._quote_feed_task = None
+
+        if self._quote_streamer:
+            try:
+                await self._quote_streamer.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._quote_streamer = None
+        self._quote_symbols.clear()
+        self._latest_quotes.clear()
+
+    async def _get_quote_via_dxlink(self, symbol: str) -> Dict[str, Any]:
+        """Return the latest quote from the persistent DXLink streamer."""
+        await self._ensure_quote_streamer(symbol)
+
+        # Wait up to 5s for the first quote after a fresh subscribe
+        for _ in range(50):
+            cached = self._latest_quotes.get(symbol)
+            if cached is not None:
+                return cached
+            await asyncio.sleep(0.1)
+
+        raise TimeoutError(f"No DXLink quote received for {symbol} within 5s")
 
     async def _get_quote_via_rest(self, symbol: str) -> Dict[str, Any]:
-        """REST fallback for quotes."""
+        """REST fallback for quotes using TT market-data endpoint."""
+        from urllib.parse import quote as url_quote
         http, base = self._market_http_and_url()
         hdrs = self._market_headers()
-        rest_symbol = symbol.lstrip("/")
-        async with http.get(
-            f"{base}/market-data/quotes/{rest_symbol}",
-            headers=hdrs,
-        ) as resp:
+        raw = symbol.lstrip("/")
+        # Detect instrument type: futures start with / or contain exchange suffix
+        if symbol.startswith("/") or symbol.startswith("."):
+            # Futures option symbols contain spaces (e.g. "./ESH6 EW2H6 ...")
+            itype = "Future Option" if " " in symbol else "Future"
+        else:
+            itype = "Equity"
+        encoded = url_quote(raw, safe="")
+        url = f"{base}/market-data/{itype}/{encoded}"
+        async with http.get(url, headers=hdrs) as resp:
             resp.raise_for_status()
             data = await resp.json()
-            item = data["data"]
+            item = data.get("data", data)
+            # TT returns nested items or flat depending on endpoint
+            if isinstance(item, dict) and "items" in item:
+                item = item["items"][0] if item["items"] else {}
+            elif isinstance(item, list):
+                item = item[0] if item else {}
+            mark = item.get("mark", item.get("last", 0))
             return {
                 "symbol": symbol,
-                "price": float(item.get("last", item.get("mark", 0))),
-                "bid": float(item.get("bid", 0)),
-                "ask": float(item.get("ask", 0)),
+                "price": float(mark) if mark else 0.0,
+                "bid": float(item.get("bid", 0) or 0),
+                "ask": float(item.get("ask", 0) or 0),
                 "timestamp": datetime.now().isoformat(),
             }
 
@@ -526,6 +716,143 @@ class TastyTradeClient:
 
         return options
 
+    async def _get_atm_iv_rest(self, symbol: str = "/ES") -> Optional[float]:
+        """Get ATM 0DTE IV from /market-metrics REST endpoint."""
+        try:
+            http, base = self._market_http_and_url()
+            async with http.get(
+                f"{base}/market-metrics",
+                headers=self._market_headers(),
+                params={"symbols": symbol},
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                items = data.get("data", {}).get("items", [])
+                if not items:
+                    return None
+                today_str = date.today().strftime("%Y-%m-%d")
+                for exp_iv in items[0].get("option-expiration-implied-volatilities", []):
+                    if exp_iv.get("expiration-date") == today_str:
+                        return float(exp_iv["implied-volatility"])
+                # Fall back to index IV
+                idx = items[0].get("implied-volatility-index")
+                return float(idx) if idx else None
+        except Exception as exc:
+            logger.warning("ATM IV REST fetch failed: %s", exc)
+            return None
+
+    @staticmethod
+    def _enrich_chain_bs(
+        options: List[Dict[str, Any]], spot: float, atm_iv: float
+    ) -> None:
+        """Enrich option chain with BS-computed greeks and prices in-place."""
+        import math
+
+        def _ncdf(x: float) -> float:
+            a = abs(x)
+            t = 1.0 / (1.0 + 0.2316419 * a)
+            poly = t * (0.319381530 + t * (-0.356563782 + t * (
+                1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+            cdf = 1.0 - (1.0 / math.sqrt(2 * math.pi)) * math.exp(-0.5 * a * a) * poly
+            return cdf if x >= 0 else 1.0 - cdf
+
+        def _npdf(x: float) -> float:
+            return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
+
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+        now_et = datetime.now(et)
+        close_dt = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+        tte_hours = max(0.01, (close_dt - now_et).total_seconds() / 3600)
+        t = tte_hours / (252 * 6.5)  # TTE in years
+        if t <= 0:
+            return
+        sqrt_t = math.sqrt(t)
+
+        for opt in options:
+            k = opt.get("strike", 0)
+            if k <= 0:
+                continue
+            iv = atm_iv
+            try:
+                d1 = (math.log(spot / k) + 0.5 * iv * iv * t) / (iv * sqrt_t)
+                d2 = d1 - iv * sqrt_t
+            except (ValueError, ZeroDivisionError):
+                continue
+
+            nd1 = _ncdf(d1)
+            nd2 = _ncdf(d2)
+            pdf_d1 = _npdf(d1)
+
+            if opt.get("option_type") == "call":
+                price = spot * nd1 - k * nd2
+                delta = round(nd1, 4)
+            else:
+                price = k * _ncdf(-d2) - spot * _ncdf(-d1)
+                delta = round(nd1 - 1.0, 4)
+
+            gamma = round(pdf_d1 / (spot * iv * sqrt_t), 6) if spot > 0 else 0.0
+            theta = round(-(spot * pdf_d1 * iv) / (2 * sqrt_t * 252), 4)
+            vega = round(spot * pdf_d1 * sqrt_t / 100, 4)  # per 1% IV move
+
+            bid = round(max(0.05, price * 0.95), 2)
+            ask = round(price * 1.05 + 0.10, 2)
+
+            opt["delta"] = delta
+            opt["gamma"] = gamma
+            opt["theta"] = theta
+            opt["vega"] = vega
+            opt["iv"] = round(iv, 5)
+            opt["bid"] = bid
+            opt["ask"] = ask
+            opt["last"] = round(price, 2)
+
+        logger.info(
+            "BS enrichment: %d options, spot=%.2f, IV=%.4f, TTE=%.2fh",
+            len(options), spot, atm_iv, tte_hours,
+        )
+
+    async def get_active_futures_contract(self, product_code: str) -> Optional[str]:
+        """Discover the active futures contract from the option chain API.
+
+        Returns the DXLink symbol (e.g. '/ESH26:XCME') for the underlying
+        that has 0DTE options today, or None if unavailable.
+
+        This is the authoritative source — immune to calendar logic bugs
+        that can cause contract month mismatch on expiration day.
+        """
+        from tastytrade.instruments import NestedFutureOptionChain  # type: ignore
+
+        try:
+            session = self._market_sdk_session or self._sdk_session
+            chain = await NestedFutureOptionChain.a_get_chain(session, product_code)
+            today_str = date.today().strftime("%Y-%m-%d")
+
+            for subchain in chain.option_chains:
+                for expiration in subchain.expirations:
+                    if str(expiration.expiration_date) == today_str:
+                        short_sym = expiration.underlying_symbol  # e.g. "/ESH6"
+                        # Expand short symbol to full DXLink format
+                        # /ESH6 → /ESH26:XCME (insert century digit, add exchange)
+                        exchange = "XCME"
+                        if expiration.strikes:
+                            ss = getattr(expiration.strikes[0], "call_streamer_symbol", "")
+                            if ":" in ss:
+                                exchange = ss.split(":")[-1]
+                        # Expand 1-digit year to 2-digit: /ESH6 → /ESH26
+                        import re
+                        m = re.match(r"(/\w+?)(\d)$", short_sym)
+                        if m:
+                            prefix, digit = m.groups()
+                            century = str(date.today().year)[-2]
+                            short_sym = f"{prefix}{century}{digit}"
+                        return f"{short_sym}:{exchange}"
+            return None
+        except Exception as exc:
+            logger.debug("Could not discover active contract for %s: %s", product_code, exc)
+            return None
+
     async def get_future_option_chain(
         self, product_code: str, underlying_price: float = 0.0
     ) -> List[Dict[str, Any]]:
@@ -537,7 +864,7 @@ class TastyTradeClient:
 
         today = date.today().strftime("%Y-%m-%d")
         session = self._market_sdk_session or self._sdk_session
-        chain = await NestedFutureOptionChain.a_get(session, product_code)
+        chain = await NestedFutureOptionChain.a_get_chain(session, product_code)
 
         options = []
         for subchain in chain.option_chains:
@@ -579,6 +906,14 @@ class TastyTradeClient:
             )
         except Exception as exc:
             logger.error("Future option chain Greeks enrichment failed: %s", exc)
+
+        # If DXLink enrichment left most deltas at 0, fall back to BS greeks
+        n_with_delta = sum(1 for o in options if o.get("delta", 0) != 0)
+        if n_with_delta < len(options) * 0.1 and underlying_price > 0:
+            logger.info("No DXLink greeks — computing BS greeks from ATM IV")
+            atm_iv = await self._get_atm_iv_rest("/ES")
+            if atm_iv and atm_iv > 0:
+                self._enrich_chain_bs(options, underlying_price, atm_iv)
 
         return options
 
@@ -725,6 +1060,8 @@ class TastyTradeClient:
         }
         # Remove None values
         payload = {k: v for k, v in payload.items() if v is not None}
+
+        logger.info("Credit spread order payload: %s", json.dumps(payload, indent=2))
 
         async with self._http.post(
             f"{self.base_url}/accounts/{self.account_number}/orders",

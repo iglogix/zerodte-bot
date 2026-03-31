@@ -1,0 +1,79 @@
+bot:
+  name: "iwm-0dte-options-bot"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "IWM"
+
+strategy:
+  orb_window_start: "09:30"
+  orb_window_end:   "09:45"
+  market_open:      "09:45"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.50
+  orb_range_filter:
+    min_pts: 0.10
+    max_pts: 10.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# IWM 0DTE credit spreads — ANN-priced
+# IWM trades ~$200-250, options have $100 multiplier, 1-pt strike steps
+options:
+  option_root: "IWM"
+  spread_width_pts: 1              # IWM uses 1-pt wide spreads
+  strike_step_pts: 1               # IWM strikes at 1-pt intervals
+  target_short_delta: 0.12
+  max_short_delta: 0.25
+  min_credit_per_spread: 0.02
+  tp_pct_of_credit: 0.25
+  sl_mult_of_credit: 0
+  hold_put_breach: false
+  slippage_per_spread: 0.02        # IWM has tight spreads
+  atm_filter_width_pts: 20
+  quantity: 1
+  contract_multiplier: 100         # IWM options = $100 per point
+  monitor_poll_seconds: 30
+  assumed_iv: 0.20                 # IWM typically higher IV than SPX
+  pricing_model: "bs"
+  iv_correction_factor: 1.0
+  underlying_source: "bars"
+  iv_source: "vix"                  # Use daily VIX for IV
+  # ANN pricing disabled for now — needs more training data for historical backtest
+  # iv_source: "price_ann"
+  # price_ann_model: "models/price_ann_v2_otm_vol.pt"
+  # price_ann_symbol: "IWM"
+
+risk:
+  max_loss_per_trade_usd: 10000
+  max_daily_loss_usd: 10000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "iwm_options_bot.db"
+  cache_db: "data/iwm_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_iwm_options"
+
+market_data:
+  dxlink_symbol: "auto"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+backtest:
+  data_dir: "data"
+  data_file: "data/iwm_1m.csv"
+  data_source: "spy"               # SpyLoader works for any equity CSV
+  price_scale: 1.0                 # No scaling needed — IWM prices used directly
+  start_date: "2022-05-11"
+  end_date: "2026-02-28"

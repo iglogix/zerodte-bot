@@ -84,6 +84,20 @@ class OrbOptionsDecisionEngine:
 
     async def run_setup_phase(self) -> bool:
         """Fetch ORB candle and persist the session record. Returns True on success."""
+
+        # Check for event-day skips (FOMC, CPI, NFP)
+        today = date.today()
+        from src_8am.backtest.options_engine import OrbOptionsBacktestEngine
+        if self._strategy.get("skip_fomc_days", False) and today in OrbOptionsBacktestEngine._FOMC_DATES:
+            logger.info("FOMC day (%s) — skipping session per config", today)
+            return False
+        if self._strategy.get("skip_cpi_days", False) and today in OrbOptionsBacktestEngine._CPI_DATES:
+            logger.info("CPI day (%s) — skipping session per config", today)
+            return False
+        if self._strategy.get("skip_nfp_fridays", False) and today.weekday() == 4 and today.day <= 7:
+            logger.info("NFP Friday (%s) — skipping session per config", today)
+            return False
+
         logger.info("Phase A: fetching ORB candle (options mode)")
         levels = await self._tools.get_orb_levels()
 
@@ -97,7 +111,6 @@ class OrbOptionsDecisionEngine:
             levels["high"], levels["low"], levels["midline"], levels["range_pts"],
         )
 
-        today = date.today()
         trade_id = f"ORBOPT-{today.isoformat()}-{uuid.uuid4().hex[:6].upper()}"
         self._session_trade_id = trade_id
 

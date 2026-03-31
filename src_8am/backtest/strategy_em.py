@@ -1,0 +1,158 @@
+"""
+Expected Move (EM) based strike selection strategy.
+
+Strike placement is defined as a multiple of the session's expected move,
+making the strategy automatically vol-adaptive. Credit is still estimated
+via BS to prevent the optimizer from converging to unrealistic deep-OTM
+strikes with zero real-world liquidity.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
+from src_8am.backtest.strategy_base import Strategy, TradeSetup
+from src_8am.backtest.pricing import (
+    spread_credit, spread_value,
+    bs_put_delta, bs_call_delta,
+    bachelier_put_delta, bachelier_call_delta,
+)
+
+
+class EMStrategy(Strategy):
+
+    def configure(self, config: Dict[str, Any]) -> None:
+        opt = config.get("options", {})
+        self._em_multiplier = opt.get("em_multiplier", 1.5)
+        self._spread_width = opt.get("spread_width_pts", 5.0)
+        self._strike_step = opt.get("strike_step_pts", 5.0)
+        self._min_credit = opt.get("min_credit_per_spread", 0.50)
+        self._slippage = opt.get("slippage_per_spread", 0.0)
+        self._pricing_model = opt.get("pricing_model", "bs")
+        self._iv_correction = opt.get("iv_correction_factor", 1.0)
+
+    @staticmethod
+    def compute_em(spot: float, iv: float, tte_hours: float) -> float:
+        """Expected Move = spot * IV/sqrt(252) * sqrt(hours_remaining / 6.5).
+
+        Uses annualized IV scaled to the remaining intraday fraction.
+        """
+        daily_em = spot * iv / math.sqrt(252)
+        intraday_fraction = tte_hours / 6.5  # 6.5 RTH hours
+        return daily_em * math.sqrt(max(intraday_fraction, 0.001))
+
+    def select_trade(
+        self,
+        spot: float,
+        bias: str,
+        entry_time: datetime,
+        session_iv: float,
+        tte_years: float,
+        tte_hours: float,
+        engine: Any,
+    ) -> Optional[TradeSetup]:
+        spread_type = "put_credit_spread" if bias == "long" else "call_credit_spread"
+        iv_adj = session_iv * self._iv_correction
+
+        em = self.compute_em(spot, iv_adj, tte_hours)
+
+        # Place short strike at em_multiplier * EM from spot
+        if spread_type == "put_credit_spread":
+            raw_short = spot - self._em_multiplier * em
+            short_k = math.floor(raw_short / self._strike_step) * self._strike_step
+            long_k = short_k - self._spread_width
+        else:
+            raw_short = spot + self._em_multiplier * em
+            short_k = math.ceil(raw_short / self._strike_step) * self._strike_step
+            long_k = short_k + self._spread_width
+
+        is_call_flag = 0 if spread_type == "put_credit_spread" else 1
+
+        # Credit estimation via BS (prevents optimizer from picking deep OTM with no liquidity)
+        if engine._price_ann is not None:
+            credit = engine._ann_spread_credit(spot, short_k, long_k, tte_hours, spread_type)
+        else:
+            iv_short = engine._get_strike_iv(iv_adj, spot, short_k, tte_years, is_call_flag)
+            credit = spread_credit(spot, short_k, long_k, tte_years, iv_short,
+                                   spread_type, model=self._pricing_model)
+        credit = round(credit - self._slippage, 2)
+
+        if credit < self._min_credit:
+            return None
+
+        # Compute delta for reporting
+        if self._pricing_model == "bachelier":
+            _put_d, _call_d = bachelier_put_delta, bachelier_call_delta
+        else:
+            _put_d, _call_d = bs_put_delta, bs_call_delta
+        if spread_type == "put_credit_spread":
+            short_delta = abs(_put_d(spot, short_k, tte_years, iv_adj))
+        else:
+            short_delta = _call_d(spot, short_k, tte_years, iv_adj)
+
+        return TradeSetup(
+            spread_type=spread_type,
+            short_strike=short_k,
+            long_strike=long_k,
+            spread_width=self._spread_width,
+            credit=credit,
+            short_delta=round(short_delta, 4),
+            iv_used=session_iv,
+            extra={"em": round(em, 2), "em_multiplier": self._em_multiplier},
+        )
+
+    def compute_exit_value(
+        self,
+        spot: float,
+        short_k: float,
+        long_k: float,
+        tte_years: float,
+        tte_hours: float,
+        spread_type: str,
+        session_iv: float,
+        engine: Any,
+    ) -> float:
+        is_call_flag = 0 if spread_type == "put_credit_spread" else 1
+        if engine._price_ann is not None:
+            return engine._ann_spread_value(spot, short_k, long_k, tte_hours, spread_type)
+        iv = engine._get_strike_iv(session_iv, spot, short_k, tte_years, is_call_flag)
+        return spread_value(spot, short_k, long_k, tte_years, iv,
+                            spread_type, model=self._pricing_model)
+
+    def grid_params(self) -> Dict[str, List[Any]]:
+        return {
+            "em_multiplier":         [0.5, 0.75, 1.0, 1.25, 1.5],
+            "spread_width_pts":      [5, 10, 15, 20, 25],
+            "tp_pct_of_credit":      [0.25, 0.50, 0.75],
+            "min_credit_per_spread": [0.10, 0.25, 0.50],
+            "min_orb_range_pts":     [2.0, 3.0, 5.0],
+            "midline_tolerance":     [0.25, 0.50, 1.0],
+            "hold_put_breach":       [False, True],
+            "pricing_model":         ["bs", "bachelier"],
+        }
+
+    def apply_params(self, config: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
+        cfg = copy.deepcopy(config)
+        cfg.setdefault("options", {})
+        cfg.setdefault("strategy", {})
+        cfg["strategy"].setdefault("orb_range_filter", {})
+        cfg["options"]["em_multiplier"] = params["em_multiplier"]
+        cfg["options"]["spread_width_pts"] = params["spread_width_pts"]
+        cfg["options"]["tp_pct_of_credit"] = params["tp_pct_of_credit"]
+        if "min_credit_per_spread" in params:
+            cfg["options"]["min_credit_per_spread"] = params["min_credit_per_spread"]
+        cfg["strategy"]["midline_tolerance_pts"] = params["midline_tolerance"]
+        cfg["strategy"]["orb_range_filter"]["min_pts"] = params["min_orb_range_pts"]
+        if "hold_put_breach" in params:
+            cfg["options"]["hold_put_breach"] = params["hold_put_breach"]
+        if "pricing_model" in params:
+            cfg["options"]["pricing_model"] = params["pricing_model"]
+        if "quantity" in params:
+            cfg["options"]["quantity"] = params["quantity"]
+            mult = cfg.get("options", {}).get("contract_multiplier", 50)
+            width = params["spread_width_pts"]
+            cfg.setdefault("risk", {})["max_loss_per_trade_usd"] = width * mult * params["quantity"]
+        return cfg
