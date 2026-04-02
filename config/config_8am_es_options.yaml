@@ -26,12 +26,19 @@ options:
   option_root: "EW"               # symbol root for 0DTE options (EW = ES weekly, SPXW = SPX weekly)
   spread_width_pts: 5             # distance between short and long strike
   strike_step_pts: 5              # round strikes to nearest N points (SPX uses 5)
-  target_short_delta: 0.12        # optimized (WF-CV 2026-03-12), was 0.16
+  target_short_delta: 0.12        # fallback delta (used when use_straddle_em=false)
   max_short_delta: 0.25           # reject if short strike delta > this
-  min_credit_per_spread: 0.50     # minimum credit to accept the spread ($50 per contract)
-  tp_pct_of_credit: 0.25          # optimized (WF-CV 2026-03-12), was 0.50
-  sl_mult_of_credit: 0             # 0=disabled (exit on breach only), or e.g. 3.0 = close at 300% of credit
-  hold_put_breach: false            # true=don't exit on PUT breach (price tends to recover at low delta)
+  min_credit_per_spread: 0.05     # lowered — CBBO analysis showed real credits are thin
+  tp_pct_of_credit: 0.50          # CBBO-optimized (2026-04-01), was 0.25
+  sl_mult_of_credit: 0             # 0=disabled (exit on breach only)
+  hold_put_breach: true             # CBBO-optimized: puts survive breaches (100% WR)
+  # Straddle-EM strike selection (CBBO-optimized 2026-04-01)
+  use_straddle_em: true            # use ATM straddle for expected move (not BS delta)
+  spread_mode: "iron_condor"       # "directional" or "iron_condor"
+  em_with_trend: 0.50              # with-trend leg: closer, more premium
+  em_against_trend: 0.75           # against-trend leg: further, less risk
+  width_with_trend: 5              # with-trend spread width
+  width_against_trend: 10          # against-trend spread width (wider to collect more credit)
   slippage_per_spread: 0.12        # estimated round-trip slippage deducted from credit (entry+exit)
   atm_filter_width_pts: 150       # only consider strikes within ±N pts of current price
   quantity: 1                      # number of spreads per trade (position sizing)

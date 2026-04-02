@@ -40,6 +40,15 @@ class OrbOptionsService:
         self._sl_mult: float = self._opt_cfg.get("sl_mult_of_credit", 2.0)
         self._atm_filter_width: float = self._opt_cfg.get("atm_filter_width_pts", 150.0)
 
+        # Straddle-EM strike selection (replaces delta-based when enabled)
+        self._use_em: bool = self._opt_cfg.get("use_straddle_em", False)
+        self._em_with_trend: float = self._opt_cfg.get("em_with_trend", 0.50)
+        self._em_against_trend: float = self._opt_cfg.get("em_against_trend", 0.75)
+        self._width_with_trend: float = self._opt_cfg.get("width_with_trend", 5.0)
+        self._width_against_trend: float = self._opt_cfg.get("width_against_trend", 10.0)
+        self._spread_mode: str = self._opt_cfg.get("spread_mode", "directional")
+        self._strike_step: float = self._opt_cfg.get("strike_step_pts", 5.0)
+
     # -------------------------------------------------------------------------
     # Option chain
     # -------------------------------------------------------------------------
@@ -188,6 +197,111 @@ class OrbOptionsService:
             return None
 
         return self._spread_result("call_credit_spread", short_call, long_call, credit)
+
+    # -------------------------------------------------------------------------
+    # Straddle-EM strike selection
+    # -------------------------------------------------------------------------
+
+    def atm_straddle(self, chain: List[Dict[str, Any]], spot: float) -> float:
+        """Compute ATM straddle price from chain — this IS the 0DTE expected move."""
+        import math
+        atm_strike = round(spot / self._strike_step) * self._strike_step
+        atm_put = next((o for o in chain if o.get("option_type") == "put"
+                        and abs(o["strike"] - atm_strike) < self._strike_step), None)
+        atm_call = next((o for o in chain if o.get("option_type") == "call"
+                         and abs(o["strike"] - atm_strike) < self._strike_step), None)
+        if atm_put and atm_call:
+            return self._mid(atm_put) + self._mid(atm_call)
+        # Fallback: use closest available
+        puts = [o for o in chain if o.get("option_type") == "put" and o.get("bid", 0) > 0]
+        calls = [o for o in chain if o.get("option_type") == "call" and o.get("bid", 0) > 0]
+        if puts and calls:
+            best_put = min(puts, key=lambda o: abs(o["strike"] - spot))
+            best_call = min(calls, key=lambda o: abs(o["strike"] - spot))
+            return self._mid(best_put) + self._mid(best_call)
+        return 0.0
+
+    def select_em_spread(
+        self,
+        chain: List[Dict[str, Any]],
+        spot: float,
+        spread_type: str,
+        orb_bias: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Select spread using straddle-EM distance instead of BS delta.
+
+        Args:
+            chain: 0DTE option chain with bid/ask
+            spot: current underlying price
+            spread_type: "put_credit_spread" or "call_credit_spread"
+            orb_bias: actual ORB breakout direction ("long"/"short")
+        """
+        import math
+
+        em = self.atm_straddle(chain, spot)
+        if em <= 0:
+            logger.warning("ATM straddle=0, cannot compute EM")
+            return None
+
+        # Determine if this leg is with-trend or against-trend
+        is_with_trend = (
+            (spread_type == "put_credit_spread" and orb_bias == "long") or
+            (spread_type == "call_credit_spread" and orb_bias == "short")
+        )
+        em_mult = self._em_with_trend if is_with_trend else self._em_against_trend
+        width = self._width_with_trend if is_with_trend else self._width_against_trend
+
+        is_put = spread_type == "put_credit_spread"
+        side = "put" if is_put else "call"
+
+        # Compute target strike
+        if is_put:
+            raw_short = spot - em_mult * em
+            short_strike = math.floor(raw_short / self._strike_step) * self._strike_step
+            long_strike = short_strike - width
+        else:
+            raw_short = spot + em_mult * em
+            short_strike = math.ceil(raw_short / self._strike_step) * self._strike_step
+            long_strike = short_strike + width
+
+        # Find options at these strikes
+        options = [o for o in chain if o.get("option_type") == side]
+        short_opt = next((o for o in options if abs(o["strike"] - short_strike) < 1.0), None)
+        long_opt = next((o for o in options if abs(o["strike"] - long_strike) < 1.0), None)
+
+        if not short_opt:
+            short_opt = {
+                "strike": short_strike, "bid": 0.0, "ask": 0.0,
+                "symbol": self._build_symbol("P" if is_put else "C", short_strike),
+                "option_type": side, "delta": 0.0,
+            }
+        if not long_opt:
+            long_opt = {
+                "strike": long_strike, "bid": 0.0, "ask": 0.0,
+                "symbol": self._build_symbol("P" if is_put else "C", long_strike),
+                "option_type": side, "delta": 0.0,
+            }
+
+        credit = self._mid(short_opt) - self._mid(long_opt)
+        if credit < self._min_credit:
+            logger.debug(
+                "EM spread credit %.2f below min %.2f: %s short=%s (%.1f×EM=%.0f)",
+                credit, self._min_credit, spread_type, short_strike, em_mult, em_mult * em,
+            )
+            return None
+
+        trend_label = "with-trend" if is_with_trend else "against-trend"
+        logger.info(
+            "EM spread: %s %s short=%s em=%.1f em_mult=%.2f dist=%.0f width=%.0f credit=%.2f",
+            spread_type, trend_label, short_strike, em, em_mult, em_mult * em, width, credit,
+        )
+
+        result = self._spread_result(spread_type, short_opt, long_opt, credit)
+        result["em_distance"] = round(em_mult * em, 1)
+        result["em_multiplier"] = em_mult
+        result["atm_straddle"] = round(em, 2)
+        result["trend_type"] = trend_label
+        return result
 
     # -------------------------------------------------------------------------
     # Position management helpers

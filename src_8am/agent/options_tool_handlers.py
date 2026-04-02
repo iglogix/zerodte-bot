@@ -145,7 +145,43 @@ class OrbOptionsToolHandlers:
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            if self._breakout_bias == "long":
+            orb_bias = self._breakout_bias
+            use_em = self._opts._use_em
+            spread_mode = self._opts._spread_mode
+
+            if spread_mode == "iron_condor":
+                # IC mode: place both legs
+                spreads = []
+                for leg_type in ["put_credit_spread", "call_credit_spread"]:
+                    if use_em:
+                        s = self._opts.select_em_spread(chain, es_price, leg_type, orb_bias)
+                    elif leg_type == "put_credit_spread":
+                        s = self._opts.select_put_spread(chain, self._orb_levels["low"], es_price)
+                    else:
+                        s = self._opts.select_call_spread(chain, self._orb_levels["high"], es_price)
+                    if s is not None:
+                        spreads.append({**s, "underlying_price": es_price, "bias": orb_bias})
+
+                if not spreads:
+                    result = {"error": "no_valid_spread_found", "bias": orb_bias}
+                    await self._log("get_spread_candidates", {}, result, start)
+                    return result
+
+                # Return as IC with both legs
+                result = {
+                    "spreads": spreads,
+                    "spread_mode": "iron_condor",
+                    "underlying_price": es_price,
+                    "bias": orb_bias,
+                }
+                await self._log("get_spread_candidates", {}, result, start)
+                return result
+
+            # Directional mode: single leg
+            if use_em:
+                leg_type = "put_credit_spread" if orb_bias == "long" else "call_credit_spread"
+                spread = self._opts.select_em_spread(chain, es_price, leg_type, orb_bias)
+            elif orb_bias == "long":
                 spread = self._opts.select_put_spread(
                     chain, self._orb_levels["low"], es_price
                 )
@@ -155,11 +191,11 @@ class OrbOptionsToolHandlers:
                 )
 
             if spread is None:
-                result = {"error": "no_valid_spread_found", "bias": self._breakout_bias}
+                result = {"error": "no_valid_spread_found", "bias": orb_bias}
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            result = {**spread, "underlying_price": es_price, "bias": self._breakout_bias}
+            result = {**spread, "underlying_price": es_price, "bias": orb_bias}
             await self._log("get_spread_candidates", {}, result, start)
             return result
         except Exception as exc:

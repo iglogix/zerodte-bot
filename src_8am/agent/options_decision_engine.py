@@ -338,11 +338,22 @@ class OrbOptionsDecisionEngine:
 
     async def _execute_entry(self, current_price: float, bias: str) -> bool:
         """Select spread, validate, place order, persist to DB."""
-        spread = await self._tools.get_spread_candidates()
-        if "error" in spread:
-            logger.error("Spread selection failed: %s", spread["error"])
+        candidates = await self._tools.get_spread_candidates()
+        if "error" in candidates:
+            logger.error("Spread selection failed: %s", candidates["error"])
             return False
 
+        # IC mode returns {"spreads": [...], "spread_mode": "iron_condor"}
+        if candidates.get("spread_mode") == "iron_condor":
+            return await self._execute_ic_entry(candidates, current_price, bias)
+
+        # Directional: single spread
+        return await self._place_single_spread(candidates, current_price, bias)
+
+    async def _place_single_spread(
+        self, spread: Dict[str, Any], current_price: float, bias: str
+    ) -> bool:
+        """Place a single directional spread."""
         max_loss = spread.get("max_loss_dollars", 0)
         max_risk_usd = self._risk.get("max_loss_per_trade_usd", 500)
         qty = self._bot.get("quantity", 1)
@@ -406,6 +417,65 @@ class OrbOptionsDecisionEngine:
             spread["tp_debit"],
             spread["sl_debit"],
         )
+        return True
+
+    async def _execute_ic_entry(
+        self, candidates: Dict[str, Any], current_price: float, bias: str
+    ) -> bool:
+        """Place both legs of an iron condor."""
+        spreads = candidates.get("spreads", [])
+        if not spreads:
+            logger.warning("IC mode: no valid spreads")
+            return False
+
+        placed = []
+        for spread in spreads:
+            result = await self._tools.place_credit_spread(spread)
+            if "error" in result:
+                logger.error("IC leg failed: %s %s", spread["spread_type"], result["error"])
+                continue
+            placed.append((spread, result))
+
+        if not placed:
+            return False
+
+        # Track all legs as active spreads
+        if not hasattr(self, "_active_spreads"):
+            self._active_spreads = []
+
+        now = datetime.now()
+        for spread, result in placed:
+            credit = spread["credit"]
+            trend_type = spread.get("trend_type", "")
+            em_info = f" ({trend_type} {spread.get('em_multiplier', '')}×EM)" if trend_type else ""
+
+            logger.info(
+                "Spread entered: %s short=%s long=%s credit=%.2f TP@%.2f SL@%.2f%s",
+                spread["spread_type"],
+                spread["short_strike"],
+                spread["long_strike"],
+                credit,
+                spread["tp_debit"],
+                spread["sl_debit"],
+                em_info,
+            )
+
+            active = {
+                "trade_id": result.get("trade_id"),
+                "credit_received": credit,
+                "tp_debit": spread["tp_debit"],
+                "sl_debit": spread["sl_debit"],
+                "spread_type": spread["spread_type"],
+                "short_symbol": spread["short_symbol"],
+                "long_symbol": spread["long_symbol"],
+                "trend_type": trend_type,
+            }
+            self._active_spreads.append(active)
+
+            # Set first leg as primary active spread for backward compat
+            if not self._active_spread:
+                self._active_spread = active
+
         return True
 
     # -------------------------------------------------------------------------
