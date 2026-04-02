@@ -47,11 +47,12 @@ logger = logging.getLogger(__name__)
 VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
 
 
-def _setup_logging(log_dir: str, level: str = "INFO"):
+def _setup_logging(log_dir: str, level: str = "INFO", bot_name: str = ""):
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
     log_file = log_path / f"{date.today().isoformat()}.log"
-    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    prefix = f"[{bot_name}] " if bot_name else ""
+    fmt = f"%(asctime)s {prefix}[%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format=fmt,
@@ -406,7 +407,8 @@ async def main_async(args: argparse.Namespace):
     config = _load_config(config_path)
 
     log_cfg = config.get("logging", {})
-    _setup_logging(log_cfg.get("log_dir", "logs_8am_options"), log_cfg.get("level", "INFO"))
+    bot_name = config.get("bot", {}).get("name", "")
+    _setup_logging(log_cfg.get("log_dir", "logs_8am_options"), log_cfg.get("level", "INFO"), bot_name)
 
     mode = _resolve_mode(args, config)
     orchestrator = OrbOptionsBotOrchestrator(config=config, mode=mode)
