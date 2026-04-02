@@ -25,6 +25,19 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
+REPO_ROOT = Path(__file__).resolve().parents[1]
+VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(REPO_ROOT))
+
+if (
+    sys.prefix == sys.base_prefix
+    and VENV_PYTHON.exists()
+    and Path(sys.executable) != VENV_PYTHON
+):
+    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), __file__, *sys.argv[1:]])
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -368,15 +381,20 @@ class _DryRunTTClient:
 
 
 def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
+    # CLI flags override everything
     if args.live:
         return "live"
     if args.sandbox:
         return "sandbox"
     if args.manual:
         return "manual"
+    if getattr(args, "mode", "") in VALID_MODES:
+        return args.mode
+    # Environment variable
     env_mode = os.environ.get("ORB_BOT_MODE", os.environ.get("BOT_MODE", "")).strip().lower()
     if env_mode in VALID_MODES:
         return env_mode
+    # Config file
     cfg_mode = config.get("bot", {}).get("mode", "dry_run")
     if cfg_mode in VALID_MODES:
         return cfg_mode
@@ -411,6 +429,7 @@ def main():
 Examples:
   python -m src_8am.main_options                   # dry-run
   python -m src_8am.main_options --manual          # live data, orders NOT submitted
+    python src_8am/main_options.py --mode manual     # direct script invocation
   python -m src_8am.main_options --sandbox         # TastyTrade cert environment
   python -m src_8am.main_options --live            # TastyTrade production""",
     )
@@ -421,6 +440,8 @@ Examples:
                             help="TastyTrade sandbox (cert) environment")
     mode_group.add_argument("--live", action="store_true",
                             help="TastyTrade production (real money)")
+    parser.add_argument("--mode", choices=sorted(VALID_MODES),
+                        help="Explicit mode selection; equivalent to the mode flags")
     parser.add_argument("--config", default="config/config_8am_es_options.yaml")
     args = parser.parse_args()
 

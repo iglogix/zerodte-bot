@@ -271,7 +271,7 @@ class OrbOptionsToolHandlers:
                     spread.get("max_loss_dollars", 0),
                     em_info,
                 )
-            else:
+            elif self.mode in ("live", "sandbox"):
                 order = {
                     "order_type": spread_type,
                     "short_strike": spread["short_strike"],
@@ -283,6 +283,12 @@ class OrbOptionsToolHandlers:
                     "quantity": qty,
                 }
                 raw = await self._tt.place_order(order)
+            else:
+                # Unknown mode — refuse to place orders
+                logger.error("Refusing to place order: unknown mode %r", self.mode)
+                result = {"error": f"unknown_mode_{self.mode}"}
+                await self._log("place_credit_spread", spread, result, start)
+                return result
                 trade_id = f"OPT-{uuid.uuid4().hex[:8].upper()}"
                 result = {
                     "trade_id": trade_id,
