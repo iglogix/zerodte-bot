@@ -43,13 +43,15 @@ logger = logging.getLogger(__name__)
 
 _worker_days: List = []  # populated in each worker process by _worker_init
 _worker_num_years: float = 1.0  # computed from days date range
+_worker_cbbo_cache: dict | None = None  # preloaded CBBO data (shared across combos)
 
 
-def _worker_init(days: List, num_years: float) -> None:
+def _worker_init(days: List, num_years: float, cbbo_cache: dict | None = None) -> None:
     """Called once per worker process to pre-load DayBars into process memory."""
-    global _worker_days, _worker_num_years
+    global _worker_days, _worker_num_years, _worker_cbbo_cache
     _worker_days = days
     _worker_num_years = num_years
+    _worker_cbbo_cache = cbbo_cache
 
 
 def _get_strategy_instance(config):
@@ -58,6 +60,12 @@ def _get_strategy_instance(config):
     if strategy_type == "em":
         from src_8am.backtest.strategy_em import EMStrategy
         return EMStrategy()
+    elif strategy_type == "cbbo":
+        from src_8am.backtest.strategy_cbbo import CbboDeltaStrategy
+        return CbboDeltaStrategy()
+    elif strategy_type == "cbbo_em":
+        from src_8am.backtest.strategy_cbbo_em import CbboEMStrategy
+        return CbboEMStrategy()
     else:
         from src_8am.backtest.strategy_delta import DeltaStrategy
         return DeltaStrategy()
@@ -86,7 +94,9 @@ def _score_report(params, report, min_trades, account_size=0, min_arr=0.0,
 
     # --- ARR calculation ---
     num_years = _worker_num_years
-    spread_width = params["spread_width_pts"]
+    spread_width = params.get("spread_width_pts",
+                    max(params.get("spread_width_put", 0), params.get("spread_width_call", 0),
+                        params.get("width_with_trend", 0), params.get("width_against_trend", 5)))
     margin_per_contract = spread_width * es_multiplier
 
     if "quantity" in params:
@@ -161,6 +171,9 @@ def _run_combo(args: tuple) -> Optional[Dict[str, Any]]:
     params, base_config, min_trades, account_size, min_arr, es_multiplier, max_bp_pct, max_contracts_cap = args
     cfg = _build_combo_config(params, base_config)
     engine = OrbOptionsBacktestEngine(config=cfg)
+    # Inject preloaded CBBO cache if available (avoids disk I/O per day)
+    if _worker_cbbo_cache is not None and engine._cbbo_store is not None:
+        engine._cbbo_store._mem_cache = _worker_cbbo_cache
     results = engine.run_on_days(_worker_days)
     report = generate_options_report(results)
     return _score_report(params, report, min_trades, account_size, min_arr,
@@ -239,6 +252,15 @@ class GridSearchOptimizer:
     ):
         self._base_config = base_config
         self._zip_path = zip_path
+        self._cbbo_cache: dict | None = None
+        # Preload CBBO cache into memory if configured
+        cbbo_cache_dir = base_config.get("options", {}).get("cbbo_cache_dir", "")
+        if cbbo_cache_dir and Path(cbbo_cache_dir).exists():
+            from src_8am.backtest.cbbo_store import CbboStore
+            import time as _t
+            t0 = _t.time()
+            self._cbbo_cache = CbboStore.preload_cache(cbbo_cache_dir)
+            print(f"  CBBO preloaded: {len(self._cbbo_cache)} days in {_t.time()-t0:.1f}s", flush=True)
         self._start_date = start_date
         self._end_date = end_date
         self._account_size = account_size
@@ -312,7 +334,7 @@ class GridSearchOptimizer:
             max_workers=workers,
             mp_context=multiprocessing.get_context("fork" if sys.platform != "win32" else "spawn"),
             initializer=_worker_init,
-            initargs=(all_days, num_years),
+            initargs=(all_days, num_years, self._cbbo_cache),
         ) as pool:
             futures = {pool.submit(_run_combo, arg): arg for arg in task_args}
             for fut in as_completed(futures):
@@ -346,15 +368,15 @@ class GridSearchOptimizer:
         if pf == "inf":
             pf = 999.0
         return {
-            "trades":        report["trades_placed"],
-            "win_rate":      report["win_rate"],
-            "total_pnl_usd": report["total_pnl_usd"],
-            "avg_pnl_usd":   report["avg_pnl_per_trade_usd"],
+            "trades":        report.get("trades_placed", 0),
+            "win_rate":      report.get("win_rate", 0),
+            "total_pnl_usd": report.get("total_pnl_usd", 0),
+            "avg_pnl_usd":   report.get("avg_pnl_per_trade_usd", 0),
             "profit_factor": pf,
-            "max_dd_usd":    report["max_drawdown_usd"],
-            "sharpe":        report["sharpe_annualised"],
-            "avg_credit":    report["avg_credit_received"],
-            "avg_delta":     report["avg_short_delta"],
+            "max_dd_usd":    report.get("max_drawdown_usd", 0),
+            "sharpe":        report.get("sharpe_annualised", 0),
+            "avg_credit":    report.get("avg_credit_received", 0),
+            "avg_delta":     report.get("avg_short_delta", 0),
         }
 
     @staticmethod
@@ -470,23 +492,29 @@ class GridSearchOptimizer:
         sorted_days = sorted(all_days, key=lambda d: d.session_date)
 
         if train_val_ratio > 0:
-            # Ratio-based: val = train / ratio.
-            # Step size = val_size (slides forward by one val chunk each fold).
-            # Initial train = ratio * step, each val = step.
-            step = len(sorted_days) // (train_val_ratio + n_folds)
-            step = max(step, 1)
+            # Ratio-based splitting on UNIQUE DATES (not raw chunks).
+            # This ensures val windows contain enough trading days.
+            unique_dates = sorted(set(d.session_date for d in sorted_days))
+            date_step = len(unique_dates) // (train_val_ratio + n_folds)
+            date_step = max(date_step, 1)
+
             windows: List[Tuple[List, List]] = []
             for k in range(n_folds):
-                train_end_idx = int(step * (train_val_ratio + k))
-                val_end_idx = int(train_end_idx + step)
-                if val_end_idx > len(sorted_days):
+                train_end_date_idx = int(date_step * (train_val_ratio + k))
+                val_end_date_idx = int(train_end_date_idx + date_step)
+                if val_end_date_idx > len(unique_dates):
                     break
-                train_days_w = sorted_days[:train_end_idx]
-                val_days_w = sorted_days[train_end_idx:val_end_idx]
+                train_cutoff = unique_dates[train_end_date_idx]
+                val_cutoff = unique_dates[min(val_end_date_idx, len(unique_dates) - 1)]
+
+                train_days_w = [d for d in sorted_days if d.session_date < train_cutoff]
+                val_days_w = [d for d in sorted_days
+                              if train_cutoff <= d.session_date <= val_cutoff]
                 if train_days_w and val_days_w:
                     windows.append((train_days_w, val_days_w))
             print(f"  Ratio-based splits: ratio={train_val_ratio:.0f}:1, "
-                  f"step={step} day-chunks, {len(windows)} folds", flush=True)
+                  f"step={date_step} unique dates, {len(windows)} folds "
+                  f"({len(unique_dates)} unique dates total)", flush=True)
         else:
             fold_size = len(sorted_days) // n_folds
             folds_list = [sorted_days[i * fold_size: (i + 1) * fold_size] for i in range(n_folds)]
@@ -551,11 +579,21 @@ class GridSearchOptimizer:
                 for params in [{k2: r[k2] for k2 in keys} for r in candidates]
             ]
             val_rows = []
+            if not val_task_args:
+                logging.getLogger(__name__).info(f"Fold {k+1}: 0 valid val combos")
+                fold_results.append({"fold": k + 1, "train_start": str(train_days[0].session_date),
+                    "train_end": str(train_days[-1].session_date),
+                    "val_start": str(val_days[0].session_date),
+                    "val_end": str(val_days[-1].session_date),
+                    "train_sharpe": best_sharpe, "val_sharpe": 0,
+                    "train_ratio": len(train_days) / max(len(val_days), 1),
+                    "top_val_params": []})
+                continue
             with ProcessPoolExecutor(
                 max_workers=min(workers, len(val_task_args)),
                 mp_context=multiprocessing.get_context("fork" if sys.platform != "win32" else "spawn"),
                 initializer=_worker_init,
-                initargs=(val_days, val_num_years),
+                initargs=(val_days, val_num_years, self._cbbo_cache),
             ) as pool:
                 futures = {
                     pool.submit(_run_combo, arg): arg
@@ -633,7 +671,7 @@ class GridSearchOptimizer:
             max_workers=workers,
             mp_context=multiprocessing.get_context("fork" if sys.platform != "win32" else "spawn"),
             initializer=_worker_init,
-            initargs=(days, num_years),
+            initargs=(days, num_years, self._cbbo_cache),
         ) as pool:
             futures = {
                 pool.submit(_run_combo, arg): arg for arg in task_args

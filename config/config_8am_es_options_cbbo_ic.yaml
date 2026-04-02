@@ -1,0 +1,80 @@
+bot:
+  name: "8am-orb-options-cbbo-ic-bot"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "ES"            # ES futures for ORB signal
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.50
+  orb_range_filter:
+    min_pts: 5.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# ES bars for ORB signal, SPX CBBO for option pricing
+# Iron condor: both put + call credit spreads on every signal
+# EM-based strike selection (vol-adaptive distance, not BS delta)
+options:
+  strategy_type: "cbbo_em"
+  spread_mode: "iron_condor"
+  option_root: "SPXW"
+  em_multiplier: 1.0              # strikes at N × expected move from spot
+  spread_width_pts: 10
+  strike_step_pts: 5
+  min_credit_per_spread: 0.05     # low floor — let optimizer decide
+  tp_pct_of_credit: 0.50
+  sl_mult_of_credit: 0
+  hold_put_breach: false
+  slippage_per_spread: 0.10       # SPX has tighter spreads
+  atm_filter_width_pts: 150
+  quantity: 1
+  contract_multiplier: 100        # SPX options = $100/pt
+  monitor_poll_seconds: 30
+  assumed_iv: 0.15                # fallback IV
+  pricing_model: "bs"             # BS only for delta reporting
+  iv_correction_factor: 1.0
+  iv_source: "vix"
+  cbbo_dir: "/mnt/NewVolume/Downloads/OPRA-20260326-RXFQTA7WS6"
+  cbbo_cache_dir: "data/cbbo_cache"
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "orb_options_cbbo_ic_bot.db"
+  cache_db: "data/orb_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_8am_options"
+
+market_data:
+  dxlink_symbol: "auto"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+backtest:
+  data_dir: "data"
+  data_file: "glbx-mdp3-20210227-20260226.ohlcv-1m.csv"
+  data_file_2: "glbx-mdp3-20260224-20260323.ohlcv-1m.csv"
+  start_date: "2025-09-22"
+  end_date: "2026-03-20"
+  cv_end_date: "2026-03-20"
+  oos_start_date: "2026-03-01"
+  oos_end_date: "2026-03-20"

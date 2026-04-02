@@ -727,7 +727,12 @@ class PriceANN:
 
     def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute loss based on configured loss function."""
-        if self.loss_fn == "msle":
+        if self.loss_fn == "msre":
+            # Relative MSE: ((pred - target) / target)^2
+            # Equalizes importance across price ranges (OTM vs ITM)
+            rel_err = (pred - target) / torch.clamp(target, min=1e-6)
+            return (rel_err ** 2).mean()
+        elif self.loss_fn == "msle":
             # For v5 BS-residual targets, values are log-ratios (can be negative)
             # Use plain MSE since targets are already in log space
             return nn.functional.mse_loss(pred, target)
@@ -1082,8 +1087,8 @@ def main():
                         help="Max training records (0=unlimited). Use to control memory.")
     parser.add_argument("--test-dir", default=None,
                         help="Separate JSONL directory for external test set (e.g. ES collected data)")
-    parser.add_argument("--loss", choices=["mse", "msle", "weighted"], default="mse",
-                        help="Loss function: mse (default), msle (log-space), weighted (inverse-price)")
+    parser.add_argument("--loss", choices=["mse", "msle", "weighted", "msre"], default="mse",
+                        help="Loss function: mse (default), msle (log-space), weighted (inverse-price), msre (relative)")
     parser.add_argument("--test-symbols", nargs="+", default=None,
                         help="Symbols to include from test-dir (default: all)")
     parser.add_argument("--oversample-otm", type=int, default=0,
@@ -1115,8 +1120,11 @@ def main():
         print(f"Loading pre-processed data from {args.npz}...")
         npz = np.load(args.npz, allow_pickle=True)
         X = npz["X"]
-        y_key = f"y_{target}" if target in ("bid", "ask") else "y_both"
-        y = npz[y_key]
+        if target in ("bid", "ask"):
+            y = npz[f"y_{target}"]
+        else:
+            # Stack y_bid + y_ask as (n, 2) — avoids broken BS-residual y_both
+            y = np.hstack([npz["y_bid"], npz["y_ask"]])
         meta_symbols = npz["meta_symbols"]
         meta_spots = npz["meta_spots"]
         meta_dates = npz["meta_dates"]

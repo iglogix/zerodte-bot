@@ -113,13 +113,30 @@ class OrbOptionsBacktestEngine:
             self._strategy = strategy
         else:
             strategy_type = cfg.get("options", {}).get("strategy_type", "delta")
-            if strategy_type == "em":
+            if strategy_type == "cbbo":
+                from src_8am.backtest.strategy_cbbo import CbboDeltaStrategy
+                self._strategy = CbboDeltaStrategy()
+            elif strategy_type == "cbbo_em":
+                from src_8am.backtest.strategy_cbbo_em import CbboEMStrategy
+                self._strategy = CbboEMStrategy()
+            elif strategy_type == "em":
                 from src_8am.backtest.strategy_em import EMStrategy
                 self._strategy = EMStrategy()
             else:
                 from src_8am.backtest.strategy_delta import DeltaStrategy
                 self._strategy = DeltaStrategy()
         self._strategy.configure(cfg)
+
+        # --- CBBO store (real option quotes) ---
+        self._cbbo_store = None
+        self._last_bar_time: Optional[str] = None  # "HH:MM" for CBBO lookups
+        cbbo_dir = cfg.get("options", {}).get("cbbo_dir", "")
+        cbbo_cache = cfg.get("options", {}).get("cbbo_cache_dir", "")
+        if cbbo_dir:
+            from src_8am.backtest.cbbo_store import CbboStore
+            self._cbbo_store = CbboStore(cbbo_dir, cache_dir=cbbo_cache)
+            if hasattr(self._strategy, "set_cbbo_store"):
+                self._strategy.set_cbbo_store(self._cbbo_store)
 
         strat = cfg.get("strategy", {})
         orb_start = strat.get("orb_window_start", "08:00")
@@ -613,6 +630,12 @@ class OrbOptionsBacktestEngine:
         session_date: date = day_bars.session_date
         symbol: str = day_bars.symbol
 
+        # Load CBBO quotes for this day if available
+        if self._cbbo_store is not None:
+            n_quotes = self._cbbo_store.load_day(session_date)
+            if n_quotes == 0:
+                return None  # Skip days without CBBO data
+
         # --- Step 1: Build ORB candle ---
         orb_bars = [b for b in bars if self._orb_start <= b["ts_et"].time() < self._orb_end]
         if not orb_bars:
@@ -831,7 +854,8 @@ class OrbOptionsBacktestEngine:
 
         # --- Step 6+7: Execute trade(s) ---
         if self._spread_mode == "iron_condor":
-            # IC: place both PCS and CCS regardless of breakout bias
+            # IC: place both PCS and CCS; pass actual ORB bias for adaptive strategies
+            self._orb_bias = bias  # store for strategy to read
             put_result = _run_leg("long", "-P")    # long bias -> put credit spread
             call_result = _run_leg("short", "-C")   # short bias -> call credit spread
             return [put_result, call_result]
@@ -873,6 +897,9 @@ class OrbOptionsBacktestEngine:
             ts = bar["ts_et"]
             if ts.time() >= self._eod:
                 return ts, bar["close"], "expired_worthless", 0.0
+
+            # Set current bar time for CBBO strategy lookups
+            self._last_bar_time = ts.strftime("%H:%M")
 
             t_now = self._tte_hours(ts) / (self._trading_days_year * self._trading_hours_day)
             t_now = max(t_now, 1e-6)

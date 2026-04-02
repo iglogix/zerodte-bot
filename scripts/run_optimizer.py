@@ -131,6 +131,12 @@ def main():
         loader = DatabentoLoader(data_path)
         product_label = "ES"
 
+    # Optional second data file (continuation) — merge into same loader
+    data_path_2 = config.get("backtest", {}).get("data_file_2", "")
+    loader_2 = None
+    if data_path_2 and Path(data_path_2).exists():
+        loader_2 = DatabentoLoader(data_path_2)
+
     # Allow config to override date boundaries
     bt = config.get("backtest", {})
     if bt.get("start_date"):
@@ -139,11 +145,20 @@ def main():
     if bt.get("end_date"):
         cfg_end = date.fromisoformat(bt["end_date"])
         OOS_END = min(OOS_END, cfg_end)
+    # Allow config to override CV_END and OOS boundaries
+    if bt.get("cv_end_date"):
+        CV_END = date.fromisoformat(bt["cv_end_date"])
+    if bt.get("oos_start_date"):
+        OOS_START = date.fromisoformat(bt["oos_start_date"])
+    if bt.get("oos_end_date"):
+        OOS_END = date.fromisoformat(bt["oos_end_date"])
 
     print("=" * 70)
     print(f"  ORB Options Optimizer — Walk-Forward CV + OOS ({product_label})")
     print("=" * 70)
     print(f"\nData : {data_path}")
+    if loader_2:
+        print(f"Data2: {data_path_2}")
     print(f"CV   : {CV_START} -> {CV_END}  ({args.folds} folds)")
     print(f"OOS  : {OOS_START} -> {OOS_END}  (held out)")
     print(f"Acct : ${args.account_size:,.0f}  min ARR={args.min_arr*100:.0f}%  max_contracts={args.max_contracts}")
@@ -152,12 +167,32 @@ def main():
     print("Loading CV bars...", flush=True)
     t0 = time.time()
     cv_days = list(loader.iter_days(start_date=CV_START, end_date=CV_END))
+    if loader_2:
+        cv_days_2 = list(loader_2.iter_days(start_date=CV_START, end_date=CV_END))
+        # Merge: add days from file 2 that aren't already in file 1
+        existing_dates = {(d.session_date, d.symbol) for d in cv_days}
+        cv_days.extend(d for d in cv_days_2 if (d.session_date, d.symbol) not in existing_dates)
     print(f"  {len(cv_days)} day-symbol chunks in {time.time()-t0:.1f}s")
 
     print("Loading OOS bars...", flush=True)
     t0 = time.time()
     oos_days = list(loader.iter_days(start_date=OOS_START, end_date=OOS_END))
-    print(f"  {len(oos_days)} day-symbol chunks in {time.time()-t0:.1f}s\n")
+    if loader_2:
+        oos_days_2 = list(loader_2.iter_days(start_date=OOS_START, end_date=OOS_END))
+        existing_dates = {(d.session_date, d.symbol) for d in oos_days}
+        oos_days.extend(d for d in oos_days_2 if (d.session_date, d.symbol) not in existing_dates)
+    print(f"  {len(oos_days)} day-symbol chunks in {time.time()-t0:.1f}s")
+
+    # For CBBO strategy: pre-filter to only days with CBBO cache data
+    cbbo_cache = config.get("options", {}).get("cbbo_cache_dir", "")
+    if cbbo_cache and Path(cbbo_cache).exists():
+        cbbo_dates = {date.fromisoformat(f.stem) for f in Path(cbbo_cache).glob("*.pkl")}
+        cv_before = len(cv_days)
+        cv_days = [d for d in cv_days if d.session_date in cbbo_dates]
+        oos_before = len(oos_days)
+        oos_days = [d for d in oos_days if d.session_date in cbbo_dates]
+        print(f"  CBBO filter: CV {cv_before} -> {len(cv_days)}, OOS {oos_before} -> {len(oos_days)}")
+    print()
 
     # -----------------------------------------------------------------------
     # 2. Walk-forward CV
@@ -183,6 +218,14 @@ def main():
     if strategy_type == "em":
         param_grid = dict(EM_GRID)
         print(f"Strategy: Expected Move (EM)")
+    elif strategy_type == "cbbo":
+        from src_8am.backtest.strategy_cbbo import CbboDeltaStrategy
+        param_grid = CbboDeltaStrategy().grid_params()
+        print(f"Strategy: CBBO Delta (real SPX quotes)")
+    elif strategy_type == "cbbo_em":
+        from src_8am.backtest.strategy_cbbo_em import CbboEMStrategy
+        param_grid = CbboEMStrategy().grid_params()
+        print(f"Strategy: CBBO EM Iron Condor (real SPX quotes)")
     else:
         param_grid = dict(DEFAULT_GRID)
         print(f"Strategy: Delta-targeted")
