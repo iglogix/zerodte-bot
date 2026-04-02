@@ -141,73 +141,86 @@ class OrbOptionsDecisionEngine:
 
         logger.info("Phase B: entry watch loop started (options mode)")
 
+        consecutive_errors = 0
         while True:
-            now_et = datetime.now(ET)
-            if now_et.time() >= self._eod:
-                logger.info("EOD reached — no spread placed today")
-                if self._session_trade_id:
-                    await self._db.update_spread_trade(
-                        self._session_trade_id,
-                        {"status": "skipped", "exit_reason": "no_retest"},
-                    )
-                return
-
-            if await self._db.spread_traded_today(date.today()):
-                logger.info("Spread already placed today — exiting entry watch")
-                return
-
-            current_price = await self._md.get_current_price()
-            if current_price is None:
-                await asyncio.sleep(poll_interval)
-                continue
-
-            # Detect breakout
-            if self._tools._breakout_bias is None:
-                status = await self._tools.get_breakout_status()
-                if status.get("status") != "breakout":
-                    await asyncio.sleep(poll_interval)
-                    continue
-
-            bias = self._tools._breakout_bias
-            if bias is None:
-                await asyncio.sleep(poll_interval)
-                continue
-
-            # AI pre-flight (once per breakout)
-            if not self._preflight_done:
-                logger.info("Breakout confirmed (%s) — running AI pre-flight (options)", bias)
-                ok = await self._run_preflight(current_price)
-                self._preflight_done = True
-                if not ok:
-                    logger.info("Pre-flight blocked — skipping day")
+            try:
+                now_et = datetime.now(ET)
+                if now_et.time() >= self._eod:
+                    logger.info("EOD reached — no spread placed today")
                     if self._session_trade_id:
                         await self._db.update_spread_trade(
                             self._session_trade_id,
-                            {
-                                "status": "skipped",
-                                "exit_reason": "preflight_blocked",
-                                "bias": bias,
-                                "regime_verdict": (self._preflight_result or {}).get(
-                                    "regime", {}
-                                ).get("verdict"),
-                            },
+                            {"status": "skipped", "exit_reason": "no_retest"},
                         )
                     return
 
-            # Midline touch check
-            midline = self._orb_levels["midline"]
-            if self._tools.check_midline_touch(current_price, midline, tolerance):
-                logger.info(
-                    "Midline touch: price=%.2f mid=%.2f bias=%s → fetching spread",
-                    current_price, midline, bias,
-                )
-                placed = await self._execute_entry(current_price, bias)
-                if placed:
-                    # Hand off to position monitor
-                    await self._run_position_monitor()
+                if await self._db.spread_traded_today(date.today()):
+                    logger.info("Spread already placed today — exiting entry watch")
                     return
 
-            await asyncio.sleep(poll_interval)
+                current_price = await self._md.get_current_price()
+                if current_price is None:
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                # Detect breakout
+                if self._tools._breakout_bias is None:
+                    status = await self._tools.get_breakout_status()
+                    if status.get("status") != "breakout":
+                        await asyncio.sleep(poll_interval)
+                        continue
+
+                bias = self._tools._breakout_bias
+                if bias is None:
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                # AI pre-flight (once per breakout)
+                if not self._preflight_done:
+                    logger.info("Breakout confirmed (%s) — running AI pre-flight (options)", bias)
+                    ok = await self._run_preflight(current_price)
+                    self._preflight_done = True
+                    if not ok:
+                        logger.info("Pre-flight blocked — skipping day")
+                        if self._session_trade_id:
+                            await self._db.update_spread_trade(
+                                self._session_trade_id,
+                                {
+                                    "status": "skipped",
+                                    "exit_reason": "preflight_blocked",
+                                    "bias": bias,
+                                    "regime_verdict": (self._preflight_result or {}).get(
+                                        "regime", {}
+                                    ).get("verdict"),
+                                },
+                            )
+                        return
+
+                # Midline touch check
+                midline = self._orb_levels["midline"]
+                if self._tools.check_midline_touch(current_price, midline, tolerance):
+                    logger.info(
+                        "Midline touch: price=%.2f mid=%.2f bias=%s → fetching spread",
+                        current_price, midline, bias,
+                    )
+                    placed = await self._execute_entry(current_price, bias)
+                    if placed:
+                        # Hand off to position monitor
+                        await self._run_position_monitor()
+                        return
+
+                consecutive_errors = 0  # reset on successful iteration
+                await asyncio.sleep(poll_interval)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                consecutive_errors += 1
+                logger.exception("Entry watch loop error (%d consecutive)", consecutive_errors)
+                if consecutive_errors >= 10:
+                    logger.error("Too many consecutive errors — aborting entry watch")
+                    return
+                await asyncio.sleep(5)
 
     # -------------------------------------------------------------------------
     # Phase C — Position monitor
