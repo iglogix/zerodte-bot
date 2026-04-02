@@ -1,0 +1,71 @@
+bot:
+  name: "8am-orb-spx-options-bot"
+  timezone: "America/New_York"
+  mode: "manual"          # dry_run | manual | sandbox | live
+  symbol: "ES"            # ES futures for ORB signal (price feed)
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.25
+  orb_range_filter:
+    min_pts: 2.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# ES ORB signal → SPX 0DTE credit spreads
+# Straddle-EM strike selection, bias-adaptive iron condor
+# CBBO-optimized params (2026-04-01, 125 days SPX CBBO backtest)
+options:
+  option_root: "SPXW"              # SPX weekly 0DTE options
+  spread_width_pts: 5              # default width (overridden by with/against trend)
+  strike_step_pts: 5               # SPX strikes at 5-pt intervals
+  target_short_delta: 0.16         # fallback delta (used when use_straddle_em=false)
+  max_short_delta: 0.30
+  min_credit_per_spread: 0.05      # real 0DTE credits are thin
+  tp_pct_of_credit: 0.50           # CBBO-optimized
+  sl_mult_of_credit: 0             # disabled — exit on breach only
+  hold_put_breach: true            # CBBO-optimized: puts survive breaches (100% WR in backtest)
+  # Straddle-EM strike selection
+  use_straddle_em: true            # ATM straddle = expected move (not BS delta)
+  spread_mode: "iron_condor"       # place both put + call credit spreads
+  em_with_trend: 0.50              # with-trend leg: 0.50× straddle (closer, more premium)
+  em_against_trend: 0.75           # against-trend leg: 0.75× straddle (further, less risk)
+  width_with_trend: 5              # with-trend spread width
+  width_against_trend: 10          # against-trend spread width
+  slippage_per_spread: 0.10        # SPX has tighter spreads than ES options
+  atm_filter_width_pts: 150
+  quantity: 1
+  contract_multiplier: 100         # SPX options = $100 per point
+  monitor_poll_seconds: 30
+  assumed_iv: 0.15
+
+risk:
+  max_loss_per_trade_usd: 50000    # wider due to $100 multiplier
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "spx_options_em_bot.db"
+  cache_db: "data/spx_options_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_spx_options"
+
+market_data:
+  dxlink_symbol: "auto"            # ES front-month for ORB signal
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"            # SPX options expire at 4:00 PM ET (PM-settled)

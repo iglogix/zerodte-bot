@@ -253,14 +253,23 @@ class OrbOptionsToolHandlers:
                     "quantity": qty,
                     "mode": self.mode,
                 }
+                em_info = ""
+                if spread.get("atm_straddle"):
+                    em_info = f" EM={spread['atm_straddle']:.1f}×{spread.get('em_multiplier', ''):.2f}"
+                    if spread.get("trend_type"):
+                        em_info += f" ({spread['trend_type']})"
+                bpr = spread.get("max_loss_dollars", 0) * qty
                 logger.info(
-                    "[%s] Would sell %s: short=%s long=%s credit=%.2f max_loss=%.0f",
+                    "[%s] Would sell %s: short=%s long=%s credit=%.2f qty=%d BPR=$%.0f max_loss=$%.0f%s",
                     self.mode.upper(),
                     spread_type,
                     spread["short_strike"],
                     spread["long_strike"],
                     spread["credit"],
+                    qty,
+                    bpr,
                     spread.get("max_loss_dollars", 0),
+                    em_info,
                 )
             else:
                 order = {

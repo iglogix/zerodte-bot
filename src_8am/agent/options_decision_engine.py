@@ -408,14 +408,22 @@ class OrbOptionsDecisionEngine:
             "long_symbol": spread["long_symbol"],
         }
 
+        em_info = ""
+        if spread.get("atm_straddle"):
+            em_info = f" EM={spread['atm_straddle']:.1f}×{spread.get('em_multiplier', ''):.2f} ({spread.get('trend_type', '')})"
+        qty = self._bot.get("quantity", 1)
+        bpr = spread.get("max_loss_dollars", 0) * qty
         logger.info(
-            "Spread entered: %s short=%s long=%s credit=%.2f TP@%.2f SL@%.2f",
+            "Spread entered: %s short=%s long=%s credit=%.2f qty=%d BPR=$%.0f TP@%.2f SL@%.2f%s",
             spread["spread_type"],
             spread["short_strike"],
             spread["long_strike"],
             credit,
+            qty,
+            bpr,
             spread["tp_debit"],
             spread["sl_debit"],
+            em_info,
         )
         return True
 
@@ -447,14 +455,20 @@ class OrbOptionsDecisionEngine:
         for spread, result in placed:
             credit = spread["credit"]
             trend_type = spread.get("trend_type", "")
-            em_info = f" ({trend_type} {spread.get('em_multiplier', '')}×EM)" if trend_type else ""
+            em_info = ""
+            if spread.get("atm_straddle"):
+                em_info = f" EM={spread['atm_straddle']:.1f}×{spread.get('em_multiplier', ''):.2f} ({trend_type})"
+            qty_ic = self._bot.get("quantity", 1)
+            bpr_leg = spread.get("max_loss_dollars", 0) * qty_ic
 
             logger.info(
-                "Spread entered: %s short=%s long=%s credit=%.2f TP@%.2f SL@%.2f%s",
+                "Spread entered: %s short=%s long=%s credit=%.2f qty=%d BPR=$%.0f TP@%.2f SL@%.2f%s",
                 spread["spread_type"],
                 spread["short_strike"],
                 spread["long_strike"],
                 credit,
+                qty_ic,
+                bpr_leg,
                 spread["tp_debit"],
                 spread["sl_debit"],
                 em_info,

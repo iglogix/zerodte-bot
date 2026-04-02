@@ -55,13 +55,19 @@ class OrbOptionsService:
 
     async def get_0dte_chain(self, underlying_price: float) -> List[Dict[str, Any]]:
         """
-        Fetch ES 0DTE futures option chain filtered to near-ATM strikes (±150 pts).
-        Returns list enriched with bid/ask/delta.
+        Fetch 0DTE option chain filtered to near-ATM strikes (±150 pts).
+        Supports both futures options (ES/EW) and equity/index options (SPX/SPXW).
         """
         try:
-            chain = await self._tt.get_future_option_chain(
-                self._product_code, underlying_price=underlying_price
-            )
+            option_root = self._opt_cfg.get("option_root", "EW")
+            if option_root in ("SPXW", "SPX"):
+                # Index options — use equity option chain
+                chain = await self._tt.get_option_chain("SPX")
+            else:
+                # Futures options (ES)
+                chain = await self._tt.get_future_option_chain(
+                    self._product_code, underlying_price=underlying_price
+                )
             today = date.today().isoformat()
             chain = [o for o in chain if str(o.get("expiration", "")).startswith(today)]
             if underlying_price:
