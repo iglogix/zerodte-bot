@@ -233,10 +233,11 @@ class OrbOptionsDecisionEngine:
         In dry_run/manual, simulates mark price decay.
         """
         if not self._active_spread:
+            logger.warning("No active spread to monitor")
             return
 
         poll_secs = self._opt_cfg.get("monitor_poll_seconds", 30)
-        credit = self._active_spread["credit_received"]
+        credit = self._active_spread.get("credit_received", 0.0)
         tp_debit = self._active_spread["tp_debit"]
         sl_debit = self._active_spread["sl_debit"]
         spread_type = self._active_spread["spread_type"]
@@ -280,10 +281,14 @@ class OrbOptionsDecisionEngine:
         live: fetch from TT option chain.
         """
         if self.mode == "dry_run":
+            if self._active_spread is None:
+                return None
             credit = self._active_spread["credit_received"]
             decay = max(0.0, credit * (1 - tick / 120))
             return round(decay, 2)
         try:
+            if self._active_spread is None:
+                return None
             short_sym = self._active_spread.get("short_symbol", "")
             long_sym = self._active_spread.get("long_symbol", "")
             if not short_sym:
@@ -317,6 +322,10 @@ class OrbOptionsDecisionEngine:
                 "regime": {"verdict": "enter", "reasoning": "llm_disabled"},
             }
             return True
+
+        if self._orb_levels is None:
+            logger.error("ORB levels not initialized — aborting preflight")
+            return False
 
         account = await self._tools.get_account_info()
 
@@ -514,8 +523,8 @@ class OrbOptionsDecisionEngine:
         if not self._active_spread:
             return
 
-        trade_id = self._active_spread["trade_id"]
-        credit = self._active_spread["credit_received"]
+        trade_id = self._active_spread.get("trade_id")
+        credit = self._active_spread.get("credit_received", 0.0)
 
         if reason == "eod_close":
             # Determine if likely OTM (expire worthless) vs ITM (must close)
@@ -530,7 +539,8 @@ class OrbOptionsDecisionEngine:
             debit = mark or 0.0
             await self._tools.close_spread(trade_id=trade_id, reason=reason)
 
-        pnl = round((credit - debit) * 100 * self._bot.get("quantity", 1), 2)
+        multiplier = self._opt_cfg.get("contract_multiplier", 100)
+        pnl = round((credit - debit) * multiplier * self._bot.get("quantity", 1), 2)
 
         if self._session_trade_id:
             await self._db.update_spread_trade(

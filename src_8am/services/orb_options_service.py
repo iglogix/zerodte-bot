@@ -39,6 +39,7 @@ class OrbOptionsService:
         self._tp_pct: float = self._opt_cfg.get("tp_pct_of_credit", 0.50)
         self._sl_mult: float = self._opt_cfg.get("sl_mult_of_credit", 2.0)
         self._atm_filter_width: float = self._opt_cfg.get("atm_filter_width_pts", 150.0)
+        self._multiplier: float = self._opt_cfg.get("contract_multiplier", 100)
 
         # Straddle-EM strike selection (replaces delta-based when enabled)
         self._use_em: bool = self._opt_cfg.get("use_straddle_em", False)
@@ -357,8 +358,8 @@ class OrbOptionsService:
             "long_bid": long_opt.get("bid", 0.0),
             "long_ask": long_opt.get("ask", 0.0),
             "credit": round(credit, 2),
-            "max_profit_dollars": round(credit * 100, 2),
-            "max_loss_dollars": round((width - credit) * 100, 2),
+            "max_profit_dollars": round(credit * self._multiplier, 2),
+            "max_loss_dollars": round((width - credit) * self._multiplier, 2),
             "tp_debit": self.tp_price(credit),
             "sl_debit": self.sl_price(credit),
             "expiration": date.today().isoformat(),

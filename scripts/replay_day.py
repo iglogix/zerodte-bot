@@ -218,6 +218,7 @@ async def replay(trading_date: date, config: dict, step_mode: bool = False):
     post_entry = bars[entry_idx + 1:]
     opt_cfg = config.get("options", {})
     hold_put = opt_cfg.get("hold_put_breach", False)
+    mult = opt_cfg.get("contract_multiplier", 100)
 
     for leg_type in ["put_credit_spread", "call_credit_spread"]:
         spread = opts_service.select_em_spread(chain, spot, leg_type, breakout_bias) if opts_service._use_em else None
@@ -235,7 +236,7 @@ async def replay(trading_date: date, config: dict, step_mode: bool = False):
         for bar in post_entry:
             ts = bar["ts_et"]
             if ts.time() >= eod:
-                print(f"    {ts.strftime('%H:%M')} EOD → expired worthless | PnL=${credit * 100:.0f}")
+                print(f"    {ts.strftime('%H:%M')} EOD → expired worthless | PnL=${credit * mult:.0f}")
                 break
 
             client.set_time(ts)
@@ -259,11 +260,11 @@ async def replay(trading_date: date, config: dict, step_mode: bool = False):
             if short_q and long_q:
                 mark = (short_q[0] + short_q[1]) / 2 - (long_q[0] + long_q[1]) / 2
                 if mark <= tp_debit:
-                    pnl = (credit - tp_debit) * 100
+                    pnl = (credit - tp_debit) * mult
                     print(f"    {ts.strftime('%H:%M')} TP HIT mark={mark:.2f} <= {tp_debit:.2f} | PnL=${pnl:.0f}")
                     break
         else:
-            print(f"    EOD → expired worthless | PnL=${credit * 100:.0f}")
+            print(f"    EOD → expired worthless | PnL=${credit * mult:.0f}")
 
 
 def main():
