@@ -66,7 +66,7 @@ class OrbOptionsDecisionEngine:
         self._opt_cfg = config.get("options", {})
         self._risk = config.get("risk", {})
         self._bot = config.get("bot", {})
-        self._llm_enabled = config.get("llm", {}).get("enabled", True)
+        self._llm_enabled = config.get("llm", {}).get("enabled", False)
 
         self._orb_levels: Optional[Dict[str, Any]] = None
         self._session_trade_id: Optional[str] = None

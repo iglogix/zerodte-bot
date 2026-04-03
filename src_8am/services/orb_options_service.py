@@ -37,7 +37,7 @@ class OrbOptionsService:
         self._max_delta: float = self._opt_cfg.get("max_short_delta", 0.25)
         self._min_credit: float = self._opt_cfg.get("min_credit_per_spread", 0.50)
         self._tp_pct: float = self._opt_cfg.get("tp_pct_of_credit", 0.50)
-        self._sl_mult: float = self._opt_cfg.get("sl_mult_of_credit", 2.0)
+        self._sl_mult: float = self._opt_cfg.get("sl_mult_of_credit", 0)
         self._atm_filter_width: float = self._opt_cfg.get("atm_filter_width_pts", 150.0)
         self._multiplier: float = self._opt_cfg.get("contract_multiplier", 100)
 
