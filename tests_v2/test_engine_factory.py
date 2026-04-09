@@ -52,6 +52,17 @@ def test_iron_fly_creates_scheduled_engine():
     assert isinstance(engine, ScheduledEngine)
 
 
+def test_orb_em_ic_creates_orb_engine():
+    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from src_v2.agent.orb_engine import OrbEngine
+
+    s = OrbEmIronCondorStrategy()
+    s.configure({"options": {"strike_step_pts": 5, "contract_multiplier": 100}})
+    engine = s.create_engine(_make_deps())
+    assert isinstance(engine, OrbEngine)
+    assert isinstance(engine, BaseEngine)
+
+
 def test_decision_engine_backward_compat():
     """DecisionEngine import still works and is a wrapper around ScheduledEngine."""
     from src_v2.agent.decision_engine import DecisionEngine
