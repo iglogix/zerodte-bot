@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}0DTE Bot{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="h-full text-gray-100">
+    <div class="flex h-full">
+        <!-- Sidebar -->
+        <nav class="w-56 bg-gray-800 border-r border-gray-700 flex flex-col py-6 px-3 shrink-0">
+            <div class="text-lg font-bold text-white px-3 mb-8">0DTE Bot</div>
+            <a href="/" class="nav-link">Dashboard</a>
+            <a href="/bots" class="nav-link">Bots</a>
+            <a href="/positions" class="nav-link">Positions</a>
+            <a href="/decisions" class="nav-link">Decisions</a>
+            <a href="/logs" class="nav-link">Logs</a>
+            <a href="/chat" class="nav-link">AI Chat</a>
+        </nav>
+
+        <!-- Main content -->
+        <main class="flex-1 overflow-y-auto p-6">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="/static/ws.js"></script>
+</body>
+</html>
