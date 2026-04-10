@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Decisions - 0DTE Bot{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Decisions</h1>
+
+<!-- Date Picker -->
+<div class="mb-6">
+    <input
+        type="date"
+        id="decision-date"
+        value="{{ date_str }}"
+        class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100"
+        onchange="window.location.href='/decisions?d=' + this.value"
+    >
+</div>
+
+<div class="flex gap-6">
+    <!-- File List Sidebar -->
+    <div class="w-64 shrink-0">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-3 max-h-[70vh] overflow-y-auto">
+            {% if files %}
+                {% for f in files %}
+                <a href="/decisions/{{ date_str }}/{{ f }}"
+                   class="block px-2 py-1.5 rounded text-sm hover:bg-gray-700 truncate
+                          {% if selected == f %}bg-gray-700 text-white{% else %}text-gray-400{% endif %}">
+                    {{ f }}
+                </a>
+                {% endfor %}
+            {% else %}
+                <div class="text-gray-500 text-sm">No decisions for this date.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="flex-1">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4 min-h-[40vh]">
+            {% if detail %}
+            <pre class="text-sm text-gray-300 whitespace-pre-wrap font-mono overflow-x-auto">{{ detail }}</pre>
+            {% else %}
+            <div class="text-gray-500">Select a decision file to view details.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

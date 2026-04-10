@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}AI Chat - 0DTE Bot{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">AI Chat</h1>
+
+<div class="flex flex-col h-[calc(100vh-10rem)]">
+    <!-- Messages -->
+    <div id="chat-messages" class="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-4 overflow-y-auto mb-4 space-y-3">
+        <div class="text-gray-500 text-sm">Chat with the AI assistant about your trading bots.</div>
+    </div>
+
+    <!-- Input -->
+    <form id="chat-form" class="flex gap-3" onsubmit="sendChatMessage(event)">
+        <input
+            type="text"
+            id="chat-input"
+            placeholder="Ask a question..."
+            class="flex-1 bg-gray-700 border border-gray-600 rounded px-4 py-2 text-gray-100 focus:outline-none focus:border-blue-500"
+            autocomplete="off"
+        >
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-medium rounded px-6 py-2 transition-colors">
+            Send
+        </button>
+    </form>
+</div>
+
+<script src="/static/chat.js"></script>
+<script>
+function sendChatMessage(e) {
+    e.preventDefault();
+    var input = document.getElementById("chat-input");
+    var msg = input.value.trim();
+    if (!msg) return;
+
+    // Display user message
+    var container = document.getElementById("chat-messages");
+    var placeholder = container.querySelector(".text-gray-500");
+    if (placeholder) container.innerHTML = "";
+
+    var userDiv = document.createElement("div");
+    userDiv.className = "bg-gray-700 rounded px-3 py-2 text-gray-100";
+    userDiv.textContent = msg;
+    container.appendChild(userDiv);
+
+    // Send via WebSocket
+    if (typeof wsSend === "function") {
+        wsSend({type: "chat", content: msg});
+    }
+
+    input.value = "";
+    container.scrollTop = container.scrollHeight;
+}
+
+if (typeof wsOn === "function") {
+    wsOn("chat", function(data) {
+        var container = document.getElementById("chat-messages");
+        if (!container) return;
+        var div = document.createElement("div");
+        div.className = "bg-blue-900/30 border border-blue-800 rounded px-3 py-2 text-gray-200";
+        div.textContent = data.content || "";
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    });
+}
+</script>
+{% endblock %}

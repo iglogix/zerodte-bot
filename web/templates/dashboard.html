@@ -4,5 +4,80 @@
 
 {% block content %}
 <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
-<p class="text-gray-400">Dashboard content coming soon.</p>
+
+<!-- Stats Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="text-sm text-gray-400">Running Bots</div>
+        <div class="text-2xl font-bold mt-1" id="stat-running-bots">{{ bots|selectattr('status', 'equalto', 'running')|list|length }}</div>
+    </div>
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="text-sm text-gray-400">Open Positions</div>
+        <div class="text-2xl font-bold mt-1" id="stat-open-positions">--</div>
+    </div>
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="text-sm text-gray-400">Daily P&L</div>
+        <div class="text-2xl font-bold mt-1" id="stat-daily-pnl">--</div>
+    </div>
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="text-sm text-gray-400">Buying Power</div>
+        <div class="text-2xl font-bold mt-1" id="stat-buying-power">--</div>
+    </div>
+</div>
+
+<!-- Bot Grid -->
+<h2 class="text-lg font-semibold mb-3">Bots</h2>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+    {% for bot in bots %}
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="flex items-center justify-between mb-2">
+            <span class="font-medium">{{ bot.name }}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full
+                {% if bot.status == 'running' %}bg-green-900 text-green-300
+                {% elif bot.status == 'error' %}bg-red-900 text-red-300
+                {% else %}bg-gray-700 text-gray-400{% endif %}">
+                {{ bot.status }}
+            </span>
+        </div>
+        <div class="text-sm text-gray-400">{{ bot.config_path|basename }}</div>
+        <div class="text-xs text-gray-500 mt-1">Mode: {{ bot.mode }} | PID: {{ bot.pid or '--' }}</div>
+    </div>
+    {% else %}
+    <div class="text-gray-500 col-span-full">No bots running. <a href="/bots" class="text-blue-400 hover:underline">Start one</a>.</div>
+    {% endfor %}
+</div>
+
+<!-- Recent Errors -->
+<h2 class="text-lg font-semibold mb-3">Recent Errors</h2>
+<div id="recent-errors" class="bg-gray-800 rounded-lg border border-gray-700 p-4 font-mono text-sm text-red-300 max-h-48 overflow-y-auto">
+    <div class="text-gray-500">No recent errors.</div>
+</div>
+
+<script>
+if (typeof wsOn === "function") {
+    wsOn("positions", function(data) {
+        var el = document.getElementById("stat-open-positions");
+        if (el && data.count !== undefined) el.textContent = data.count;
+    });
+    wsOn("account", function(data) {
+        var pnl = document.getElementById("stat-daily-pnl");
+        var bp = document.getElementById("stat-buying-power");
+        if (pnl && data.daily_pnl !== undefined) pnl.textContent = "$" + data.daily_pnl.toFixed(2);
+        if (bp && data.buying_power !== undefined) bp.textContent = "$" + data.buying_power.toFixed(0);
+    });
+    wsOn("log", function(data) {
+        if (data.level === "error") {
+            var container = document.getElementById("recent-errors");
+            if (container) {
+                if (container.querySelector(".text-gray-500")) container.innerHTML = "";
+                var div = document.createElement("div");
+                div.textContent = data.line;
+                div.className = "mb-1";
+                container.appendChild(div);
+                if (container.children.length > 50) container.removeChild(container.firstChild);
+            }
+        }
+    });
+}
+</script>
 {% endblock %}
