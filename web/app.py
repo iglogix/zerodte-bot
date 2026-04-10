@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 from datetime import date
@@ -15,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from web.auth import AuthMiddleware, _check_token, _get_session_token, _get_token
 from web.bot_manager import BotManager
-from web.log_streamer import LogFilter, tail_lines
+from web.log_streamer import LogFilter, LogTailer, tail_lines
 from web.ws_hub import WSHub
 
 _BASE_DIR = Path(__file__).resolve().parent
@@ -24,13 +25,37 @@ _BASE_DIR = Path(__file__).resolve().parent
 _bot_manager = BotManager()
 _ws_hub = WSHub()
 _log_filter = LogFilter()
+_log_tailers: dict[str, LogTailer] = {}
+
+
+async def _start_log_tailer(bot_id: str, log_file: str, bot_name: str) -> None:
+    """Start tailing a bot's log file and broadcast filtered lines via WSHub."""
+    tailer = LogTailer(log_file)
+    _log_tailers[bot_id] = tailer
+
+    async def on_line(line: str, level: str) -> None:
+        await _ws_hub.broadcast("log", {
+            "bot_id": bot_id,
+            "bot_name": bot_name,
+            "line": line,
+            "level": level,
+        })
+
+    asyncio.create_task(tailer.tail(on_line))
+
+
+def _stop_log_tailer(bot_id: str) -> None:
+    tailer = _log_tailers.pop(bot_id, None)
+    if tailer:
+        tailer.stop()
 
 
 def create_app() -> FastAPI:
-    global _bot_manager, _ws_hub, _log_filter
+    global _bot_manager, _ws_hub, _log_filter, _log_tailers
     _bot_manager = BotManager()
     _ws_hub = WSHub()
     _log_filter = LogFilter()
+    _log_tailers = {}
 
     app = FastAPI(title="0DTE Bot Dashboard")
 
@@ -92,11 +117,15 @@ def create_app() -> FastAPI:
         mode: str = Form("dry_run"),
         name: Optional[str] = Form(None),
     ):
-        await _bot_manager.start_bot(config_path, mode=mode, name=name or None)
+        bot_id = await _bot_manager.start_bot(config_path, mode=mode, name=name or None)
+        bot = _bot_manager.get_bot(bot_id)
+        if bot and bot.log_file:
+            await _start_log_tailer(bot_id, bot.log_file, bot.name)
         return RedirectResponse(url="/bots", status_code=303)
 
     @app.post("/bots/stop/{bot_id}")
     async def stop_bot(bot_id: str):
+        _stop_log_tailer(bot_id)
         await _bot_manager.stop_bot(bot_id)
         return RedirectResponse(url="/bots", status_code=303)
 
@@ -211,5 +240,11 @@ def create_app() -> FastAPI:
             _ws_hub.disconnect(ws)
         except Exception:
             _ws_hub.disconnect(ws)
+
+    @app.on_event("shutdown")
+    async def on_shutdown():
+        for bot_id in list(_log_tailers):
+            _stop_log_tailer(bot_id)
+        await _bot_manager.stop_all()
 
     return app
