@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from web.auth import AuthMiddleware, _check_token, _get_session_token, _get_token
 from web.bot_manager import BotManager
+from web.chat_agent import ChatAgent
 from web.log_streamer import LogFilter, LogTailer, tail_lines
 from web.ws_hub import WSHub
 
@@ -26,6 +27,7 @@ _bot_manager = BotManager()
 _ws_hub = WSHub()
 _log_filter = LogFilter()
 _log_tailers: dict[str, LogTailer] = {}
+_chat_agent: Optional[ChatAgent] = None
 
 
 async def _start_log_tailer(bot_id: str, log_file: str, bot_name: str) -> None:
@@ -51,11 +53,12 @@ def _stop_log_tailer(bot_id: str) -> None:
 
 
 def create_app() -> FastAPI:
-    global _bot_manager, _ws_hub, _log_filter, _log_tailers
+    global _bot_manager, _ws_hub, _log_filter, _log_tailers, _chat_agent
     _bot_manager = BotManager()
     _ws_hub = WSHub()
     _log_filter = LogFilter()
     _log_tailers = {}
+    _chat_agent = ChatAgent(bot_manager=_bot_manager)
 
     app = FastAPI(title="0DTE Bot Dashboard")
 
@@ -230,12 +233,38 @@ def create_app() -> FastAPI:
         try:
             while True:
                 data = await ws.receive_json()
-                # Chat message handling placeholder (Task 8)
                 msg_type = data.get("type", "")
-                if msg_type == "chat":
-                    await _ws_hub.send_to(
-                        ws, "chat", {"role": "system", "content": "Chat not yet implemented."}
-                    )
+
+                if msg_type == "chat_message":
+                    user_msg = data.get("message", "")
+                    try:
+                        response = await _chat_agent.chat(user_msg)
+                        await _ws_hub.send_to(
+                            ws, "chat_response", {"type": "text", "content": response}
+                        )
+                    except Exception as exc:
+                        await _ws_hub.send_to(
+                            ws, "chat_response",
+                            {"type": "text", "content": f"Error: {exc}"},
+                        )
+
+                elif msg_type == "chat_confirm":
+                    tool_name = data.get("tool", "")
+                    args = data.get("args", {})
+                    confirmed = data.get("confirmed", False)
+                    try:
+                        result = await _chat_agent.execute_tool(
+                            tool_name, args, confirmed=confirmed
+                        )
+                        await _ws_hub.send_to(
+                            ws, "chat_response",
+                            {"type": "text", "content": json.dumps(result, default=str)},
+                        )
+                    except Exception as exc:
+                        await _ws_hub.send_to(
+                            ws, "chat_response",
+                            {"type": "text", "content": f"Error: {exc}"},
+                        )
         except WebSocketDisconnect:
             _ws_hub.disconnect(ws)
         except Exception:
