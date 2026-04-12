@@ -236,12 +236,15 @@ class BacktestEngine:
         # 3. Find breakout in post-open bars
         market_open_dt = datetime(d.year, d.month, d.day, self._market_open[0], self._market_open[1], tzinfo=ET)
         eod_dt = datetime(d.year, d.month, d.day, self._eod[0], self._eod[1], tzinfo=ET)
-        post_open = [b for b in bars if b["ts_et"] >= market_open_dt and b["ts_et"] < eod_dt]
+        # Include all bars from market open (no EOD filter — exit simulation handles EOD)
+        post_open = [b for b in bars if b["ts_et"] >= market_open_dt]
 
         bias = None
         breakout_bar = None
         breakout_idx = None
         for i, b in enumerate(post_open):
+            if b["ts_et"] >= eod_dt:
+                break
             if b["close"] > orb_high:
                 bias = "long"
                 breakout_bar = b
@@ -263,6 +266,8 @@ class BacktestEngine:
         retest_idx = None
         for i in range(breakout_idx + 1, len(post_open)):
             b = post_open[i]
+            if b["ts_et"] >= eod_dt:
+                break
             if b["low"] <= orb_midline + self._midline_tol and b["high"] >= orb_midline - self._midline_tol:
                 retest_bar = b
                 retest_idx = i
@@ -329,26 +334,30 @@ class BacktestEngine:
         for leg in setup.legs:
             leg.symbol = self._make_symbol(d, leg.strike, leg.option_type)
 
-        # 12. Build trade dict for check_exit
-        trade = {
+        # 12. Build per-side trade dicts for check_exit
+        # Each side gets its own trade dict so check_exit only evaluates
+        # that side's TP/breach — prevents one side blocking the other.
+        put_trade = {
             "short_put_symbol": setup.legs[0].symbol,
             "long_put_symbol": setup.legs[1].symbol,
+            "short_put_strike": setup.strikes["short_put"],
+            "put_credit": setup.extra["put_credit"],
+        }
+        call_trade = {
             "short_call_symbol": setup.legs[2].symbol,
             "long_call_symbol": setup.legs[3].symbol,
-            "short_put_strike": setup.strikes["short_put"],
             "short_call_strike": setup.strikes["short_call"],
-            "put_credit": setup.extra["put_credit"],
             "call_credit": setup.extra["call_credit"],
         }
 
-        # 13. Simulate exits for each side
+        # 13. Simulate exits for each side independently
         monitoring_bars = post_open[fill_idx + 1:]
         put_result = self._simulate_side(
-            "put", trade, setup, monitoring_bars, d, symbol,
+            "put", put_trade, setup, monitoring_bars, d, symbol,
             fill_time, spot, orb_high, orb_low, orb_midline, orb_range, eod_dt,
         )
         call_result = self._simulate_side(
-            "call", trade, setup, monitoring_bars, d, symbol,
+            "call", call_trade, setup, monitoring_bars, d, symbol,
             fill_time, spot, orb_high, orb_low, orb_midline, orb_range, eod_dt,
         )
         return [put_result, call_result]
@@ -401,6 +410,8 @@ class BacktestEngine:
         )
 
         # Walk monitoring bars
+        hold_put_breach = getattr(self._strategy, '_hold_put_breach', False)
+
         for bar in monitoring_bars:
             bar_time = bar["ts_et"]
 
@@ -414,48 +425,57 @@ class BacktestEngine:
                 return base
 
             bar_minute = bar_time.strftime("%H:%M")
-            bar_spot = self._cbbo.derive_spot(bar_minute, bar["close"])
-            if bar_spot is None:
-                bar_spot = bar["close"]
 
-            quotes = self._build_quotes(bar_minute, trade)
-            quotes["_underlying"] = {"price": bar_spot}
+            # Breach detection using bar high/low (matches src_8am)
+            # Put breach: bar low touches short put strike
+            # Call breach: bar high touches short call strike
+            breached = False
+            if side == "put" and bar["low"] <= short_strike:
+                if hold_put_breach:
+                    continue  # put breach held — skip bar entirely
+                breached = True
+            elif side == "call" and bar["high"] >= short_strike:
+                breached = True
 
-            action = self._strategy.check_exit(trade, quotes)
-
-            # Check if this action targets our side
-            if action.action == "hold":
-                continue
-
-            our_syms = {short_sym, long_sym}
-            action_syms = set(action.legs_to_close)
-            if not our_syms.intersection(action_syms):
-                continue
-
-            base.exit_time = bar_time
-            base.underlying_at_exit = bar_spot
-
-            if action.action == "take_profit":
-                debit = round(credit * (1 - self._tp_pct), 2)
-                base.debit_paid = debit
-                base.exit_reason = f"tp_{int(self._tp_pct * 100)}pct"
-                base.realized_pnl_usd = round((credit - debit) * self._multiplier * self._quantity, 2)
-            elif action.action == "stop_loss":
-                # Debit = current spread mark, capped at width
+            if breached:
+                # Compute debit from CBBO at breach bar
                 s_q = self._cbbo.lookup(bar_minute, short_strike, side == "call")
                 l_q = self._cbbo.lookup(bar_minute, long_strike, side == "call")
                 if s_q and l_q:
                     s_mid = (s_q[0] + s_q[1]) / 2
                     l_mid = (l_q[0] + l_q[1]) / 2
-                    mark = s_mid - l_mid
-                    debit = min(max(mark, 0), width)
+                    debit = min(max(s_mid - l_mid, 0), width)
                 else:
                     debit = width
+                base.exit_time = bar_time
+                base.underlying_at_exit = bar["close"]
                 base.debit_paid = round(debit, 2)
-                base.exit_reason = "stop_loss"
+                base.exit_reason = "short_breached"
                 base.realized_pnl_usd = round((credit - debit) * self._multiplier * self._quantity, 2)
+                return base
 
-            return base
+            # TP check via strategy.check_exit (uses CBBO spread marks)
+            bar_spot = self._cbbo.derive_spot(bar_minute, bar["close"])
+            if bar_spot is None:
+                bar_spot = bar["close"]
+
+            quotes = self._build_quotes(bar_minute, trade)
+            if not quotes:
+                continue  # skip bar if no CBBO quotes available
+            quotes["_underlying"] = {"price": bar_spot}
+
+            action = self._strategy.check_exit(trade, quotes)
+
+            if action.action == "take_profit":
+                our_syms = {short_sym, long_sym}
+                if our_syms.intersection(set(action.legs_to_close)):
+                    debit = round(credit * (1 - self._tp_pct), 2)
+                    base.exit_time = bar_time
+                    base.underlying_at_exit = bar_spot
+                    base.debit_paid = debit
+                    base.exit_reason = f"tp_{int(self._tp_pct * 100)}pct"
+                    base.realized_pnl_usd = round((credit - debit) * self._multiplier * self._quantity, 2)
+                    return base
 
         # No exit found — expire worthless
         base.exit_time = None
@@ -492,7 +512,11 @@ class BacktestEngine:
         return chain
 
     def _build_quotes(self, minute_et: str, trade: dict) -> dict:
-        """Build quotes dict for check_exit from CBBO at given minute."""
+        """Build quotes dict for check_exit from CBBO at given minute.
+
+        Only includes symbols present in the trade dict (per-side trade dicts
+        only have 2 leg symbols, not all 4).
+        """
         quotes = {}
         for key in ["short_put_symbol", "long_put_symbol",
                      "short_call_symbol", "long_call_symbol"]:
@@ -505,8 +529,6 @@ class BacktestEngine:
             q = self._cbbo.lookup(minute_et, strike, is_call)
             if q:
                 quotes[sym] = {"bid": q[0], "ask": q[1]}
-            else:
-                quotes[sym] = {"bid": 0.05, "ask": 0.15}
         return quotes
 
     # ------------------------------------------------------------------
