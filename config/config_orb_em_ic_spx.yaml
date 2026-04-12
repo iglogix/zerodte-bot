@@ -1,0 +1,63 @@
+bot:
+  name: "spx-0dte-orb-em-ic"
+  timezone: "America/New_York"
+  mode: "manual"
+  symbol: "ES"              # ES futures for ORB signal (price feed)
+  strategy: "orb_em_ic"
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 0.25
+  orb_range_filter:
+    min_pts: 2.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# ORB EM iron condor — CBBO-optimized params (125-day backtest)
+# 93.1% WR, Sharpe 14.44, PF 4.35, 5 breaches on 72 trades
+options:
+  option_root: "SPXW"              # SPX weekly 0DTE options
+  strike_step_pts: 5               # SPX strikes at 5-pt intervals
+  min_credit_per_spread: 0.05      # real 0DTE credits are thin
+  tp_pct_of_credit: 0.50           # CBBO-optimized
+  sl_mult_of_credit: 0             # disabled — exit on breach only
+  hold_put_breach: true            # puts survive breaches (100% WR in backtest)
+  # Straddle-EM strike selection (bias-adaptive iron condor)
+  em_with_trend: 0.50              # with-trend leg: 0.50× straddle (closer, more premium)
+  em_against_trend: 0.75           # against-trend leg: 0.75× straddle (further, less risk)
+  width_with_trend: 5              # with-trend spread width
+  width_against_trend: 10          # against-trend spread width
+  slippage_per_spread: 0.10        # SPX has tighter spreads than ES options
+  contract_multiplier: 100         # SPX options = $100 per point
+  quantity: 1
+  assumed_iv: 0.15
+
+entry:
+  schedule: ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"]
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 5.0
+  max_buying_power_percent: 50.0
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"            # SPX PM-settled
+
+logging:
+  level: "INFO"
+
+backtest:
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2025-09-22"
+  end_date: "2026-03-20"
