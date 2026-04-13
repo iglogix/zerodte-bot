@@ -91,8 +91,12 @@ async def test_breakout_latches(handlers):
 
 
 def test_midline_touch(handlers):
-    assert handlers.check_midline_touch(5925.2, 5925.0, 0.5) is True
-    assert handlers.check_midline_touch(5930.0, 5925.0, 0.5) is False
+    # Backtest uses bar range (low/high) for midline detection.
+    # Handlers fixture's first bar: low=5920, high=5930.
+    # Midline 5925 is within [5920, 5930] → True regardless of `price` arg.
+    assert handlers.check_midline_touch(5925.0, 5925.0, 0.5) is True
+    # Midline outside bar range → False
+    assert handlers.check_midline_touch(9999.0, 9999.0, 0.5) is False
 
 
 @pytest.mark.asyncio

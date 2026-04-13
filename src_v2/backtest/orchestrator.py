@@ -40,6 +40,7 @@ class BacktestOrchestrator:
         self._skip_nfp = strat.get("skip_nfp_fridays", False)
         self._skip_fomc = strat.get("skip_fomc_days", False)
         self._skip_cpi = strat.get("skip_cpi_days", False)
+        self._market_open_str = strat.get("market_open", "09:30")
 
         opt = config.get("options", {})
         self._multiplier = opt.get("contract_multiplier", 100)
@@ -91,6 +92,17 @@ class BacktestOrchestrator:
         # Clock advance callback: advance to next bar
         clock.set_advance_fn(lambda: bt_handlers.advance_bar())
 
+        # Skip pre-market bars: advance bar pointer to market_open
+        # (ORB window data is read by get_orb_levels from historical bars by time,
+        # so we don't need the pointer to be within the ORB window).
+        mo_h, mo_m = [int(x) for x in self._market_open_str.split(":")]
+        for i, b in enumerate(bars):
+            bt = b["ts_et"]
+            if bt.hour > mo_h or (bt.hour == mo_h and bt.minute >= mo_m):
+                bt_handlers.set_bar_index(i)
+                clock.advance_to(b["ts_et"])
+                break
+
         # Create strategy
         strategy = self._strategy_cls()
         strategy.configure(self._config)
@@ -132,15 +144,20 @@ class BacktestOrchestrator:
             mode="backtest",
         )
 
-        # Walk remaining bars through PositionMonitor
+        # Walk remaining bars through PositionMonitor until EOD
         while bt_handlers.has_bars_remaining():
             bt_handlers.advance_bar()
             await monitor._run_cycle()
 
-            # Check if all trades closed
-            open_trades = await db.get_open_trades()
-            if not open_trades:
-                break
+        # After main loop: for any leg still without exit_log (e.g. abandoned
+        # side after SL closed the trade), record its final CBBO mark at last bar.
+        now = clock.now(ET)
+        for trade in db.get_all_trades():
+            for key in ("short_put_symbol", "long_put_symbol",
+                        "short_call_symbol", "long_call_symbol"):
+                leg = trade.get(key)
+                if leg and leg not in bt_handlers._exit_log:
+                    bt_handlers._record_exit_quote(leg, now, reason="expired_worthless")
 
         # Collect results
         return self._collect_results(db, sd, sym, bt_handlers)
@@ -160,37 +177,43 @@ class BacktestOrchestrator:
         results = []
         for trade in trades:
             for side in ("put", "call"):
-                short_key = f"short_{side}_strike"
-                long_key = f"long_{side}_strike"
-                if short_key not in trade:
+                short_k = trade.get(f"short_{side}_strike")
+                long_k = trade.get(f"long_{side}_strike")
+                if short_k is None or long_k is None:
                     continue
 
-                short_k = trade[short_key]
-                long_k = trade[long_key]
                 credit = trade.get(f"{side}_credit", 0)
                 width = abs(short_k - long_k)
 
-                short_sym = trade.get(f"short_{side}_symbol", "")
-                long_sym = trade.get(f"long_{side}_symbol", "")
+                # Symbols were built at entry; the trade dict may have them cleared if closed.
+                # Reconstruct from strikes + date for exit_log lookup.
+                short_sym = bt_handlers._make_symbol(short_k, side == "call")
+                long_sym = bt_handlers._make_symbol(long_k, side == "call")
 
-                # Compute debit from exit log
-                debit = self._compute_debit(bt_handlers, short_sym, long_sym, width)
+                # Per-leg exit info from exit_log
+                s_exit = bt_handlers._exit_log.get(short_sym)
+                l_exit = bt_handlers._exit_log.get(long_sym)
 
-                # Determine exit info
-                status = trade.get("status", "open")
-                close_reason = trade.get("close_reason", "")
-
-                if status == "closed" and "eod" in close_reason:
-                    exit_reason = "eod_forced_close"
-                elif status == "closed":
-                    exit_reason = close_reason or "closed"
-                elif status in ("open", "expired"):
-                    # Never explicitly closed = expired worthless
-                    exit_reason = "expired_worthless"
-                    debit = 0.0
+                if s_exit and l_exit:
+                    s_mid = (s_exit["bid"] + s_exit["ask"]) / 2
+                    l_mid = (l_exit["bid"] + l_exit["ask"]) / 2
+                    debit = round(min(max(s_mid - l_mid, 0), width), 2)
+                    reason = s_exit.get("reason", "closed")
+                    exit_time = s_exit.get("time")
+                    if "take_profit" in reason or "tp" in reason.lower():
+                        exit_reason = "tp_50pct"
+                    elif "stop_loss" in reason or "breach" in reason.lower():
+                        exit_reason = "short_breached"
+                    elif "eod" in reason:
+                        # At EOD, if spread is worthless it expired; otherwise forced close
+                        exit_reason = "expired_worthless" if debit < 0.05 else "eod_forced_close"
+                    else:
+                        exit_reason = reason or "closed"
                 else:
-                    exit_reason = status
+                    # No exit log = expired worthless (never closed)
                     debit = 0.0
+                    exit_reason = "expired_worthless"
+                    exit_time = trade.get("exit_time")
 
                 pnl = round((credit - debit) * self._multiplier * self._qty, 2)
 
@@ -211,7 +234,7 @@ class BacktestOrchestrator:
                     long_strike=long_k,
                     spread_width=width,
                     credit_received=credit,
-                    exit_time=trade.get("exit_time"),
+                    exit_time=exit_time,
                     debit_paid=debit,
                     exit_reason=exit_reason,
                     realized_pnl_usd=pnl,

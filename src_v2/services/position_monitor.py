@@ -392,6 +392,7 @@ class PositionMonitor:
                 symbol=symbol,
                 order_type="market",
                 quantity=1,
+                reason=reason,
             )
             logger.info(
                 "[CLOSE-LEG] %s %s (%s): %s",

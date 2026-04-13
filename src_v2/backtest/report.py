@@ -153,6 +153,48 @@ def print_report(report: Dict[str, Any], title: str = "src_v2 Backtest") -> None
     print(sep)
 
 
+def print_trades(results: List[BacktestResult]) -> None:
+    """Print per-trade table to console."""
+    closed = [r for r in results if r.status == "closed"]
+    if not closed:
+        return
+    closed.sort(key=lambda r: (r.session_date, r.spread_type or ""))
+
+    print(f"\n{'─' * 100}")
+    print(f"  {'Date':<12} {'Bias':<6} {'Side':<5} {'Short':>7} {'Long':>7} "
+          f"{'Credit':>8} {'Debit':>8} {'PnL':>9} {'Exit'}")
+    print(f"{'─' * 100}")
+    for r in closed:
+        side = "put" if r.spread_type and "put" in r.spread_type else "call"
+        print(f"  {r.session_date!s:<12} {(r.bias or '?'):<6} {side:<5} "
+              f"{r.short_strike or 0:>7.0f} {r.long_strike or 0:>7.0f} "
+              f"${r.credit_received or 0:>6.2f} ${r.debit_paid or 0:>6.2f} "
+              f"${r.realized_pnl_usd or 0:>+8.0f} {r.exit_reason or '?'}")
+    print(f"{'─' * 100}")
+
+
+def export_trades_csv(results: List[BacktestResult], path: str) -> None:
+    """Export all BacktestResult fields to CSV."""
+    import csv
+    from pathlib import Path
+    from dataclasses import fields
+
+    closed = [r for r in results if r.status == "closed"]
+    if not closed:
+        return
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    field_names = [f.name for f in fields(BacktestResult)]
+
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=field_names)
+        writer.writeheader()
+        for r in closed:
+            row = {name: getattr(r, name) for name in field_names}
+            writer.writerows([row])
+    print(f"  Trades CSV → {path}")
+
+
 def _count_reasons(skipped: List[BacktestResult]) -> Dict[str, int]:
     counts: Dict[str, int] = defaultdict(int)
     for r in skipped:

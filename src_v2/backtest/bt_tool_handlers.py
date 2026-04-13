@@ -121,6 +121,16 @@ class BacktestToolHandlers:
         return {"status": "inside_range", "price": current_price}
 
     def check_midline_touch(self, price: float, midline: float, tolerance: float) -> bool:
+        """Use bar range (high/low) for intrabar touch detection.
+
+        Live ToolHandlers checks a single point-in-time price, but live polling
+        is continuous. With 1-min bars we'd miss intrabar touches, so check the
+        bar's range as a proxy for what live polling would have seen.
+        """
+        bar = self.current_bar
+        if bar is not None:
+            return (bar["low"] <= midline + tolerance and
+                    bar["high"] >= midline - tolerance)
         return abs(price - midline) <= tolerance
 
     # ------------------------------------------------------------------
@@ -270,11 +280,16 @@ class BacktestToolHandlers:
         close_all: bool = False,
         order_type: str = "market",
         quantity: int = 1,
+        reason: str = "",
     ) -> Dict[str, Any]:
-        """Update trade status in mock DB and record exit quotes."""
+        """Update trade status in mock DB and record exit quotes.
+
+        Per-symbol close: records exit quote AND clears that symbol from the
+        trade dict so check_exit won't keep firing for the same leg.
+        """
         now = self._clock.now(ET)
         if close_all and trade_id:
-            # EOD close: record exit quotes for all legs in this trade
+            # EOD close: record exit quotes only for legs still present (not previously closed)
             trades = await self._db.get_open_trades()
             for t in trades:
                 if t.get("trade_id") == trade_id:
@@ -282,7 +297,7 @@ class BacktestToolHandlers:
                                 "short_call_symbol", "long_call_symbol"):
                         leg_sym = t.get(key)
                         if leg_sym and leg_sym not in self._exit_log:
-                            self._record_exit_quote(leg_sym, now)
+                            self._record_exit_quote(leg_sym, now, reason="eod_forced_close")
                     break
             await self._db.update_trade(trade_id, {
                 "status": "closed",
@@ -290,17 +305,26 @@ class BacktestToolHandlers:
             })
             return {"status": "closed", "trade_id": trade_id}
         if symbol:
-            self._record_exit_quote(symbol, now)
+            self._record_exit_quote(symbol, now, reason=reason)
+            # Clear the closed symbol from the trade dict so check_exit skips it
+            trades = await self._db.get_open_trades()
+            for t in trades:
+                for key in ("short_put_symbol", "long_put_symbol",
+                            "short_call_symbol", "long_call_symbol"):
+                    if t.get(key) == symbol:
+                        await self._db.update_trade(t["trade_id"], {key: None})
         return {"status": "closed", "symbol": symbol}
 
-    def _record_exit_quote(self, symbol: str, now: datetime) -> None:
+    def _record_exit_quote(self, symbol: str, now: datetime, reason: str = "") -> None:
         """Look up CBBO at current minute and store exit mark for a leg."""
         minute = now.strftime("%H:%M")
         strike, is_call = self._parse_symbol(symbol)
         if strike is not None:
             q = self._cbbo.lookup(minute, strike, is_call)
             if q:
-                self._exit_log[symbol] = {"bid": q[0], "ask": q[1], "time": now}
+                self._exit_log[symbol] = {
+                    "bid": q[0], "ask": q[1], "time": now, "reason": reason,
+                }
 
     @staticmethod
     def _parse_symbol(sym: str):
@@ -313,7 +337,23 @@ class BacktestToolHandlers:
             return None, None
 
     async def get_open_positions(self) -> List[Dict[str, Any]]:
-        return await self._db.get_open_trades()
+        """Return one entry per open LEG (not per trade), matching live API shape.
+
+        PositionMonitor._is_position_closed() checks whether a symbol appears
+        in this list, so we must expose each leg symbol individually.
+        """
+        positions = []
+        for trade in await self._db.get_open_trades():
+            for key in ("short_put_symbol", "long_put_symbol",
+                        "short_call_symbol", "long_call_symbol"):
+                sym = trade.get(key)
+                if sym:
+                    positions.append({
+                        "symbol": sym,
+                        "trade_id": trade.get("trade_id"),
+                        "quantity": 1,
+                    })
+        return positions
 
     async def cancel_order(self, order_id: str) -> Dict[str, Any]:
         return {"status": "cancelled", "order_id": order_id}

@@ -1,6 +1,8 @@
 """
 Run src_v2 backtest with current config and print report.
 
+Uses the real OrbEngine + PositionMonitor against historical ES bars + CBBO.
+
 Usage:
   python -m scripts.run_v2_backtest --config config/config_orb_em_ic_spx.yaml
   python -m scripts.run_v2_backtest --config config/config_orb_em_ic_spx.yaml --start 2025-10-01 --end 2026-01-01
@@ -19,18 +21,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_v2.backtest.data_loader import SpyLoader
 from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.engine import BacktestEngine
-from src_v2.backtest.report import generate_report, print_report
+from src_v2.backtest.orchestrator import BacktestOrchestrator
+from src_v2.backtest.report import (
+    generate_report, print_report, print_trades, export_trades_csv,
+)
 
 
-def _load_strategy(config):
-    """Instantiate the strategy from config."""
+def _strategy_cls(config):
+    """Return the strategy class from config."""
     name = config.get("bot", {}).get("strategy", "orb_em_ic")
     if name == "orb_em_ic":
         from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
-        return OrbEmIronCondorStrategy()
-    else:
-        raise ValueError(f"Unsupported strategy for backtest: {name}")
+        return OrbEmIronCondorStrategy
+    raise ValueError(f"Unsupported strategy for backtest: {name}")
+
+
+def _results_dir(config_path: str) -> str:
+    stem = Path(config_path).stem
+    name = stem.removeprefix("config_").strip("_")
+    return f"results/{name or 'default'}"
 
 
 def main():
@@ -48,16 +57,17 @@ def main():
     price_scale = bt.get("price_scale", 10.0)
     start = date.fromisoformat(args.start) if args.start else date.fromisoformat(bt.get("start_date", "2025-09-22"))
     end = date.fromisoformat(args.end) if args.end else date.fromisoformat(bt.get("end_date", "2026-03-20"))
-
     symbol = config.get("bot", {}).get("symbol", "SPX")
 
     # Preload CBBO cache
     cbbo_dir = bt.get("cbbo_cache_dir", "")
-    mem = None
-    if cbbo_dir:
-        print(f"Preloading CBBO cache from {cbbo_dir}...")
-        mem = CbboStore.preload_cache(cbbo_dir)
-        print(f"  {len(mem)} days loaded into memory")
+    if not cbbo_dir:
+        print("ERROR: backtest.cbbo_cache_dir not set in config")
+        return
+    print(f"Preloading CBBO cache from {cbbo_dir}...")
+    mem = CbboStore.preload_cache(cbbo_dir)
+    print(f"  {len(mem)} days loaded into memory")
+    cbbo = CbboStore(cbbo_dir, preloaded=mem)
 
     # Load bars
     print(f"Loading bars from {data_file} (scale={price_scale})...")
@@ -65,23 +75,24 @@ def main():
     days = list(loader.iter_days(start_date=start, end_date=end))
     print(f"  {len(days)} trading days")
 
-    # Create strategy + engine
-    strategy = _load_strategy(config)
-    engine = BacktestEngine(config, strategy)
-
-    # If we preloaded CBBO, inject into engine's store
-    if mem is not None:
-        engine._cbbo = CbboStore(cbbo_dir, preloaded=mem)
+    # Create orchestrator
+    strategy_class = _strategy_cls(config)
+    orchestrator = BacktestOrchestrator(config, strategy_class, cbbo)
 
     # Run
     print(f"Running backtest {start} -> {end}...")
-    results = engine.run(days)
+    results = orchestrator.run(days)
 
     # Report
     report = generate_report(results)
-    print_report(report, title=f"src_v2 Backtest: {Path(args.config).stem}")
+    title = f"src_v2 Backtest: {Path(args.config).stem}"
+    print_report(report, title=title)
+    print_trades(results)
 
-    return report
+    # CSV export
+    out_dir = _results_dir(args.config)
+    csv_path = f"{out_dir}/trades.csv"
+    export_trades_csv(results, csv_path)
 
 
 if __name__ == "__main__":
