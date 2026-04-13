@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 class BacktestToolHandlers:
     """Serves historical ES bars and CBBO quotes through the live ToolHandlers interface."""
 
-    def __init__(self, bars: List[Dict], cbbo_store, clock, db, session_date):
+    def __init__(self, bars: List[Dict], cbbo_store, clock, db, session_date,
+                 slippage: float = 0.10):
         """
         Args:
             bars: day's 1-min ES bars, each with ts_et, open, high, low, close, volume
@@ -29,12 +30,14 @@ class BacktestToolHandlers:
             clock: SimClock for current simulated time
             db: BacktestDb for trade storage
             session_date: date object for this trading day
+            slippage: per-spread slippage deduction (default 0.10)
         """
         self._bars = bars
         self._cbbo = cbbo_store
         self._clock = clock
         self._db = db
         self._session_date = session_date
+        self._slippage = slippage
         self._bar_idx = 0
 
         # ORB state (same as live ToolHandlers)
@@ -42,6 +45,9 @@ class BacktestToolHandlers:
         self._breakout_bias: Optional[str] = None
         self._breakout_price: Optional[float] = None
         self._breakout_time: Optional[datetime] = None
+
+        # Exit tracking: symbol -> {bid, ask, time} at close
+        self._exit_log: Dict[str, Dict] = {}
 
     @property
     def current_bar(self) -> Optional[Dict]:
@@ -190,7 +196,7 @@ class BacktestToolHandlers:
                 sym = self._make_symbol(strike, is_call)
                 chain.append({
                     "strike": strike,
-                    "option_type": "C" if is_call else "P",
+                    "option_type": "call" if is_call else "put",
                     "bid": bid,
                     "ask": ask,
                     "symbol": sym,
@@ -201,17 +207,8 @@ class BacktestToolHandlers:
 
     async def get_orb_spot(self, chain: list, ref_price: float, index_symbol: str = "") -> Dict[str, Any]:
         """Derive spot from put-call parity — same util as live."""
-        # Normalize option_type for derive_spot_from_chain (expects "put"/"call")
-        normalized = []
-        for o in chain:
-            item = dict(o)
-            otype = item.get("option_type", "").upper()
-            if otype in ("C", "CALL"):
-                item["option_type"] = "call"
-            elif otype in ("P", "PUT"):
-                item["option_type"] = "put"
-            normalized.append(item)
-        spot = derive_spot_from_chain(normalized, ref_price)
+        # Chain already uses "call"/"put" option_type — pass directly
+        spot = derive_spot_from_chain(chain, ref_price)
         if spot is not None:
             return {"spot": spot, "source": "put_call_parity"}
         return {"spot": ref_price, "source": "bar_fallback"}
@@ -221,12 +218,46 @@ class BacktestToolHandlers:
     # ------------------------------------------------------------------
 
     async def place_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Record trade in mock DB and return synthetic result."""
+        """Record trade in mock DB with full leg symbols and per-side credits."""
         trade_id = f"BT-{self._session_date.isoformat()}-{uuid.uuid4().hex[:6]}"
+        bar = self.current_bar
+        minute = bar["ts_et"].strftime("%H:%M") if bar else "00:00"
+        entry_price = bar["close"] if bar else 0.0
+
+        # Build leg symbols from strikes
+        sp_k = payload.get("short_put_strike", 0)
+        lp_k = payload.get("long_put_strike", 0)
+        sc_k = payload.get("short_call_strike", 0)
+        lc_k = payload.get("long_call_strike", 0)
+
+        sp_sym = self._make_symbol(sp_k, False)
+        lp_sym = self._make_symbol(lp_k, False)
+        sc_sym = self._make_symbol(sc_k, True)
+        lc_sym = self._make_symbol(lc_k, True)
+
+        # Compute per-side credits from CBBO at entry time
+        def _mid(strike, is_call):
+            q = self._cbbo.lookup(minute, strike, is_call)
+            return (q[0] + q[1]) / 2 if q else 0.0
+
+        put_credit = round(_mid(sp_k, False) - _mid(lp_k, False) - self._slippage, 2)
+        call_credit = round(_mid(sc_k, True) - _mid(lc_k, True) - self._slippage, 2)
+
         trade = {
             "trade_id": trade_id,
             "status": "open",
             "entry_time": self._clock.now(ET),
+            "entry_price": entry_price,
+            "short_put_symbol": sp_sym,
+            "long_put_symbol": lp_sym,
+            "short_call_symbol": sc_sym,
+            "long_call_symbol": lc_sym,
+            "short_put_strike": sp_k,
+            "long_put_strike": lp_k,
+            "short_call_strike": sc_k,
+            "long_call_strike": lc_k,
+            "put_credit": max(put_credit, 0.0),
+            "call_credit": max(call_credit, 0.0),
             **payload,
         }
         await self._db.add_trade(trade)
@@ -240,14 +271,46 @@ class BacktestToolHandlers:
         order_type: str = "market",
         quantity: int = 1,
     ) -> Dict[str, Any]:
-        """Update trade status in mock DB."""
+        """Update trade status in mock DB and record exit quotes."""
+        now = self._clock.now(ET)
         if close_all and trade_id:
+            # EOD close: record exit quotes for all legs in this trade
+            trades = await self._db.get_open_trades()
+            for t in trades:
+                if t.get("trade_id") == trade_id:
+                    for key in ("short_put_symbol", "long_put_symbol",
+                                "short_call_symbol", "long_call_symbol"):
+                        leg_sym = t.get(key)
+                        if leg_sym and leg_sym not in self._exit_log:
+                            self._record_exit_quote(leg_sym, now)
+                    break
             await self._db.update_trade(trade_id, {
                 "status": "closed",
-                "exit_time": self._clock.now(ET),
+                "exit_time": now,
             })
             return {"status": "closed", "trade_id": trade_id}
+        if symbol:
+            self._record_exit_quote(symbol, now)
         return {"status": "closed", "symbol": symbol}
+
+    def _record_exit_quote(self, symbol: str, now: datetime) -> None:
+        """Look up CBBO at current minute and store exit mark for a leg."""
+        minute = now.strftime("%H:%M")
+        strike, is_call = self._parse_symbol(symbol)
+        if strike is not None:
+            q = self._cbbo.lookup(minute, strike, is_call)
+            if q:
+                self._exit_log[symbol] = {"bid": q[0], "ask": q[1], "time": now}
+
+    @staticmethod
+    def _parse_symbol(sym: str):
+        """Extract (strike, is_call) from OCC symbol."""
+        try:
+            cp_char = sym[12]
+            strike_raw = int(sym[13:])
+            return float(strike_raw) / 1000.0, cp_char == "C"
+        except (IndexError, ValueError):
+            return None, None
 
     async def get_open_positions(self) -> List[Dict[str, Any]]:
         return await self._db.get_open_trades()

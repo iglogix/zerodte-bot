@@ -1,0 +1,255 @@
+"""
+BacktestOrchestrator — runs real OrbEngine + PositionMonitor against historical data.
+
+Unlike BacktestEngine which reimplements the strategy logic inline,
+this orchestrator uses the actual OrbEngine and PositionMonitor classes,
+ensuring backtest behavior matches live trading exactly.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import date, datetime, time
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+from src_v2.backtest.engine import BacktestResult, _FOMC_DATES, _CPI_DATES, _is_nfp_friday
+from src_v2.backtest.sim_clock import SimClock
+from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+from src_v2.backtest.mock_db import BacktestDb
+from src_v2.backtest.mock_cache import BacktestCache
+from src_v2.backtest.cbbo_store import CbboStore
+from src_v2.agent.orb_engine import OrbEngine
+from src_v2.agent.base_engine import EngineDeps
+from src_v2.services.position_monitor import PositionMonitor
+
+ET = ZoneInfo("America/New_York")
+logger = logging.getLogger(__name__)
+
+
+class BacktestOrchestrator:
+    """Drives real OrbEngine + PositionMonitor against historical bars + CBBO."""
+
+    def __init__(self, config: Dict[str, Any], strategy_cls, cbbo_store: CbboStore):
+        self._config = config
+        self._strategy_cls = strategy_cls
+        self._cbbo = cbbo_store
+
+        strat = config.get("strategy", {})
+        self._skip_nfp = strat.get("skip_nfp_fridays", False)
+        self._skip_fomc = strat.get("skip_fomc_days", False)
+        self._skip_cpi = strat.get("skip_cpi_days", False)
+
+        opt = config.get("options", {})
+        self._multiplier = opt.get("contract_multiplier", 100)
+        self._qty = opt.get("quantity", 1)
+        self._slippage = opt.get("slippage_per_spread", 0.10)
+        self._eod_str = strat.get("eod_force_close", "15:50")
+
+    def run(self, days) -> List[BacktestResult]:
+        """Run backtest across all days. Returns list of BacktestResult."""
+        results = []
+        for day in sorted(days, key=lambda d: d.session_date):
+            sd = day.session_date
+            if self._skip_nfp and _is_nfp_friday(sd):
+                results.append(self._skip(sd, day.symbol, "nfp_friday"))
+                continue
+            if self._skip_fomc and sd in _FOMC_DATES:
+                results.append(self._skip(sd, day.symbol, "fomc_day"))
+                continue
+            if self._skip_cpi and sd in _CPI_DATES:
+                results.append(self._skip(sd, day.symbol, "cpi_day"))
+                continue
+
+            day_results = asyncio.run(self._run_day(day))
+            results.extend(day_results)
+        return results
+
+    async def _run_day(self, day) -> List[BacktestResult]:
+        sd = day.session_date
+        sym = day.symbol
+        bars = day.bars
+
+        if not bars:
+            return [self._skip(sd, sym, "no_bars")]
+
+        # Load CBBO
+        n = self._cbbo.load_day(sd)
+        if n == 0:
+            return [self._skip(sd, sym, "no_cbbo_data")]
+
+        # Create components
+        clock = SimClock(bars[0]["ts_et"])
+        db = BacktestDb()
+        bt_handlers = BacktestToolHandlers(
+            bars, self._cbbo, clock, db, sd,
+            slippage=self._slippage,
+        )
+        cache = BacktestCache(self._cbbo, clock)
+
+        # Clock advance callback: advance to next bar
+        clock.set_advance_fn(lambda: bt_handlers.advance_bar())
+
+        # Create strategy
+        strategy = self._strategy_cls()
+        strategy.configure(self._config)
+
+        # Create EngineDeps
+        deps = EngineDeps(
+            tool_handlers=bt_handlers,
+            risk_manager=None,
+            anomaly_detector=None,
+            regime_classifier=None,
+            decision_file_logger=None,
+            db=None,
+            mode="backtest",
+            config=self._config,
+            clock=clock,
+        )
+
+        # Run OrbEngine (entry phase)
+        engine = OrbEngine(deps, strategy)
+        result = await engine.run()
+
+        if result.outcome != "executed":
+            return [self._skip(sd, sym, result.reason)]
+
+        # Entry was placed -- run PositionMonitor for exit
+        eod_h, eod_m = [int(x) for x in self._eod_str.split(":")]
+        eod_time = time(eod_h, eod_m)
+
+        monitor = PositionMonitor(
+            db=db,
+            cache=cache,
+            tool_handlers=bt_handlers,
+            strategy=strategy,
+            clock=clock,
+            fill_queue=None,
+            notifier=None,
+            eod_debrief=None,
+            eod_close_time=eod_time,
+            mode="backtest",
+        )
+
+        # Walk remaining bars through PositionMonitor
+        while bt_handlers.has_bars_remaining():
+            bt_handlers.advance_bar()
+            await monitor._run_cycle()
+
+            # Check if all trades closed
+            open_trades = await db.get_open_trades()
+            if not open_trades:
+                break
+
+        # Collect results
+        return self._collect_results(db, sd, sym, bt_handlers)
+
+    def _collect_results(
+        self,
+        db: BacktestDb,
+        sd: date,
+        sym: str,
+        bt_handlers: BacktestToolHandlers,
+    ) -> List[BacktestResult]:
+        """Convert BacktestDb trades to BacktestResult list."""
+        trades = db.get_all_trades()
+        if not trades:
+            return [self._skip(sd, sym, "no_trades_recorded")]
+
+        results = []
+        for trade in trades:
+            for side in ("put", "call"):
+                short_key = f"short_{side}_strike"
+                long_key = f"long_{side}_strike"
+                if short_key not in trade:
+                    continue
+
+                short_k = trade[short_key]
+                long_k = trade[long_key]
+                credit = trade.get(f"{side}_credit", 0)
+                width = abs(short_k - long_k)
+
+                short_sym = trade.get(f"short_{side}_symbol", "")
+                long_sym = trade.get(f"long_{side}_symbol", "")
+
+                # Compute debit from exit log
+                debit = self._compute_debit(bt_handlers, short_sym, long_sym, width)
+
+                # Determine exit info
+                status = trade.get("status", "open")
+                close_reason = trade.get("close_reason", "")
+
+                if status == "closed" and "eod" in close_reason:
+                    exit_reason = "eod_forced_close"
+                elif status == "closed":
+                    exit_reason = close_reason or "closed"
+                elif status in ("open", "expired"):
+                    # Never explicitly closed = expired worthless
+                    exit_reason = "expired_worthless"
+                    debit = 0.0
+                else:
+                    exit_reason = status
+                    debit = 0.0
+
+                pnl = round((credit - debit) * self._multiplier * self._qty, 2)
+
+                orb = bt_handlers._orb_levels or {}
+                results.append(BacktestResult(
+                    trade_id=f"{trade.get('trade_id', '')}-{side[0].upper()}",
+                    session_date=sd,
+                    symbol=sym,
+                    orb_high=orb.get("high", 0),
+                    orb_low=orb.get("low", 0),
+                    orb_midline=orb.get("midline", 0),
+                    orb_range_pts=orb.get("range_pts", 0),
+                    bias=bt_handlers._breakout_bias,
+                    entry_time=trade.get("entry_time"),
+                    underlying_at_entry=trade.get("entry_price"),
+                    spread_type=f"{side}_credit_spread",
+                    short_strike=short_k,
+                    long_strike=long_k,
+                    spread_width=width,
+                    credit_received=credit,
+                    exit_time=trade.get("exit_time"),
+                    debit_paid=debit,
+                    exit_reason=exit_reason,
+                    realized_pnl_usd=pnl,
+                    status="closed",
+                    qty=self._qty,
+                ))
+
+        return results if results else [self._skip(sd, sym, "no_results")]
+
+    def _compute_debit(
+        self,
+        bt_handlers: BacktestToolHandlers,
+        short_sym: str,
+        long_sym: str,
+        width: float,
+    ) -> float:
+        """Compute close debit from exit log entries."""
+        s_exit = bt_handlers._exit_log.get(short_sym)
+        l_exit = bt_handlers._exit_log.get(long_sym)
+
+        if s_exit and l_exit:
+            s_mid = (s_exit["bid"] + s_exit["ask"]) / 2
+            l_mid = (l_exit["bid"] + l_exit["ask"]) / 2
+            debit = max(s_mid - l_mid, 0)
+            return round(min(debit, width), 2)
+
+        # No exit log = expired worthless
+        return 0.0
+
+    def _skip(self, sd: date, sym: str, reason: str) -> BacktestResult:
+        return BacktestResult(
+            trade_id=f"V2-{sd}-SKIP",
+            session_date=sd,
+            symbol=sym,
+            orb_high=0,
+            orb_low=0,
+            orb_midline=0,
+            orb_range_pts=0,
+            status="skipped",
+            skip_reason=reason,
+        )
