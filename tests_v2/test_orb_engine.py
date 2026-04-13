@@ -1,14 +1,32 @@
 """Tests for OrbEngine three-phase entry."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import time
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 from src_v2.agent.orb_engine import OrbEngine
 from src_v2.agent.base_engine import EngineDeps
 from src_v2.agent.decision_engine import CycleResult
+from src_v2.backtest.sim_clock import WallClock
+
+ET = ZoneInfo("America/New_York")
 
 
-def _make_deps(config=None):
+class _MockClock:
+    """Test clock returning a fixed time."""
+    def __init__(self, hour=10, minute=0):
+        self._time = datetime(2025, 10, 1, hour, minute, tzinfo=ET)
+
+    def now(self, tz=None):
+        if tz:
+            return self._time.astimezone(tz)
+        return self._time
+
+    async def sleep(self, seconds):
+        pass  # instant
+
+
+def _make_deps(config=None, clock=None):
     cfg = config or {
         "bot": {"symbol": "ES"},
         "strategy": {
@@ -27,10 +45,12 @@ def _make_deps(config=None):
         db=MagicMock(),
         mode="manual",
         config=cfg,
+        clock=clock,
     )
     # Make tool_handler methods async
     deps.tool_handlers.get_orb_levels = AsyncMock()
     deps.tool_handlers.get_breakout_status = AsyncMock()
+    deps.tool_handlers.get_futures_price = AsyncMock()
     deps.tool_handlers.get_spx_price = AsyncMock()
     deps.tool_handlers.get_option_chain = AsyncMock(return_value=[])
     deps.tool_handlers.get_orb_spot = AsyncMock(return_value={"spot": 5850.0})
@@ -92,61 +112,49 @@ class TestSetupPhase:
 class TestEntryWatch:
     @pytest.mark.asyncio
     async def test_exits_at_eod(self):
-        deps = _make_deps()
+        clock = _MockClock(hour=16, minute=0)  # after EOD
+        deps = _make_deps(clock=clock)
         engine = OrbEngine(deps, _make_strategy())
         engine._orb_levels = {"high": 100, "low": 90, "midline": 95, "range_pts": 10}
-        # Mock time to be after EOD
-        with patch("src_v2.agent.orb_engine.datetime") as mock_dt:
-            mock_now = MagicMock()
-            mock_now.time.return_value = time(16, 0)
-            mock_dt.now.return_value = mock_now
-            result = await engine._entry_watch()
+        result = await engine._entry_watch()
         assert result.outcome == "waited"
         assert "eod" in result.reason
 
     @pytest.mark.asyncio
     async def test_detects_breakout_and_enters_on_midline(self):
         """Full flow: breakout → midline touch → entry."""
-        deps = _make_deps()
+        clock = _MockClock(hour=10, minute=0)
+        deps = _make_deps(clock=clock)
         strategy = _make_strategy()
         engine = OrbEngine(deps, strategy)
         engine._orb_levels = {"high": 100, "low": 90, "midline": 95, "range_pts": 10}
         engine._poll_interval = 0  # no wait
 
         # First poll: breakout detected
-        deps.tool_handlers.get_spx_price.return_value = {"price": 101}
+        deps.tool_handlers.get_futures_price.return_value = {"price": 101}
         deps.tool_handlers.get_breakout_status.return_value = {"status": "breakout", "bias": "long", "price": 101}
         # Midline touch on first poll after breakout
         deps.tool_handlers.check_midline_touch.return_value = True
 
-        with patch("src_v2.agent.orb_engine.datetime") as mock_dt:
-            mock_now = MagicMock()
-            mock_now.time.return_value = time(10, 0)
-            mock_dt.now.return_value = mock_now
-
-            result = await engine._entry_watch()
+        result = await engine._entry_watch()
 
         assert result.outcome == "executed"
         assert strategy._orb_bias == "long"
 
     @pytest.mark.asyncio
     async def test_sets_orb_bias_on_strategy(self):
-        deps = _make_deps()
+        clock = _MockClock(hour=10, minute=0)
+        deps = _make_deps(clock=clock)
         strategy = _make_strategy()
         engine = OrbEngine(deps, strategy)
         engine._orb_levels = {"high": 100, "low": 90, "midline": 95, "range_pts": 10}
         engine._poll_interval = 0
 
-        deps.tool_handlers.get_spx_price.return_value = {"price": 89}
+        deps.tool_handlers.get_futures_price.return_value = {"price": 89}
         deps.tool_handlers.get_breakout_status.return_value = {"status": "breakout", "bias": "short", "price": 89}
         deps.tool_handlers.check_midline_touch.return_value = True
 
-        with patch("src_v2.agent.orb_engine.datetime") as mock_dt:
-            mock_now = MagicMock()
-            mock_now.time.return_value = time(10, 0)
-            mock_dt.now.return_value = mock_now
-
-            await engine._entry_watch()
+        await engine._entry_watch()
 
         assert strategy._orb_bias == "short"
 
@@ -180,7 +188,8 @@ class TestPreflight:
     @pytest.mark.asyncio
     async def test_preflight_runs_once(self):
         """After first breakout, preflight should only run once."""
-        deps = _make_deps()
+        clock = _MockClock(hour=10, minute=0)
+        deps = _make_deps(clock=clock)
         strategy = _make_strategy()
         engine = OrbEngine(deps, strategy)
         engine._orb_levels = {"high": 100, "low": 90, "midline": 95, "range_pts": 10}
@@ -188,22 +197,17 @@ class TestPreflight:
 
         call_count = 0
 
-        async def counting_price():
+        async def counting_price(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             return {"price": 101}
 
-        deps.tool_handlers.get_spx_price = counting_price
+        deps.tool_handlers.get_futures_price = counting_price
         deps.tool_handlers.get_breakout_status.return_value = {"status": "breakout", "bias": "long", "price": 101}
         # First poll: midline not touched. Second poll: touched.
         deps.tool_handlers.check_midline_touch.side_effect = [False, True]
 
-        with patch("src_v2.agent.orb_engine.datetime") as mock_dt:
-            mock_now = MagicMock()
-            mock_now.time.return_value = time(10, 0)
-            mock_dt.now.return_value = mock_now
-
-            result = await engine._entry_watch()
+        result = await engine._entry_watch()
 
         assert result.outcome == "executed"
         assert engine._preflight_done is True

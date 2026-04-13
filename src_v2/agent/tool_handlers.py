@@ -35,6 +35,8 @@ class ToolHandlers:
         self.db = db
         self.dry_run = self.mode == "dry_run"
         self.manual = self.mode == "manual"
+        from src_v2.backtest.sim_clock import WallClock
+        self._clock = WallClock()
         # ORB state
         self._orb_levels: Optional[Dict] = None
         self._breakout_bias: Optional[str] = None
@@ -86,6 +88,21 @@ class ToolHandlers:
                 return cached
             data = await self.api_client.get_quote("SPX")
             await self.cache.cache_quote("SPX", data)
+            return data
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    async def get_futures_price(self, symbol: str = "ES") -> Dict[str, Any]:
+        """Return current ES futures price via DXLink quote."""
+        try:
+            if symbol == "ES":
+                from src_8am.utils.contract_utils import get_dxlink_symbol
+                symbol = get_dxlink_symbol()
+            cached = await self.cache.get_cached_quote(symbol, max_age_seconds=10)
+            if cached is not None:
+                return cached
+            data = await self.api_client.get_future_quote(symbol)
+            await self.cache.cache_quote(symbol, data)
             return data
         except Exception as exc:
             return {"error": str(exc)}
@@ -841,9 +858,19 @@ class ToolHandlers:
         if self._orb_levels is not None:
             return self._orb_levels
         try:
+            # Resolve bare "ES" to DXLink futures symbol (e.g. "/ESM26:XCME")
+            if symbol == "ES":
+                from src_8am.utils.contract_utils import get_dxlink_symbol
+                symbol = get_dxlink_symbol()
             candles = await self.cache.get_candles(symbol, interval="5m", start=start, end=end)
             if not candles:
                 return {"error": "no_orb_candles"}
+            for c in candles:
+                logger.debug(
+                    "ORB candle: %s  O=%.2f H=%.2f L=%.2f C=%.2f",
+                    c.get("timestamp"), c.get("open", 0), c.get("high", 0),
+                    c.get("low", 0), c.get("close", 0),
+                )
             high = max(c.get("high", 0) for c in candles)
             low = min(c.get("low", float("inf")) for c in candles)
             midline = round((high + low) / 2, 4)
@@ -867,12 +894,12 @@ class ToolHandlers:
         if current_price > high:
             self._breakout_bias = "long"
             self._breakout_price = current_price
-            self._breakout_time = datetime.now()
+            self._breakout_time = self._clock.now()
             return {"status": "breakout", "bias": "long", "price": current_price}
         if current_price < low:
             self._breakout_bias = "short"
             self._breakout_price = current_price
-            self._breakout_time = datetime.now()
+            self._breakout_time = self._clock.now()
             return {"status": "breakout", "bias": "short", "price": current_price}
         return {"status": "inside_range", "price": current_price}
 

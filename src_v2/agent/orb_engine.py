@@ -23,6 +23,8 @@ class OrbEngine(BaseEngine):
 
     def __init__(self, deps: EngineDeps, strategy):
         super().__init__(deps, strategy)
+        from src_v2.backtest.sim_clock import WallClock
+        self._clock = deps.clock or WallClock()
         strat_cfg = deps.config.get("strategy", {})
         self._orb_start = strat_cfg.get("orb_window_start", "08:00")
         self._orb_end = strat_cfg.get("orb_window_end", "08:15")
@@ -77,22 +79,22 @@ class OrbEngine(BaseEngine):
 
         while True:
             try:
-                now_et = datetime.now(ET)
+                now_et = self._clock.now(ET)
                 if now_et.time() >= self._eod:
                     logger.info("EOD reached — no entry today")
                     return CycleResult(outcome="waited", reason="eod_no_entry").finish()
 
-                # Get current price
-                spot_data = await self.deps.tool_handlers.get_spx_price()
+                # Get current ES futures price (ORB levels are ES-based)
+                spot_data = await self.deps.tool_handlers.get_futures_price(self._orb_symbol)
                 current_price = spot_data.get("price", 0)
                 if not current_price:
-                    await asyncio.sleep(self._poll_interval)
+                    await self._clock.sleep(self._poll_interval)
                     continue
 
                 # Check breakout
                 breakout = await self.deps.tool_handlers.get_breakout_status(current_price)
                 if breakout.get("status") != "breakout":
-                    await asyncio.sleep(self._poll_interval)
+                    await self._clock.sleep(self._poll_interval)
                     continue
 
                 bias = breakout["bias"]
@@ -120,7 +122,7 @@ class OrbEngine(BaseEngine):
                     return await self._execute_entry(current_price, bias)
 
                 consecutive_errors = 0
-                await asyncio.sleep(self._poll_interval)
+                await self._clock.sleep(self._poll_interval)
 
             except asyncio.CancelledError:
                 raise
@@ -130,7 +132,7 @@ class OrbEngine(BaseEngine):
                 if consecutive_errors >= 10:
                     logger.error("Too many consecutive errors — aborting")
                     return CycleResult(outcome="error", reason="too_many_errors").finish()
-                await asyncio.sleep(5)
+                await self._clock.sleep(5)
 
     async def _run_preflight(self, price: float) -> Optional[str]:
         """AI anomaly + regime check. Run once per breakout. Returns block reason or None."""

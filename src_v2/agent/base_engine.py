@@ -17,6 +17,7 @@ class EngineDeps:
     db: Any
     mode: str
     config: Dict[str, Any]
+    clock: Any = None  # SimClock for backtest, WallClock (default) for live
 
 
 class BaseEngine(ABC):
