@@ -23,17 +23,17 @@ from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 
-# Directional grid (strategy: orb_em_directional)
+# Directional grid (strategy: orb_em_directional) — with tolerance sweep
 PARAM_GRID = {
     "options.em_with_trend":          [0.5, 1.0],
-    "options.width_with_trend":       [15, 20, 25],
-    "options.tp_pct_of_credit":       [0.75, 0.85],
+    "options.width_with_trend":       [20, 25],
+    "options.tp_pct_of_credit":       [0.75],
     "options.hold_put_breach":        [True],
-    "options.min_em_pts":             [12, 15, 18, 20, 25],
-    "strategy.midline_tolerance_pts": [1.0],
+    "options.min_em_pts":             [15, 18, 20],
+    "strategy.midline_tolerance_pts": [1.0, 5.0, 10.0, 15.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 2*3*2*1*5 = 60
+# Combos = 2*2*3*4 = 48
 
 
 def _strategy_cls(config):
@@ -142,10 +142,12 @@ def main():
 
     # Print winner
     print(f"\n{sep}")
-    print(f"  WINNING PARAMS (most top-K appearances, tie-break by mean val Sharpe)")
+    print(f"  WINNING PARAMS (robust selection: appearances → folds-profitable → min-fold-PnL → mean Sharpe)")
     print(sep)
     print(f"    {_format_params(result.best_params)}")
-    print(f"    Appeared in top-{opt._top_k} on {result.best_appearances}/{len(result.fold_results)} folds")
+    print(f"    Top-{opt._top_k} appearances:  {result.best_appearances}/{len(result.fold_results)} folds")
+    print(f"    Profitable folds:    {result.best_n_profitable}/{len(result.fold_results)}")
+    print(f"    Worst fold PnL:      ${result.best_min_pnl:+.0f}")
     print(f"    Mean fold val Sharpe: {result.best_mean_val_sharpe:.2f}")
     print(f"    Mean fold val PnL: ${result.best_mean_val_pnl:+.0f}")
     print()

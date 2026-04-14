@@ -47,10 +47,12 @@ class FoldResult:
 class WFResult:
     best_params: Dict[str, Any]
     best_appearances: int                     # in how many folds it made top-K
-    best_mean_val_sharpe: float
-    best_mean_val_pnl: float
-    fold_results: List[FoldResult]
-    aggregate: Dict[str, Any]                 # concatenated OOS metrics
+    best_n_profitable: int = 0                # folds with positive PnL
+    best_min_pnl: float = 0.0                 # worst fold PnL
+    best_mean_val_sharpe: float = 0.0
+    best_mean_val_pnl: float = 0.0
+    fold_results: List[FoldResult] = field(default_factory=list)
+    aggregate: Dict[str, Any] = field(default_factory=dict)
 
 
 class WalkForwardOptimizer:
@@ -151,13 +153,19 @@ class WalkForwardOptimizer:
                 val_metrics=val_metrics_list,
             ))
 
-        # 4. Select winner: most appearances, tie-break by mean val Sharpe
+        # 4. Select winner with overfitting-resistant criteria:
+        #    Primary: number of folds appeared in (more = robust)
+        #    Secondary: number of folds with positive PnL (robustness)
+        #    Tertiary: min fold PnL (worst-case)
+        #    Quaternary: mean fold val Sharpe (tie-break)
         best_key = None
-        best_score = (-1, -float("inf"))  # (appearances, mean_val_sharpe)
+        best_score = (-1, -1, -float("inf"), -float("inf"))
         for key, appearance_list in appearances.items():
             n_app = len(appearance_list)
+            n_profitable = sum(1 for _, m in appearance_list if (m["total_pnl"] or 0) > 0)
+            min_pnl = min(m["total_pnl"] or 0 for _, m in appearance_list)
             mean_sharpe = sum(m["sharpe_annualised"] for _, m in appearance_list) / n_app
-            score = (n_app, mean_sharpe)
+            score = (n_app, n_profitable, min_pnl, mean_sharpe)
             if score > best_score:
                 best_score = score
                 best_key = key
@@ -167,7 +175,9 @@ class WalkForwardOptimizer:
 
         best_params = dict(best_key)
         best_appearances = best_score[0]
-        best_mean_val_sharpe = best_score[1]
+        best_n_profitable = best_score[1]
+        best_min_pnl = best_score[2]
+        best_mean_val_sharpe = best_score[3]
         best_appearance_list = appearances[best_key]
         best_mean_val_pnl = sum(m["total_pnl"] for _, m in best_appearance_list) / len(best_appearance_list)
 
@@ -177,6 +187,8 @@ class WalkForwardOptimizer:
         return WFResult(
             best_params=best_params,
             best_appearances=best_appearances,
+            best_n_profitable=best_n_profitable,
+            best_min_pnl=best_min_pnl,
             best_mean_val_sharpe=best_mean_val_sharpe,
             best_mean_val_pnl=best_mean_val_pnl,
             fold_results=fold_results,

@@ -34,6 +34,13 @@ class OrbEngine(BaseEngine):
         self._min_range = range_cfg.get("min_pts", 2.0)
         self._max_range = range_cfg.get("max_pts", 30.0)
         self._orb_symbol = deps.config.get("bot", {}).get("symbol", "ES")
+        # retest_mode: where to wait for entry trigger after breakout
+        #   "midline"        — wait for return to midline (default)
+        #   "breakout_level" — wait for retest of broken level (continuation):
+        #                      long bias retests ORB high, short bias retests ORB low
+        #   "opposite_level" — wait for touch of OPPOSITE level (failed breakout):
+        #                      long bias touches ORB low → reverses to short bias entry
+        self._retest_mode = strat_cfg.get("retest_mode", "midline")
         self._poll_interval = 1.0  # seconds between breakout/midline polls
 
         self._orb_levels: Optional[Dict] = None
@@ -110,16 +117,16 @@ class OrbEngine(BaseEngine):
                             reason=block_reason,
                         ).finish()
 
-                # Check midline touch
-                midline = self._orb_levels["midline"]
+                # Determine retest level based on mode
+                retest_level, entry_bias = self._resolve_retest_target(bias)
                 if self.deps.tool_handlers.check_midline_touch(
-                    current_price, midline, self._midline_tol
+                    current_price, retest_level, self._midline_tol
                 ):
                     logger.info(
-                        "Midline touch: price=%.2f mid=%.2f bias=%s → entering",
-                        current_price, midline, bias,
+                        "Retest touch (%s): price=%.2f level=%.2f orb_bias=%s entry_bias=%s → entering",
+                        self._retest_mode, current_price, retest_level, bias, entry_bias,
                     )
-                    return await self._execute_entry(current_price, bias)
+                    return await self._execute_entry(current_price, entry_bias)
 
                 consecutive_errors = 0
                 await self._clock.sleep(self._poll_interval)
@@ -133,6 +140,25 @@ class OrbEngine(BaseEngine):
                     logger.error("Too many consecutive errors — aborting")
                     return CycleResult(outcome="error", reason="too_many_errors").finish()
                 await self._clock.sleep(5)
+
+    def _resolve_retest_target(self, breakout_bias: str) -> tuple:
+        """Return (retest_level, entry_bias) based on configured retest_mode.
+
+        - midline: wait for midline retest, trade in breakout direction
+        - breakout_level: wait for retest of broken level (continuation)
+        - opposite_level: wait for touch of opposite level (failed breakout) —
+                          INVERTS entry bias (long breakout + low touch → short entry)
+        """
+        levels = self._orb_levels
+        if self._retest_mode == "breakout_level":
+            level = levels["high"] if breakout_bias == "long" else levels["low"]
+            return level, breakout_bias
+        if self._retest_mode == "opposite_level":
+            level = levels["low"] if breakout_bias == "long" else levels["high"]
+            inverted = "short" if breakout_bias == "long" else "long"
+            return level, inverted
+        # default: midline
+        return levels["midline"], breakout_bias
 
     async def _run_preflight(self, price: float) -> Optional[str]:
         """AI anomaly + regime check. Run once per breakout. Returns block reason or None."""
