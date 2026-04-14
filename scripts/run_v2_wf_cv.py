@@ -23,17 +23,17 @@ from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 
-# Expanded grid: include tighter em_with, wider midline tolerance, Sharpe floor via CLI
+# Directional grid (strategy: orb_em_directional)
 PARAM_GRID = {
     "options.em_with_trend":          [0.5, 0.75, 1.0],
-    "options.em_against_trend":       [1.5, 2.0],
-    "options.width_with_trend":       [10, 15],
-    "options.width_against_trend":    [10, 15],
+    "options.width_with_trend":       [15, 20],
     "options.tp_pct_of_credit":       [0.65, 0.75],
-    "strategy.midline_tolerance_pts": [1.0, 5.0],
+    "options.hold_put_breach":        [True],
+    "options.min_em_pts":             [15, 20, 25],
+    "strategy.midline_tolerance_pts": [1.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*2*2*2*2*2 = 96 (fast)
+# Combos = 3*2*2*1*3 = 36
 
 
 def _strategy_cls(config):
@@ -41,6 +41,9 @@ def _strategy_cls(config):
     if name == "orb_em_ic":
         from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
         return OrbEmIronCondorStrategy
+    if name == "orb_em_directional":
+        from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+        return OrbEmDirectionalStrategy
     raise ValueError(f"Unsupported strategy: {name}")
 
 

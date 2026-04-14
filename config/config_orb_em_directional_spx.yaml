@@ -1,0 +1,61 @@
+bot:
+  name: "spx-0dte-orb-em-directional"
+  timezone: "America/New_York"
+  mode: "manual"
+  symbol: "ES"                     # ES futures for ORB signal
+  strategy: "orb_em_directional"   # single credit spread (PCS or CCS)
+
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 1.0
+  orb_range_filter:
+    min_pts: 2.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+
+# Single with-trend credit spread (PCS on long breakout, CCS on short)
+# Based on IC WF-CV with-trend params.
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  min_credit_per_spread: 0.05
+  tp_pct_of_credit: 0.75
+  sl_mult_of_credit: 0
+  hold_put_breach: false           # exit on breach for directional
+  em_with_trend: 0.5               # short strike = spot ± 0.5 × ATM_straddle
+  width_with_trend: 15             # spread width (pts)
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  commission_per_contract_per_leg: 1.0
+  quantity: 1
+  assumed_iv: 0.15
+
+entry:
+  schedule: ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"]
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 5.0
+  max_buying_power_percent: 50.0
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+logging:
+  level: "INFO"
+
+backtest:
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2025-09-22"
+  end_date: "2026-03-20"

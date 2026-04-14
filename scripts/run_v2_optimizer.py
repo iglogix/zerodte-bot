@@ -31,15 +31,15 @@ from src_v2.backtest.optimizer import GridSearchOptimizer, OptResult
 # ---------------------------------------------------------------------------
 
 PARAM_GRID = {
-    "options.em_with_trend":          [0.5, 0.75, 1.0],
-    "options.em_against_trend":       [0.75, 1.0, 1.5, 2.0],
-    "options.width_with_trend":       [5, 10, 15],
-    "options.width_against_trend":    [10, 15],
-    "options.tp_pct_of_credit":       [0.50, 0.65, 0.75],
-    "strategy.midline_tolerance_pts": [1.0, 5.0, 10.0],
+    "options.em_with_trend":          [0.5, 0.75, 1.0, 1.25],
+    "options.width_with_trend":       [10, 15, 20],
+    "options.tp_pct_of_credit":       [0.65, 0.75, 0.85],
+    "options.hold_put_breach":        [False, True],
+    "options.min_em_pts":             [0, 10, 15, 20, 25, 30],  # new filter
+    "strategy.midline_tolerance_pts": [1.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*4*3*2*3*3 = 648
+# Combos = 4*3*3*2*6 = 432 (directional with min_em filter)
 
 
 def _strategy_cls(config):
@@ -47,6 +47,9 @@ def _strategy_cls(config):
     if name == "orb_em_ic":
         from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
         return OrbEmIronCondorStrategy
+    if name == "orb_em_directional":
+        from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+        return OrbEmDirectionalStrategy
     raise ValueError(f"Unsupported strategy: {name}")
 
 

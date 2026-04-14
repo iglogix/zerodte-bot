@@ -155,6 +155,53 @@ Zero breaches OOS for the Sharpe-optimized combo; the single loss was a put EOD 
 3. **Consider min-EM floor** — on calm days EM is small; strikes placed close even at 2× multiplier (may drive some fold 3 losses)
 4. **Monitor live deployment carefully** — one fold having 2 trades means market regimes matter. Be ready to pause if WR drops.
 
+## Directional variant experiment (2026-04-14 update)
+
+Motivated by finding that IC against-trend leg contributes only ~5% of OOS PnL at 95% WR
+(just $60 over 11 trades at em_against=2.0). Built `OrbEmDirectionalStrategy` that
+sells only the with-trend credit spread (PCS on long bias, CCS on short).
+
+### Key finding: against-trend leg acts as implicit filter
+
+Removing it causes strategy to enter on 9 extra days (37 vs 28 IC days), all
+unprofitable. The IC's "all 4 strikes must exist in chain" requirement was
+filtering out low-EM days where strikes were placed too close.
+
+Added explicit `min_em_pts` filter to directional strategy to replicate this.
+
+### Directional IS results (with min_em_pts=20)
+
+**Best:** em_with=0.5, width=20, tp=0.75, hold_put_breach=True, min_em_pts=20
+- 23 trades, 95.7% WR, **+$2,138 PnL**, Sharpe 13.58, PF 6.45, DD $392
+- Per-trade PnL: **$93** (vs IC's $25) — 3.7× higher
+
+### Directional OOS (WF-CV)
+
+| Fold | Trades | WR | PnL |
+|---|---:|---:|---:|
+| 1 | 2 | 100% | +$270 |
+| 2 | 2 | 100% | +$274 |
+| 3 | 0 | — | $0 (filter skipped all days) |
+| 4 | 4 | 50% | **−$1,313** |
+
+**Aggregate OOS: 8 trades, 75% WR, −$769** — catastrophic fold 4 dominates.
+
+The `tp=0.75` variant (same other params) had fold 4 as +$456 instead of −$1,313,
+producing aggregate +$957 OOS. But WF-CV voting picked tp=0.65 which was
+slightly better-ranked in folds 1-2.
+
+### Conclusion on directional
+
+- IS shows directional can outperform IC ($2,138 vs $1,405)
+- OOS is unstable due to small sample (8 vs 24 trades)
+- The filter (min_em_pts=20) is too restrictive — skipped all of fold 3
+- **Not recommended to switch** without more data
+
+**Viable alternatives to explore (need more data):**
+1. IC with wider em_against (3.0-5.0) — retain filter, minimal premium
+2. Directional with min_em_pts=10-15 (more permissive, more trades)
+3. Run both variants with smaller per-strategy allocation
+
 ## Commands to reproduce
 
 ```bash

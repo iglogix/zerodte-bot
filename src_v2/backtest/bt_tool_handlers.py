@@ -228,48 +228,56 @@ class BacktestToolHandlers:
     # ------------------------------------------------------------------
 
     async def place_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Record trade in mock DB with full leg symbols and per-side credits."""
+        """Record trade in mock DB with leg symbols and per-side credits.
+
+        Handles both IC (4 legs) and directional spreads (2 legs). Only
+        populates sides where strikes are present and > 0.
+        """
         trade_id = f"BT-{self._session_date.isoformat()}-{uuid.uuid4().hex[:6]}"
         bar = self.current_bar
         minute = bar["ts_et"].strftime("%H:%M") if bar else "00:00"
         entry_price = bar["close"] if bar else 0.0
 
-        # Build leg symbols from strikes
-        sp_k = payload.get("short_put_strike", 0)
-        lp_k = payload.get("long_put_strike", 0)
-        sc_k = payload.get("short_call_strike", 0)
-        lc_k = payload.get("long_call_strike", 0)
+        sp_k = payload.get("short_put_strike", 0) or 0
+        lp_k = payload.get("long_put_strike", 0) or 0
+        sc_k = payload.get("short_call_strike", 0) or 0
+        lc_k = payload.get("long_call_strike", 0) or 0
 
-        sp_sym = self._make_symbol(sp_k, False)
-        lp_sym = self._make_symbol(lp_k, False)
-        sc_sym = self._make_symbol(sc_k, True)
-        lc_sym = self._make_symbol(lc_k, True)
-
-        # Compute per-side credits from CBBO at entry time
-        def _mid(strike, is_call):
+        def _mid_at(strike, is_call):
             q = self._cbbo.lookup(minute, strike, is_call)
             return (q[0] + q[1]) / 2 if q else 0.0
 
-        put_credit = round(_mid(sp_k, False) - _mid(lp_k, False) - self._slippage, 2)
-        call_credit = round(_mid(sc_k, True) - _mid(lc_k, True) - self._slippage, 2)
-
-        trade = {
+        trade: Dict[str, Any] = {
             "trade_id": trade_id,
             "status": "open",
             "entry_time": self._clock.now(ET),
             "entry_price": entry_price,
-            "short_put_symbol": sp_sym,
-            "long_put_symbol": lp_sym,
-            "short_call_symbol": sc_sym,
-            "long_call_symbol": lc_sym,
-            "short_put_strike": sp_k,
-            "long_put_strike": lp_k,
-            "short_call_strike": sc_k,
-            "long_call_strike": lc_k,
-            "put_credit": max(put_credit, 0.0),
-            "call_credit": max(call_credit, 0.0),
-            **payload,
         }
+
+        if sp_k > 0 and lp_k > 0:
+            put_credit = round(_mid_at(sp_k, False) - _mid_at(lp_k, False) - self._slippage, 2)
+            trade.update({
+                "short_put_symbol": self._make_symbol(sp_k, False),
+                "long_put_symbol": self._make_symbol(lp_k, False),
+                "short_put_strike": sp_k,
+                "long_put_strike": lp_k,
+                "put_credit": max(put_credit, 0.0),
+            })
+
+        if sc_k > 0 and lc_k > 0:
+            call_credit = round(_mid_at(sc_k, True) - _mid_at(lc_k, True) - self._slippage, 2)
+            trade.update({
+                "short_call_symbol": self._make_symbol(sc_k, True),
+                "long_call_symbol": self._make_symbol(lc_k, True),
+                "short_call_strike": sc_k,
+                "long_call_strike": lc_k,
+                "call_credit": max(call_credit, 0.0),
+            })
+
+        # Merge payload fields without overwriting computed values
+        for k, v in payload.items():
+            trade.setdefault(k, v)
+
         await self._db.add_trade(trade)
         return {"order_id": trade_id, "status": "filled", "trade_id": trade_id}
 
