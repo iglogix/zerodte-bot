@@ -31,15 +31,15 @@ from src_v2.backtest.optimizer import GridSearchOptimizer, OptResult
 # ---------------------------------------------------------------------------
 
 PARAM_GRID = {
-    "options.em_with_trend":          [0.5, 0.75, 1.0, 1.25],
-    "options.width_with_trend":       [10, 15, 20],
-    "options.tp_pct_of_credit":       [0.65, 0.75, 0.85],
+    "options.em_with_trend":          [0.25, 0.5, 0.75, 1.0, 1.25, 1.5],
+    "options.width_with_trend":       [5, 10, 15, 20, 25],
+    "options.tp_pct_of_credit":       [0.50, 0.65, 0.75, 0.85],
     "options.hold_put_breach":        [False, True],
-    "options.min_em_pts":             [0, 10, 15, 20, 25, 30],  # new filter
+    "options.min_em_pts":             [0, 5, 10, 12, 15, 18, 20, 25, 30],
     "strategy.midline_tolerance_pts": [1.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 4*3*3*2*6 = 432 (directional with min_em filter)
+# Combos = 6*5*4*2*9 = 2160 (thorough directional sweep)
 
 
 def _strategy_cls(config):

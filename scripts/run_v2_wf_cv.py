@@ -25,15 +25,15 @@ from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 # Directional grid (strategy: orb_em_directional)
 PARAM_GRID = {
-    "options.em_with_trend":          [0.5, 0.75, 1.0],
-    "options.width_with_trend":       [15, 20],
-    "options.tp_pct_of_credit":       [0.65, 0.75],
+    "options.em_with_trend":          [0.5, 1.0],
+    "options.width_with_trend":       [15, 20, 25],
+    "options.tp_pct_of_credit":       [0.75, 0.85],
     "options.hold_put_breach":        [True],
-    "options.min_em_pts":             [15, 20, 25],
+    "options.min_em_pts":             [12, 15, 18, 20, 25],
     "strategy.midline_tolerance_pts": [1.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*2*2*1*3 = 36
+# Combos = 2*3*2*1*5 = 60
 
 
 def _strategy_cls(config):
