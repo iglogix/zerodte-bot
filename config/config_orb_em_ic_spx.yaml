@@ -34,6 +34,7 @@ options:
   width_against_trend: 10          # against-trend spread width
   slippage_per_spread: 0.10        # SPX has tighter spreads than ES options
   contract_multiplier: 100         # SPX options = $100 per point
+  commission_per_contract_per_leg: 1.0  # TT SPX: $1 open, $0 close
   quantity: 1
   assumed_iv: 0.15
 

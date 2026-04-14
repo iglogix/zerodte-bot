@@ -104,20 +104,27 @@ strategy:
 
 **Key insight:** Tighter with-trend strikes (0.5× straddle) generate ~50% more trades and ~2.6× more dollars, at the cost of slightly lower WR and higher drawdowns. The trend protects the with-trend side well enough that tighter is OK.
 
-## Quantity scaling
+## Quantity scaling (WITH commissions)
 
-At 1 contract, $598 over 52 OOS days = ~$2,898/year = **2.9% ARR**.
+TastyTrade SPX commission: $1/contract per leg at open, $0 at close. IC = 4 legs → $4/contract per trade. Modeled in backtest via `options.commission_per_contract_per_leg: 1.0`.
 
-Scaling to hit 70% ARR target:
+**Per-contract OOS economics:**
+- Gross PnL per OOS trade: ~$25
+- Commission per contract per trade: $4
+- **Net PnL per OOS trade per contract: ~$21 (16% commission drag)**
 
-| Contracts | BP/trade | Projected ARR | Max DD | BP util on $100K |
-|-----------|----------|---------------|--------|-------------------|
-| 1 | ~$500 | 2.9% | $338 | 0.5% |
-| 10 | ~$5,000 | 29% | $3,380 | 5% |
-| **25** | **~$12,500** | **72%** | **$8,450** | **12.5%** |
-| 50 | ~$25,000 | 144% | $16,900 | 25% |
+**Scaling table (with commissions):**
 
-**25 contracts reaches the 70% ARR target** while staying well under the 50% BP cap. Max DD of $8.4K = 8.4% of account, manageable.
+| Contracts | Gross PnL | Commission | Net PnL | ARR | Max DD |
+|----------:|----------:|-----------:|--------:|----:|-------:|
+| 1 | +$598 | $48 | +$550 | 2.7% | $340 |
+| 5 | +$2,990 | $240 | +$2,750 | 13.3% | $1,700 |
+| 10 | +$5,980 | $480 | +$5,500 | 26.6% | $3,400 |
+| **25** | **+$14,950** | **$1,200** | **+$13,750** | **66.6%** | **$8,500** |
+| 30 | +$17,940 | $1,440 | +$16,500 | 80.0% | $10,200 |
+| 50 | +$29,900 | $2,400 | +$27,500 | 133.2% | $17,000 |
+
+**25 contracts reaches 67% ARR** (just below 70% target). **30 contracts clears 70%** at $10.2K max DD (10% of $100K account). Buying power: 30 × ~$500 = $15K/trade = 15% utilization (well under 50% cap).
 
 ## Put/Call breakdown (combined OOS, 16-trade sample from Sharpe objective winner)
 

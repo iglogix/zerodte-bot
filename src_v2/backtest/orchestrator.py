@@ -46,6 +46,8 @@ class BacktestOrchestrator:
         self._multiplier = opt.get("contract_multiplier", 100)
         self._qty = opt.get("quantity", 1)
         self._slippage = opt.get("slippage_per_spread", 0.10)
+        # Commission per contract per leg (e.g. TT SPX: $1 open only, $0 close)
+        self._commission_per_leg = opt.get("commission_per_contract_per_leg", 1.0)
         self._eod_str = strat.get("eod_force_close", "15:50")
 
     def run(self, days) -> List[BacktestResult]:
@@ -215,7 +217,10 @@ class BacktestOrchestrator:
                     exit_reason = "expired_worthless"
                     exit_time = trade.get("exit_time")
 
-                pnl = round((credit - debit) * self._multiplier * self._qty, 2)
+                # Commission: 2 legs per side × qty × commission_per_leg
+                # (TT SPX: $1 open only, $0 close → models opening commission)
+                commission = 2 * self._qty * self._commission_per_leg
+                pnl = round((credit - debit) * self._multiplier * self._qty - commission, 2)
 
                 orb = bt_handlers._orb_levels or {}
                 results.append(BacktestResult(
