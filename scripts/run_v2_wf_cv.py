@@ -23,17 +23,17 @@ from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 
-# Directional grid (strategy: orb_em_directional) — with tolerance sweep
+# Directional grid — works for all retest modes (set in config)
 PARAM_GRID = {
-    "options.em_with_trend":          [0.5, 1.0],
-    "options.width_with_trend":       [20, 25],
-    "options.tp_pct_of_credit":       [0.75],
+    "options.em_with_trend":          [0.5, 0.75, 1.0],
+    "options.width_with_trend":       [10, 15, 20],
+    "options.tp_pct_of_credit":       [0.65, 0.75],
     "options.hold_put_breach":        [True],
-    "options.min_em_pts":             [15, 18, 20],
-    "strategy.midline_tolerance_pts": [1.0, 5.0, 10.0, 15.0],
+    "options.min_em_pts":             [0, 10, 15, 20],
+    "strategy.midline_tolerance_pts": [1.0, 3.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 2*2*3*4 = 48
+# Combos = 3*3*2*4*2 = 144
 
 
 def _strategy_cls(config):
@@ -75,6 +75,8 @@ def main():
                         help="Min Sharpe for train combos (filter before top-K)")
     parser.add_argument("--objective", default="sharpe_annualised",
                         choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
+    parser.add_argument("--require-all-folds-profitable", action="store_true",
+                        help="Only consider combos profitable in EVERY fold (anti-overfitting)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -116,6 +118,7 @@ def main():
         min_trades=args.min_trades,
         objective=args.objective,
         min_sharpe=args.min_sharpe,
+        require_all_folds_profitable=args.require_all_folds_profitable,
     )
 
     start_time = time.time()

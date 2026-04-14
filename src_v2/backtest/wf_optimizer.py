@@ -69,6 +69,7 @@ class WalkForwardOptimizer:
         min_trades: int = 5,
         objective: str = "sharpe_annualised",
         min_sharpe: Optional[float] = None,
+        require_all_folds_profitable: bool = False,
     ):
         self._base = base_config
         self._strategy_cls = strategy_cls
@@ -81,6 +82,7 @@ class WalkForwardOptimizer:
         self._min_trades = min_trades
         self._objective = objective
         self._min_sharpe = min_sharpe
+        self._require_all_folds_profitable = require_all_folds_profitable
 
     def run(self, progress_cb: Optional[Callable[[str], None]] = None) -> WFResult:
         combos = self._enumerate_combos()
@@ -158,11 +160,19 @@ class WalkForwardOptimizer:
         #    Secondary: number of folds with positive PnL (robustness)
         #    Tertiary: min fold PnL (worst-case)
         #    Quaternary: mean fold val Sharpe (tie-break)
+        # If require_all_folds_profitable: only consider combos with positive PnL in
+        # every fold they appeared in (and they must appear in all n_folds).
         best_key = None
         best_score = (-1, -1, -float("inf"), -float("inf"))
+        n_total_folds = len(windows)
         for key, appearance_list in appearances.items():
             n_app = len(appearance_list)
             n_profitable = sum(1 for _, m in appearance_list if (m["total_pnl"] or 0) > 0)
+            if self._require_all_folds_profitable:
+                if n_app < n_total_folds:
+                    continue
+                if n_profitable < n_total_folds:
+                    continue
             min_pnl = min(m["total_pnl"] or 0 for _, m in appearance_list)
             mean_sharpe = sum(m["sharpe_annualised"] for _, m in appearance_list) / n_app
             score = (n_app, n_profitable, min_pnl, mean_sharpe)

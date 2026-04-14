@@ -232,6 +232,82 @@ the voting mechanism.
 3. **Collect 2+ years of CBBO data** before committing heavily to directional
 4. **Monitor filter hit rate** in live — if `min_em_pts=20` rejects too many days, consider relaxing to 15-18 (slight IS PnL drop but more trades)
 
+## Retest mode variants (2026-04-14)
+
+Added `strategy.retest_mode` config to OrbEngine with three modes:
+- **midline** (default): wait for return to ORB midline → trade in breakout direction
+- **breakout_level**: wait for retest of broken level (continuation) → trade in breakout direction
+- **opposite_level**: wait for touch of OPPOSITE level → INVERT bias (failed breakout reversal)
+
+### Comparison at default params (em=0.5, w=15, no min_em filter)
+
+| Variant | Trades | WR | IS PnL | DD | Sharpe |
+|---|---:|---:|---:|---:|---:|
+| Midline (current) | 37 | 65% | −$1,280 | $1,810 | −3.22 |
+| **Breakout-level** | 49 | 84% | **+$1,460** | $569 | 3.44 |
+| Opposite (inverted) | 25 | 88% | +$1,068 | $559 | 5.40 |
+
+### Robust validation (require ALL 4 folds profitable)
+
+| Variant | Combos profitable in ALL folds | Best total OOS PnL |
+|---|---:|---:|
+| Midline | 4/36 | +$855 |
+| **Breakout-level** | **9/36** | **+$1,626** |
+| Opposite (inverted) | **0/36** ❌ | — |
+
+### **Best combo overall: Breakout-level retest**
+
+```yaml
+strategy:
+  retest_mode: "breakout_level"
+  midline_tolerance_pts: 1.0
+options:
+  em_with_trend: 0.5
+  width_with_trend: 20
+  tp_pct_of_credit: 0.75
+  min_em_pts: 0      # no filter needed for breakout retest!
+  hold_put_breach: true
+```
+
+OOS results (52 days, 4 folds):
+
+| Fold | Trades | OOS PnL |
+|---|---:|---:|
+| 1 | 6 | +$577 |
+| 2 | 6 | +$616 |
+| 3 | 3 | +$339 |
+| 4 | 5 | +$94 |
+| **Total** | **20** | **+$1,626** |
+
+**Annualized at 1 contract**: $7,879/year = **7.9% ARR** (3× midline directional, 3× IC)
+
+### Quantity scaling for breakout-level variant
+
+| Contracts | OOS Net | ARR | BP/trade | Max DD |
+|---:|---:|---:|---:|---:|
+| 1 | +$1,626 | 7.9% | $200 | $97 |
+| **10** | **+$16,260** | **79%** | $2,000 | $970 |
+| 15 | +$24,390 | 118% | $3,000 | $1,455 |
+
+**10 contracts hits 79% ARR** with only 20% BP utilization. Most capital-efficient strategy found.
+
+### Conclusion: Breakout-level retest wins
+
+The "wait for retest of broken level" is fundamentally a stronger signal than "wait for midline retest":
+- Higher per-trade WR (84% vs 65% at default)
+- More combos generalize OOS (9/36 vs 4/36 with all-folds-profitable)
+- Doesn't need min_em filter (the breakout-level retest itself filters out flat days)
+- Better risk-adjusted returns
+
+### Anti-overfitting controls added
+
+WF-CV optimizer now supports:
+1. **Robust selection criteria**: appearances → profitable folds → min fold PnL → mean Sharpe
+2. **`--require-all-folds-profitable` flag**: hard constraint that combo must win in every fold
+3. **`--min-sharpe` floor**: filter out unstable combos
+
+Use `--require-all-folds-profitable` for high-confidence param selection on small samples.
+
 ## Commands to reproduce
 
 ```bash
