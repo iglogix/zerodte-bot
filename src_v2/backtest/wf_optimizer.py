@@ -65,6 +65,8 @@ class WalkForwardOptimizer:
         n_folds: int = 4,
         top_k: int = 5,
         min_trades: int = 5,
+        objective: str = "sharpe_annualised",
+        min_sharpe: Optional[float] = None,
     ):
         self._base = base_config
         self._strategy_cls = strategy_cls
@@ -75,6 +77,8 @@ class WalkForwardOptimizer:
         self._n_folds = n_folds
         self._top_k = top_k
         self._min_trades = min_trades
+        self._objective = objective
+        self._min_sharpe = min_sharpe
 
     def run(self, progress_cb: Optional[Callable[[str], None]] = None) -> WFResult:
         combos = self._enumerate_combos()
@@ -103,15 +107,18 @@ class WalkForwardOptimizer:
                 bt_results = orchestrator.run(train_days)
                 report = generate_report(bt_results)
                 metrics = self._extract(report)
-                if metrics["trades"] >= self._min_trades:
-                    train_results.append((combo, metrics))
+                if metrics["trades"] < self._min_trades:
+                    continue
+                if self._min_sharpe is not None and (metrics["sharpe_annualised"] or 0) < self._min_sharpe:
+                    continue
+                train_results.append((combo, metrics))
 
             if not train_results:
                 if progress_cb:
                     progress_cb(f"  Fold {fold_idx}: no valid combos in train (min_trades={self._min_trades})")
                 continue
 
-            # 2. Rank by train Sharpe, take top-K
+            # 2. Rank by objective, take top-K
             train_results.sort(key=lambda r: self._sort_key(r[1]), reverse=True)
             top_k_combos = train_results[:self._top_k]
             if progress_cb:
@@ -238,9 +245,8 @@ class WalkForwardOptimizer:
             "avg_pnl_per_trade": report.get("avg_pnl_per_trade_usd", 0),
         }
 
-    @staticmethod
-    def _sort_key(m: Dict[str, Any]) -> float:
-        v = m.get("sharpe_annualised", 0)
+    def _sort_key(self, m: Dict[str, Any]) -> float:
+        v = m.get(self._objective, 0)
         if isinstance(v, str):
             return float("inf") if v == "inf" else 0.0
         return v or 0.0

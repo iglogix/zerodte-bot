@@ -31,15 +31,15 @@ from src_v2.backtest.optimizer import GridSearchOptimizer, OptResult
 # ---------------------------------------------------------------------------
 
 PARAM_GRID = {
-    "options.em_with_trend":          [0.75, 1.0, 1.25, 1.5],
-    "options.em_against_trend":       [1.5, 1.75, 2.0, 2.25],
-    "options.width_with_trend":       [10, 15, 20],
-    "options.width_against_trend":    [10, 15, 20],
-    "options.tp_pct_of_credit":       [0.50, 0.65, 0.75, 0.85],
-    "strategy.midline_tolerance_pts": [1.0],
+    "options.em_with_trend":          [0.5, 0.75, 1.0],
+    "options.em_against_trend":       [0.75, 1.0, 1.5, 2.0],
+    "options.width_with_trend":       [5, 10, 15],
+    "options.width_against_trend":    [10, 15],
+    "options.tp_pct_of_credit":       [0.50, 0.65, 0.75],
+    "strategy.midline_tolerance_pts": [1.0, 5.0, 10.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 4*4*3*3*4 = 576
+# Combos = 3*4*3*2*3*3 = 648
 
 
 def _strategy_cls(config):
@@ -83,6 +83,10 @@ def main():
                         choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
     parser.add_argument("--min-trades", type=int, default=30,
                         help="Filter out combos with fewer than N trades (avoids overfit)")
+    parser.add_argument("--min-sharpe", type=float, default=None,
+                        help="Filter out combos with Sharpe below this floor")
+    parser.add_argument("--min-win-rate", type=float, default=None,
+                        help="Filter out combos with win rate below this floor (0-1)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -136,9 +140,18 @@ def main():
     total_time = time.time() - start_time
     print(f"\nGrid search done in {total_time:.0f}s")
 
-    # Filter by min trades to avoid overfit combos
+    # Apply filters
     filtered = [r for r in results if r.metrics["trades"] >= args.min_trades]
-    print(f"  {len(filtered)}/{len(results)} combos with >={args.min_trades} trades")
+    if args.min_sharpe is not None:
+        filtered = [r for r in filtered if (r.metrics["sharpe_annualised"] or 0) >= args.min_sharpe]
+    if args.min_win_rate is not None:
+        filtered = [r for r in filtered if (r.metrics["win_rate"] or 0) >= args.min_win_rate]
+    filter_desc = f"trades>={args.min_trades}"
+    if args.min_sharpe is not None:
+        filter_desc += f", sharpe>={args.min_sharpe}"
+    if args.min_win_rate is not None:
+        filter_desc += f", WR>={args.min_win_rate}"
+    print(f"  {len(filtered)}/{len(results)} combos with {filter_desc}")
 
     # Print top-N
     print(f"\n{'─' * 150}")

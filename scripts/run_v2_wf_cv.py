@@ -23,17 +23,17 @@ from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 
-# Focused grid around IS best (wider EM zone). Smaller than IS grid for WF speed.
+# Expanded grid: include tighter em_with, wider midline tolerance, Sharpe floor via CLI
 PARAM_GRID = {
-    "options.em_with_trend":          [0.75, 1.0, 1.25],
-    "options.em_against_trend":       [1.5, 1.75, 2.0, 2.25],
-    "options.width_with_trend":       [10, 15, 20],
+    "options.em_with_trend":          [0.5, 0.75, 1.0],
+    "options.em_against_trend":       [1.5, 2.0],
+    "options.width_with_trend":       [10, 15],
     "options.width_against_trend":    [10, 15],
-    "options.tp_pct_of_credit":       [0.50, 0.65, 0.75, 0.85],
-    "strategy.midline_tolerance_pts": [1.0],
+    "options.tp_pct_of_credit":       [0.65, 0.75],
+    "strategy.midline_tolerance_pts": [1.0, 5.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*4*3*2*4 = 288
+# Combos = 3*2*2*2*2*2 = 96 (fast)
 
 
 def _strategy_cls(config):
@@ -68,6 +68,10 @@ def main():
     parser.add_argument("--top-k", type=int, default=5, help="Top-K candidates per fold to validate")
     parser.add_argument("--min-trades", type=int, default=5,
                         help="Min trades for a combo to be considered (train)")
+    parser.add_argument("--min-sharpe", type=float, default=None,
+                        help="Min Sharpe for train combos (filter before top-K)")
+    parser.add_argument("--objective", default="sharpe_annualised",
+                        choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -107,6 +111,8 @@ def main():
         n_folds=args.folds,
         top_k=args.top_k,
         min_trades=args.min_trades,
+        objective=args.objective,
+        min_sharpe=args.min_sharpe,
     )
 
     start_time = time.time()
