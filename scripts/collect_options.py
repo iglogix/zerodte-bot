@@ -141,7 +141,7 @@ async def discover_active_contract(product: str, session) -> tuple[str, str] | N
     from tastytrade.instruments import NestedFutureOptionChain
 
     try:
-        chain = await NestedFutureOptionChain.a_get_chain(session, product)
+        chain = await NestedFutureOptionChain.get(session, product)
     except Exception as exc:
         logger.error("%s: failed to fetch option chain: %s", product, exc)
         return None
@@ -249,7 +249,7 @@ class MultiSymbolCollector:
 
             # Fetch option chain and extract 0DTE strikes
             try:
-                chain = await NestedFutureOptionChain.a_get_chain(session, product)
+                chain = await NestedFutureOptionChain.get(session, product)
             except Exception as exc:
                 logger.error("%s: failed to fetch option chain: %s", product, exc)
                 continue

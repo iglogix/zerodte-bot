@@ -88,8 +88,7 @@ async def fetch_chain():
 
     # Get chain structure
     session = tt._market_sdk_session or tt._sdk_session
-    chains = await NestedFutureOptionChain.a_get_chain(session, "ES")
-    chain = chains[0] if isinstance(chains, list) else chains
+    chain = await NestedFutureOptionChain.get(session, "ES")
 
     today_str = date.today().strftime("%Y-%m-%d")
     options = []
