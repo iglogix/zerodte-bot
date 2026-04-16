@@ -37,7 +37,7 @@ BacktestEngine.run(days) → for each day:
     1. Load CBBO quotes for day
     2. Build ORB candle (08:00–08:15 bars)
     3. Filter: range (min/max pts), NFP/FOMC/CPI
-    4. Detect breakout: first post-open bar closing above ORB high (long) or below ORB low (short)
+    4. Detect breakout: first post-open bar closing above ORB high (bullish) or below ORB low (bearish)
     5. Detect midline retest: bar touching midline ± tolerance
     6. Fill bar: next bar after retest
     7. Build option chain from CBBO at fill minute → List[Dict] with real OCC symbols
