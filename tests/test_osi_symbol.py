@@ -1,5 +1,5 @@
 from datetime import date
-import pytest
+
 from src_v2.backtest.osi_symbol import format_osi, build_strike_window
 
 
