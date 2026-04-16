@@ -66,3 +66,6 @@ condition.json
 
 # Superpowers brainstorming sessions
 .superpowers/
+
+# Playwright MCP browser session state (large, ephemeral)
+.playwright-mcp/
