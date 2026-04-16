@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from src_v2.backtest.osi_symbol import build_strike_window
 
 ET = ZoneInfo("America/New_York")
@@ -96,8 +98,13 @@ def fetch_day_quotes(
         _expiry, is_call, strike = parsed
         ts_et = ts_utc.tz_convert(ET)
         minute_str = f"{ts_et.hour:02d}:{ts_et.minute:02d}"
-        bid = float(row.get("bid_px_00", 0.0) or 0.0)
-        ask = float(row.get("ask_px_00", 0.0) or 0.0)
+        # Drop row if either bid or ask is NaN/None (avoid poisoning downstream mid-price calculations)
+        bid_raw = row.get("bid_px_00")
+        ask_raw = row.get("ask_px_00")
+        if bid_raw is None or ask_raw is None or pd.isna(bid_raw) or pd.isna(ask_raw):
+            continue
+        bid = float(bid_raw)
+        ask = float(ask_raw)
         if bid <= 0 and ask <= 0:
             continue
         quotes[(minute_str, strike, is_call)] = (bid, ask)

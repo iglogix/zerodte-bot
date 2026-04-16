@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -92,3 +93,22 @@ def test_fetch_day_quotes_passes_correct_request_params():
     assert len(call_kwargs["symbols"]) == 10
     assert "SPXW  250922P06445000" in call_kwargs["symbols"]
     assert "SPXW  250922C06445000" in call_kwargs["symbols"]
+
+
+def test_fetch_day_quotes_filters_nan_bid_ask():
+    """NaN bid/ask must NOT be cached (downstream lookups would return NaN silently)."""
+    fake_client = MagicMock()
+    fake_client.timeseries.get_range.return_value.to_df.return_value = _fake_dbn_dataframe([
+        {"ts_recv": "2025-09-22T13:30:00Z", "symbol": "SPXW  250922P06445000", "bid_px_00": np.nan, "ask_px_00": np.nan},
+        {"ts_recv": "2025-09-22T13:30:00Z", "symbol": "SPXW  250922C06445000", "bid_px_00": 12.30, "ask_px_00": 12.50},
+        {"ts_recv": "2025-09-22T13:31:00Z", "symbol": "SPXW  250922P06440000", "bid_px_00": 0.05, "ask_px_00": np.nan},
+    ])
+
+    quotes = fetch_day_quotes(
+        client=fake_client, session_date=date(2025, 9, 22),
+        anchor_minute_et="09:32", atm_strike=6445.0,
+    )
+    # NaN-only quote dropped, valid quote kept, partial-NaN dropped (treated as invalid after sanitization)
+    assert ("09:30", 6445.0, False) not in quotes  # NaN/NaN filtered
+    assert quotes[("09:30", 6445.0, True)] == (12.30, 12.50)  # valid kept
+    assert ("09:31", 6440.0, False) not in quotes  # partial NaN filtered
