@@ -22,6 +22,7 @@ strategy:
 # CBBO-optimized params (2026-04-01, 125 days SPX CBBO backtest)
 options:
   option_root: "SPXW"              # SPX weekly 0DTE options
+  index_quote_symbol: "SPX"        # for API fallback when put-call parity fails
   spread_width_pts: 5              # default width (overridden by with/against trend)
   strike_step_pts: 5               # SPX strikes at 5-pt intervals
   target_short_delta: 0.16         # fallback delta (used when use_straddle_em=false)
@@ -43,6 +44,11 @@ options:
   contract_multiplier: 100         # SPX options = $100 per point
   monitor_poll_seconds: 30
   assumed_iv: 0.15
+  strategy_type: "cbbo_em"          # EM strike selection + CBBO real quotes
+  cbbo_dir: "data/cbbo_cache"       # OPRA dir (also serves as cache dir)
+  cbbo_cache_dir: "data/cbbo_cache" # pre-extracted pickle cache
+  iv_source: "vix"                  # use VIX9D/VIX for session IV
+  underlying_source: "bars"         # SPY×10 bars (CBBO parity overrides at entry)
 
 risk:
   max_loss_per_trade_usd: 50000    # wider due to $100 multiplier
@@ -69,3 +75,11 @@ market:
   trading_days_per_year: 252
   trading_hours_per_day: 6.5
   market_close: "16:00"            # SPX options expire at 4:00 PM ET (PM-settled)
+
+backtest:
+  data_dir: "data"
+  data_file: "data/spy_1m.csv"     # SPY 1-min bars from MarketData.app
+  data_source: "spy"               # "databento" or "spy" — selects loader
+  price_scale: 10.0                # multiply bar prices by this (SPY * 10 ≈ SPX)
+  start_date: "2025-09-22"        # CBBO data available from here
+  end_date: "2026-03-20"          # CBBO data ends here

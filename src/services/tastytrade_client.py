@@ -18,19 +18,24 @@ import json
 import logging
 import os
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+import httpx
 
 logger = logging.getLogger(__name__)
 
 _SANDBOX_URL = "https://api.cert.tastyworks.com"
 _PRODUCTION_URL = "https://api.tastyworks.com"
 _USER_AGENT = "0dte-iron-condor-bot/1.0"
+_TT_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=20.0, read=20.0, write=20.0, pool=20.0)
 
 
 VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    return isinstance(exc, (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException))
 
 
 class TastyTradeClient:
@@ -140,77 +145,25 @@ class TastyTradeClient:
             await self._authenticate_via_http()
 
     async def _authenticate_via_sdk(self):
-        """Use Session from the tastytrade SDK.
-
-        Uses username + remember_token (no 2FA) with dxfeed_tos_compliant=False
-        to get 'live' level DXLink streamer tokens that actually work for
-        futures/options streaming.
-
-        Falls back to OAuth2 (provider_secret + refresh_token) if credentials
-        are not available — but OAuth2 only gets 'api' level tokens (limited).
-        """
+        """Use the tastytrade SDK's OAuth2 session flow."""
         from tastytrade import Session as TTSession  # type: ignore
 
         is_test = self.mode == "sandbox"
-        pfx = "TASTYTRADE_SANDBOX_" if is_test else "TASTYTRADE_"
-        username = os.environ.get(f"{pfx}USERNAME", "")
-        password = os.environ.get(f"{pfx}PASSWORD", "")
-
-        # Try remember_token login (no 2FA, gets live DXLink tokens)
-        remember_token_path = Path("data/remember_token.txt")
-        remember_token = None
-        if remember_token_path.exists():
-            remember_token = remember_token_path.read_text().strip()
-
-        loop = asyncio.get_event_loop()
-
-        if username and (remember_token or password):
-            try:
-                kwargs = {"login": username, "is_test": is_test,
-                          "remember_me": True, "dxfeed_tos_compliant": False}
-                if remember_token:
-                    kwargs["remember_token"] = remember_token
-                else:
-                    kwargs["password"] = password
-
-                self._sdk_session = await loop.run_in_executor(
-                    None, lambda: TTSession(**kwargs),
-                )
-                # Save new remember token for next login
-                if self._sdk_session.remember_token:
-                    remember_token_path.parent.mkdir(parents=True, exist_ok=True)
-                    remember_token_path.write_text(self._sdk_session.remember_token)
-
-                self._access_token = self._sdk_session.session_token
-                logger.info(
-                    "TastyTrade authenticated via Session (mode=%s, dxlink=live)",
-                    self.mode,
-                )
-                return
-            except Exception as exc:
-                logger.warning("Session login failed (%s), trying OAuth2 fallback", exc)
-
-        # Fallback: username + password (no remember_token)
-        if username and password:
-            self._sdk_session = await loop.run_in_executor(
-                None,
-                lambda: TTSession(username, password=password, is_test=is_test,
-                                  remember_me=True, dxfeed_tos_compliant=False),
+        if not self.provider_secret or not self.refresh_token:
+            raise RuntimeError(
+                "TastyTrade authentication failed — set "
+                "TASTYTRADE_CLIENT_SECRET + TASTYTRADE_REFRESH_TOKEN in .env"
             )
-            if self._sdk_session.remember_token:
-                remember_token_path.parent.mkdir(parents=True, exist_ok=True)
-                remember_token_path.write_text(self._sdk_session.remember_token)
-            self._access_token = self._sdk_session.session_token
-            logger.info(
-                "TastyTrade authenticated via password (mode=%s, dxlink=live)",
-                self.mode,
-            )
-            return
 
-        raise RuntimeError(
-            "TastyTrade authentication failed — set TASTYTRADE_USERNAME + "
-            "TASTYTRADE_PASSWORD in .env and run device challenge once"
+        self._sdk_session = TTSession(
+            self.provider_secret,
+            self.refresh_token,
+            is_test=is_test,
+            timeout=_TT_HTTP_TIMEOUT,
         )
+        await self._sdk_session.refresh(force=True)
+        self._access_token = self._sdk_session.session_token
+        logger.info("TastyTrade authenticated via SDK OAuth2 (mode=%s)", self.mode)
 
     async def _connect_market_data_session(self):
         """
@@ -219,49 +172,26 @@ class TastyTradeClient:
         """
         from tastytrade import Session as TTSession  # type: ignore
 
-        username = os.environ.get("TASTYTRADE_USERNAME", "")
-        remember_token_path = Path("data/remember_token.txt")
-        remember_token = None
-        if remember_token_path.exists():
-            remember_token = remember_token_path.read_text().strip()
-
-        loop = asyncio.get_event_loop()
-
-        # Try remember_token login for live DXLink tokens
-        if username and remember_token:
-            try:
-                prod_session = await loop.run_in_executor(
-                    None,
-                    lambda: TTSession(username, remember_token=remember_token,
-                                      is_test=False, remember_me=True,
-                                      dxfeed_tos_compliant=False),
-                )
-                self._market_sdk_session = prod_session
-                self._market_token = prod_session.session_token
-                self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
-                logger.info("Sandbox market data session opened (dxlink=live)")
-                return
-            except Exception as exc:
-                logger.warning("Sandbox market data login failed: %s", exc)
-
-        # Fallback: OAuth2
         prod_secret = os.environ.get("TASTYTRADE_CLIENT_SECRET", "")
         prod_token = os.environ.get("TASTYTRADE_REFRESH_TOKEN", "")
         if not prod_secret or not prod_token:
             logger.warning(
                 "Sandbox market data: no credentials found — "
-                "set TASTYTRADE_USERNAME + remember_token or CLIENT_SECRET + REFRESH_TOKEN"
+                "set TASTYTRADE_CLIENT_SECRET + TASTYTRADE_REFRESH_TOKEN"
             )
             return
         try:
-            prod_session = await loop.run_in_executor(
-                None,
-                lambda: TTSession(prod_secret, prod_token, is_test=False),
+            prod_session = TTSession(
+                prod_secret,
+                prod_token,
+                is_test=False,
+                timeout=_TT_HTTP_TIMEOUT,
             )
+            await prod_session.refresh(force=True)
             self._market_sdk_session = prod_session
             self._market_token = prod_session.session_token
             self._market_http = aiohttp.ClientSession(headers={"User-Agent": _USER_AGENT})
-            logger.info("Sandbox market data session opened (dxlink=api, OAuth2 fallback)")
+            logger.info("Sandbox market data session opened via SDK OAuth2")
         except Exception as exc:
             logger.error("Could not open sandbox market data session: %s", exc)
 
@@ -275,7 +205,7 @@ class TastyTradeClient:
             token = self._sdk_session.session_token or ""
         else:
             token = self._market_token or self._access_token or ""
-        auth = token or ""
+        auth = f"Bearer {token}" if token else ""
         return {
             "Authorization": auth,
             "Content-Type": "application/json",
@@ -298,6 +228,21 @@ class TastyTradeClient:
             )
         return self._http, self.base_url
 
+    async def _fetch_nested_future_option_chain_data(self, product_code: str) -> Dict[str, Any]:
+        """Fetch TT futures option chain as raw JSON, bypassing SDK model parsing."""
+        endpoint = f"/futures-option-chains/{product_code.lstrip('/')}/nested"
+        session = self._market_sdk_session or self._sdk_session
+
+        if session is not None:
+            data = await session._get(endpoint)
+            return data.get("data", data) if isinstance(data, dict) else data
+
+        http, base = self._market_http_and_url()
+        async with http.get(f"{base}{endpoint}", headers=self._market_headers()) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            return data.get("data", data) if isinstance(data, dict) else data
+
     async def _authenticate_via_http(self):
         """
         Raw OAuth2 refresh-token exchange when SDK is not installed.
@@ -306,7 +251,7 @@ class TastyTradeClient:
         payload = {
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token,
-            "client_id": self.provider_secret,
+            "client_secret": self.provider_secret,
         }
         async with self._http.post(
             f"{self.base_url}/oauth/token",
@@ -335,7 +280,7 @@ class TastyTradeClient:
             token = self._sdk_session.session_token or ""
         else:
             token = self._access_token or ""
-        auth = token or ""
+        auth = f"Bearer {token}" if token else ""
         return {
             "Authorization": auth,
             "Content-Type": "application/json",
@@ -512,9 +457,6 @@ class TastyTradeClient:
             from tastytrade import DXLinkStreamer  # type: ignore
             from tastytrade.dxfeed import Candle   # type: ignore
 
-            session = self._market_sdk_session or self._sdk_session
-            candles: List[Dict[str, Any]] = []
-
             # Calculate from_time if not provided
             if from_time is None:
                 # Parse interval to minutes
@@ -537,29 +479,45 @@ class TastyTradeClient:
             from_ts = from_time.timestamp() if from_time else 0
             all_candles: List[Dict[str, Any]] = []
 
-            async with DXLinkStreamer(session) as streamer:
-                await streamer.subscribe_candle([symbol], interval, from_time)
+            for attempt in range(2):
+                session = self._market_sdk_session or self._sdk_session
+                if session is None:
+                    return []
                 try:
-                    # Collect candles for up to 8 seconds
-                    end_time = asyncio.get_event_loop().time() + 8
-                    while asyncio.get_event_loop().time() < end_time:
-                        c = await asyncio.wait_for(streamer.get_event(Candle), timeout=2)
-                        if not c.open or not c.time:
-                            continue
-                        candle_ts = c.time / 1000
-                        # Only include candles at or after from_time
-                        if candle_ts >= from_ts:
-                            all_candles.append({
-                                "open": float(c.open),
-                                "high": float(c.high),
-                                "low": float(c.low),
-                                "close": float(c.close),
-                                "volume": int(c.volume or 0),
-                                "timestamp": datetime.fromtimestamp(candle_ts).isoformat(),
-                                "_ts": candle_ts,
-                            })
-                except asyncio.TimeoutError:
-                    pass
+                    async with DXLinkStreamer(session) as streamer:
+                        await streamer.subscribe_candle([symbol], interval, from_time)
+                        try:
+                            # Collect candles for up to 8 seconds
+                            end_time = asyncio.get_event_loop().time() + 8
+                            while asyncio.get_event_loop().time() < end_time:
+                                c = await asyncio.wait_for(streamer.get_event(Candle), timeout=2)
+                                if not c.open or not c.time:
+                                    continue
+                                candle_ts = c.time / 1000
+                                # Only include candles at or after from_time
+                                if candle_ts >= from_ts:
+                                    all_candles.append({
+                                        "open": float(c.open),
+                                        "high": float(c.high),
+                                        "low": float(c.low),
+                                        "close": float(c.close),
+                                        "volume": int(c.volume or 0),
+                                        "timestamp": datetime.fromtimestamp(candle_ts).isoformat(),
+                                        "_ts": candle_ts,
+                                    })
+                        except asyncio.TimeoutError:
+                            pass
+                    break
+                except Exception as exc:
+                    if attempt == 0 and _is_timeout_error(exc):
+                        logger.warning(
+                            "get_candles streamer setup timed out for %s interval=%s; refreshing session and retrying",
+                            symbol,
+                            interval,
+                        )
+                        await self.refresh_session()
+                        continue
+                    raise
 
             # Sort by timestamp, deduplicate by timestamp, return requested count
             all_candles.sort(key=lambda x: x["_ts"])
@@ -572,8 +530,27 @@ class TastyTradeClient:
                     candles.append(c)
             return candles[:count]
 
+        except asyncio.TimeoutError as exc:
+            logger.warning(
+                "get_candles timed out for %s interval=%s count=%s from_time=%s (%s: %r)",
+                symbol,
+                interval,
+                count,
+                from_time,
+                type(exc).__name__,
+                exc,
+            )
+            return []
         except Exception as exc:
-            logger.error("get_candles failed for %s: %s", symbol, exc)
+            logger.exception(
+                "get_candles failed for %s interval=%s count=%s from_time=%s (%s: %r)",
+                symbol,
+                interval,
+                count,
+                from_time,
+                type(exc).__name__,
+                exc,
+            )
             return []
 
     async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
@@ -822,22 +799,20 @@ class TastyTradeClient:
         This is the authoritative source — immune to calendar logic bugs
         that can cause contract month mismatch on expiration day.
         """
-        from tastytrade.instruments import NestedFutureOptionChain  # type: ignore
-
         try:
-            session = self._market_sdk_session or self._sdk_session
-            chain = await NestedFutureOptionChain.a_get_chain(session, product_code)
+            chain = await self._fetch_nested_future_option_chain_data(product_code)
             today_str = date.today().strftime("%Y-%m-%d")
 
-            for subchain in chain.option_chains:
-                for expiration in subchain.expirations:
-                    if str(expiration.expiration_date) == today_str:
-                        short_sym = expiration.underlying_symbol  # e.g. "/ESH6"
+            for subchain in chain.get("option-chains", []):
+                for expiration in subchain.get("expirations", []):
+                    if str(expiration.get("expiration-date", "")) == today_str:
+                        short_sym = expiration.get("underlying-symbol", "")  # e.g. "/ESH6"
                         # Expand short symbol to full DXLink format
                         # /ESH6 → /ESH26:XCME (insert century digit, add exchange)
                         exchange = "XCME"
-                        if expiration.strikes:
-                            ss = getattr(expiration.strikes[0], "call_streamer_symbol", "")
+                        strikes = expiration.get("strikes", [])
+                        if strikes:
+                            ss = strikes[0].get("call-streamer-symbol", "")
                             if ":" in ss:
                                 exchange = ss.split(":")[-1]
                         # Expand 1-digit year to 2-digit: /ESH6 → /ESH26
@@ -860,23 +835,29 @@ class TastyTradeClient:
         Uses the tastytrade SDK's NestedFutureOptionChain for proper auth.
         In sandbox mode, uses the production session (cert has no live feed).
         """
-        from tastytrade.instruments import NestedFutureOptionChain  # type: ignore
-
         today = date.today().strftime("%Y-%m-%d")
-        session = self._market_sdk_session or self._sdk_session
-        chain = await NestedFutureOptionChain.a_get_chain(session, product_code)
+        try:
+            chain = await self._fetch_nested_future_option_chain_data(product_code)
+        except Exception as exc:
+            logger.warning(
+                "get_future_option_chain fetch failed for %s (%s: %r)",
+                product_code,
+                type(exc).__name__,
+                exc,
+            )
+            return []
 
         options = []
-        for subchain in chain.option_chains:
-            for expiration in subchain.expirations:
-                exp_date = str(expiration.expiration_date)
+        for subchain in chain.get("option-chains", []):
+            for expiration in subchain.get("expirations", []):
+                exp_date = str(expiration.get("expiration-date", ""))
                 if exp_date != today:
                     continue
-                for strike in expiration.strikes:
-                    strike_price = float(strike.strike_price)
+                for strike in expiration.get("strikes", []):
+                    strike_price = float(strike.get("strike-price", 0) or 0)
                     for side in ["call", "put"]:
-                        sym = getattr(strike, side, None)
-                        streamer_sym = getattr(strike, f"{side}_streamer_symbol", "")
+                        sym = strike.get(side, "")
+                        streamer_sym = strike.get(f"{side}-streamer-symbol", "")
                         if not sym:
                             continue
                         options.append({
@@ -905,7 +886,12 @@ class TastyTradeClient:
                 options, spx_price=underlying_price
             )
         except Exception as exc:
-            logger.error("Future option chain Greeks enrichment failed: %s", exc)
+            logger.warning(
+                "Future option chain Greeks enrichment failed for %s (%s: %r)",
+                product_code,
+                type(exc).__name__,
+                exc,
+            )
 
         # If DXLink enrichment left most deltas at 0, fall back to BS greeks
         n_with_delta = sum(1 for o in options if o.get("delta", 0) != 0)

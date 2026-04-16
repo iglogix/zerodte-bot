@@ -2,7 +2,7 @@
   "pythonVersion": "3.10",
   "pythonPlatform": "Linux",
   "venvPath": ".",
-  "extraPaths": ["src", "src_8am"],
-  "include": ["src", "src_8am", "tests", "tests_locked"],
+  "extraPaths": ["src", "src_8am", "."],
+  "include": ["src", "src_8am", "src_v2", "tests", "tests_locked", "tests_v2"],
   "exclude": ["**/__pycache__"]
 }

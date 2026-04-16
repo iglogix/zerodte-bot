@@ -12,6 +12,7 @@ aiosqlite>=0.19.0
 # API Clients
 aiohttp>=3.9.0
 websockets>=12.0
+tastytrade>=10.0.0
 
 # LLM Integration
 litellm>=1.30.0
@@ -27,3 +28,4 @@ pytest-mock>=3.12.0
 # Utilities
 pyyaml>=6.0.0
 zstandard>=0.22.0
+torch==2.11.0
