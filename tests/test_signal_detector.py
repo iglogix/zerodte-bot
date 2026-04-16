@@ -91,3 +91,37 @@ def test_detect_signals_breakout_level_short():
     assert len(sigs) == 1
     assert sigs[0].bias == "short"
     assert sigs[0].signal_minute_et == "09:32"
+
+
+def test_detect_signals_no_signal_when_bar_high_equals_orb_high():
+    """Strict inequality: bar high == orb_high is NOT a breakout."""
+    bars = (
+        [_bar(f"08:{m:02d}", 5000, 5012 if m == 7 else 5005, 4998 if m == 3 else 5000, 5005) for m in range(15)]
+        + [_bar("09:30", 5005, 5008, 5004, 5007),
+           _bar("09:31", 5007, 5012, 5006, 5010),  # high EXACTLY equals orb_high → no breakout
+           _bar("09:32", 5010, 5011, 5009, 5010),
+           _bar("09:33", 5010, 5012, 5008, 5011)]
+    )
+    sigs = detect_signals_for_day(
+        bars, date(2024, 3, 20), "08:00", "08:15", "09:30", "15:50",
+        retest_mode="breakout_level", midline_tol_pts=1.0,
+        min_range_pts=2.0, max_range_pts=30.0,
+    )
+    assert sigs == []
+
+
+def test_detect_signals_no_signal_when_bar_low_equals_orb_low():
+    """Strict inequality: bar low == orb_low is NOT a breakout."""
+    bars = (
+        [_bar(f"08:{m:02d}", 5005, 5012 if m == 7 else 5008, 4998 if m == 3 else 5005, 5005) for m in range(15)]
+        + [_bar("09:30", 5005, 5008, 5004, 5006),
+           _bar("09:31", 5006, 5007, 4998, 5005),  # low EXACTLY equals orb_low → no breakout
+           _bar("09:32", 5000, 4999, 4998, 4999),
+           _bar("09:33", 4998, 4998, 4985, 4990)]
+    )
+    sigs = detect_signals_for_day(
+        bars, date(2024, 3, 20), "08:00", "08:15", "09:30", "15:50",
+        retest_mode="breakout_level", midline_tol_pts=1.0,
+        min_range_pts=2.0, max_range_pts=30.0,
+    )
+    assert sigs == []

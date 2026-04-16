@@ -75,11 +75,11 @@ def detect_signals_for_day(
     bias: Optional[Bias] = None
     breakout_idx: Optional[int] = None
     for i, b in enumerate(post_open):
-        if b["high"] >= hi:
+        if b["high"] > hi:
             bias = "long"
             breakout_idx = i
             break
-        if b["low"] <= lo:
+        if b["low"] < lo:
             bias = "short"
             breakout_idx = i
             break
