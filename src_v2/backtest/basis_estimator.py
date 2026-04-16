@@ -25,7 +25,7 @@ def compute_daily_basis(
     cache_dir: Path,
     day: date,
     es_open: float,
-    anchor_minute: str = "09:30",
+    anchor_minute: str = "09:31",
 ) -> Optional[float]:
     """basis = es_open − spx_spot, where spx_spot is derived from put-call parity.
 
@@ -59,7 +59,7 @@ def compute_daily_basis(
 def build_monthly_basis_table(
     cache_dir: Path,
     es_opens: Dict[date, float],
-    anchor_minute: str = "09:30",
+    anchor_minute: str = "09:31",
 ) -> Dict[Tuple[int, int], float]:
     """For each (year, month) present in cache_dir, compute median basis across days."""
     by_month: Dict[Tuple[int, int], list] = {}

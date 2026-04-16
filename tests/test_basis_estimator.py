@@ -35,7 +35,7 @@ def test_build_monthly_basis_table_takes_median(tmp_path):
     _fake_cbbo_pickle(tmp_path, date(2025, 9, 22), 5000.0, 10.0, 4.0)  # spot=5006, basis 4 vs ES 5010
     _fake_cbbo_pickle(tmp_path, date(2025, 9, 23), 5000.0, 10.0, 6.0)  # spot=5004, basis 6 vs ES 5010
     es_opens = {date(2025, 9, 22): 5010.0, date(2025, 9, 23): 5010.0}
-    table = build_monthly_basis_table(tmp_path, es_opens)
+    table = build_monthly_basis_table(tmp_path, es_opens, anchor_minute="09:30")
     assert table[(2025, 9)] == pytest.approx(5.0, abs=0.01)
 
 
