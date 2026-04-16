@@ -10,8 +10,11 @@ from typing import Callable, List, Optional
 # Meaningful INFO patterns — cycle outcomes, trades, positions, lifecycle events
 _MEANINGFUL_RE = re.compile(
     r"(cycle complete|outcome=|trade filled|order.*(filled|placed|cancel)"
-    r"|position.*(open|close|expir)|bot init|mode:|strategy:|shutdown"
-    r"|session skip|entry watch|breakout|stop.*(trigger|hit|loss))",
+    r"|position.*(open|close|expir|start)|bot init|initialized|shutdown"
+    r"|session skip|entry watch|breakout|stop.*(trigger|hit|loss)"
+    r"|strategy.*(created|loaded)|authenticated|monitor.*start|listener"
+    r"|mode[=:]|schedule|market.*(open|close|hour)|no.*(market|session)"
+    r"|connect|disconnect|error|fail|retry|timeout)",
     re.IGNORECASE,
 )
 
@@ -73,10 +76,9 @@ class LogTailer:
         pos = 0
         inode: Optional[int] = None
 
-        # Start at end of existing content
+        # Start from beginning so we catch output from fast-exiting bots
         try:
             stat = os.stat(self.file_path)
-            pos = stat.st_size
             inode = stat.st_ino
         except OSError:
             pass

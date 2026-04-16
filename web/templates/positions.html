@@ -26,30 +26,31 @@
     </table>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
-if (typeof wsOn === "function") {
-    wsOn("positions", function(data) {
-        var tbody = document.getElementById("positions-body");
-        if (!tbody || !data.positions) return;
-        if (data.positions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-6 text-center text-gray-500">No open positions.</td></tr>';
-            return;
-        }
-        var html = "";
-        data.positions.forEach(function(p) {
-            var pnlClass = (p.pnl >= 0) ? "text-green-400" : "text-red-400";
-            html += '<tr class="border-b border-gray-700/50">'
-                + '<td class="px-4 py-3 font-mono">' + (p.trade_id || '--') + '</td>'
-                + '<td class="px-4 py-3">' + (p.strategy || '--') + '</td>'
-                + '<td class="px-4 py-3">' + (p.underlying || '--') + '</td>'
-                + '<td class="px-4 py-3">$' + (p.credit || 0).toFixed(2) + '</td>'
-                + '<td class="px-4 py-3 ' + pnlClass + '">$' + (p.pnl || 0).toFixed(2) + '</td>'
-                + '<td class="px-4 py-3 text-gray-400">' + (p.entry_time || '--') + '</td>'
-                + '<td class="px-4 py-3">' + (p.status || '--') + '</td>'
-                + '</tr>';
-        });
-        tbody.innerHTML = html;
+wsOn("positions", function(data) {
+    var tbody = document.getElementById("positions-body");
+    if (!tbody || !data.positions) return;
+    if (data.positions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-6 text-center text-gray-500">No open positions.</td></tr>';
+        return;
+    }
+    var html = "";
+    data.positions.forEach(function(p) {
+        var pnlClass = (p.pnl >= 0) ? "text-green-400" : "text-red-400";
+        html += '<tr class="border-b border-gray-700/50">'
+            + '<td class="px-4 py-3 font-mono">' + (p.trade_id || '--') + '</td>'
+            + '<td class="px-4 py-3">' + (p.strategy || '--') + '</td>'
+            + '<td class="px-4 py-3">' + (p.underlying || '--') + '</td>'
+            + '<td class="px-4 py-3">$' + (p.credit || 0).toFixed(2) + '</td>'
+            + '<td class="px-4 py-3 ' + pnlClass + '">$' + (p.pnl || 0).toFixed(2) + '</td>'
+            + '<td class="px-4 py-3 text-gray-400">' + (p.entry_time || '--') + '</td>'
+            + '<td class="px-4 py-3">' + (p.status || '--') + '</td>'
+            + '</tr>';
     });
-}
+    tbody.innerHTML = html;
+});
 </script>
 {% endblock %}

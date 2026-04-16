@@ -3,10 +3,11 @@
 import hashlib
 import hmac
 import os
+from http.cookies import SimpleCookie
+from typing import Tuple
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 from starlette.responses import RedirectResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 def _get_token() -> str:
@@ -28,24 +29,50 @@ def _get_session_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()[:32]
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Redirect unauthenticated requests to /login.
+def _get_cookie(scope: Scope, name: str) -> str:
+    """Extract a cookie value from ASGI scope headers."""
+    for header_name, header_value in scope.get("headers", []):
+        if header_name == b"cookie":
+            cookies = SimpleCookie(header_value.decode("latin-1"))
+            if name in cookies:
+                return cookies[name].value
+    return ""
 
-    Allows /login and /static paths without authentication.
+
+class AuthMiddleware:
+    """Pure ASGI middleware — redirects unauthenticated HTTP requests to /login.
+
+    Passes WebSocket connections through unconditionally (WS does its own auth).
+    BaseHTTPMiddleware breaks WebSocket in Starlette 1.0, so we use raw ASGI.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-        # Allow login page and static assets without auth
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # Only intercept HTTP requests — let WebSocket and lifespan through
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope.get("path", "")
+
+        # Allow public paths
         if path == "/login" or path.startswith("/static"):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         # Check session cookie
-        session_cookie = request.cookies.get("session", "")
-        expected = _get_session_token(_get_token())
+        session_cookie = _get_cookie(scope, "session")
+        try:
+            expected = _get_session_token(_get_token())
+        except RuntimeError:
+            expected = ""
 
-        if not hmac.compare_digest(session_cookie, expected):
-            return RedirectResponse(url="/login", status_code=303)
+        if hmac.compare_digest(session_cookie, expected):
+            await self.app(scope, receive, send)
+            return
 
-        return await call_next(request)
+        # Redirect to login
+        response = RedirectResponse(url="/login", status_code=303)
+        await response(scope, receive, send)

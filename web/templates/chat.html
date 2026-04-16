@@ -27,6 +27,9 @@
 </div>
 
 <script src="/static/chat.js"></script>
+{% endblock %}
+
+{% block scripts %}
 <script>
 function sendChatMessage(e) {
     e.preventDefault();
@@ -45,24 +48,20 @@ function sendChatMessage(e) {
     container.appendChild(userDiv);
 
     // Send via WebSocket
-    if (typeof wsSend === "function") {
-        wsSend({type: "chat", content: msg});
-    }
+    wsSend({type: "chat", content: msg});
 
     input.value = "";
     container.scrollTop = container.scrollHeight;
 }
 
-if (typeof wsOn === "function") {
-    wsOn("chat", function(data) {
-        var container = document.getElementById("chat-messages");
-        if (!container) return;
-        var div = document.createElement("div");
-        div.className = "bg-blue-900/30 border border-blue-800 rounded px-3 py-2 text-gray-200";
-        div.textContent = data.content || "";
-        container.appendChild(div);
-        container.scrollTop = container.scrollHeight;
-    });
-}
+wsOn("chat", function(data) {
+    var container = document.getElementById("chat-messages");
+    if (!container) return;
+    var div = document.createElement("div");
+    div.className = "bg-blue-900/30 border border-blue-800 rounded px-3 py-2 text-gray-200";
+    div.textContent = data.content || "";
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+});
 </script>
 {% endblock %}

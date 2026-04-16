@@ -53,31 +53,32 @@
     <div class="text-gray-500">No recent errors.</div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
-if (typeof wsOn === "function") {
-    wsOn("positions", function(data) {
-        var el = document.getElementById("stat-open-positions");
-        if (el && data.count !== undefined) el.textContent = data.count;
-    });
-    wsOn("account", function(data) {
-        var pnl = document.getElementById("stat-daily-pnl");
-        var bp = document.getElementById("stat-buying-power");
-        if (pnl && data.daily_pnl !== undefined) pnl.textContent = "$" + data.daily_pnl.toFixed(2);
-        if (bp && data.buying_power !== undefined) bp.textContent = "$" + data.buying_power.toFixed(0);
-    });
-    wsOn("log", function(data) {
-        if (data.level === "error") {
-            var container = document.getElementById("recent-errors");
-            if (container) {
-                if (container.querySelector(".text-gray-500")) container.innerHTML = "";
-                var div = document.createElement("div");
-                div.textContent = data.line;
-                div.className = "mb-1";
-                container.appendChild(div);
-                if (container.children.length > 50) container.removeChild(container.firstChild);
-            }
+wsOn("positions", function(data) {
+    var el = document.getElementById("stat-open-positions");
+    if (el && data.count !== undefined) el.textContent = data.count;
+});
+wsOn("account", function(data) {
+    var pnl = document.getElementById("stat-daily-pnl");
+    var bp = document.getElementById("stat-buying-power");
+    if (pnl && data.daily_pnl !== undefined) pnl.textContent = "$" + data.daily_pnl.toFixed(2);
+    if (bp && data.buying_power !== undefined) bp.textContent = "$" + data.buying_power.toFixed(0);
+});
+wsOn("log", function(data) {
+    if (data.level === "error") {
+        var container = document.getElementById("recent-errors");
+        if (container) {
+            if (container.querySelector(".text-gray-500")) container.innerHTML = "";
+            var div = document.createElement("div");
+            div.textContent = data.line;
+            div.className = "mb-1";
+            container.appendChild(div);
+            if (container.children.length > 50) container.removeChild(container.firstChild);
         }
-    });
-}
+    }
+});
 </script>
 {% endblock %}

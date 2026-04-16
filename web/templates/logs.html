@@ -28,7 +28,9 @@
 <div id="log-container" class="bg-gray-800 rounded-lg border border-gray-700 p-4 font-mono text-sm h-[60vh] overflow-y-auto whitespace-pre-wrap">
     <span class="text-gray-500">Waiting for log data...</span>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 var activeLogTab = "all";
 
@@ -41,36 +43,50 @@ function selectLogTab(botId) {
             btn.className = "log-tab px-3 py-1.5 rounded-t text-sm text-gray-400 hover:text-white";
         }
     });
-}
 
-if (typeof wsOn === "function") {
-    wsOn("log", function(data) {
-        if (activeLogTab !== "all" && data.bot_id && data.bot_id !== activeLogTab) return;
-
-        var container = document.getElementById("log-container");
-        if (!container) return;
-
-        // Clear placeholder
-        var placeholder = container.querySelector(".text-gray-500");
-        if (placeholder) container.innerHTML = "";
-
-        var div = document.createElement("div");
-        div.textContent = data.line || "";
-        if (data.level === "error") div.className = "text-red-400";
-        else if (data.level === "warning") div.className = "text-yellow-400";
-        else div.className = "text-gray-300";
-
-        container.appendChild(div);
-
-        // Limit to 500 lines
-        while (container.children.length > 500) container.removeChild(container.firstChild);
-
-        // Auto-scroll
-        var autoScroll = document.getElementById("log-autoscroll");
-        if (autoScroll && autoScroll.checked) {
-            container.scrollTop = container.scrollHeight;
+    // Show/hide existing log lines based on selected bot
+    var container = document.getElementById("log-container");
+    if (!container) return;
+    var lines = container.querySelectorAll("[data-bot-id]");
+    for (var i = 0; i < lines.length; i++) {
+        if (botId === "all" || lines[i].dataset.botId === botId) {
+            lines[i].style.display = "";
+        } else {
+            lines[i].style.display = "none";
         }
-    });
+    }
 }
+
+wsOn("log", function(data) {
+    var container = document.getElementById("log-container");
+    if (!container) return;
+
+    // Clear placeholder
+    var placeholder = container.querySelector(".text-gray-500");
+    if (placeholder) container.innerHTML = "";
+
+    var div = document.createElement("div");
+    div.textContent = "[" + (data.bot_name || "?") + "] " + (data.line || "");
+    div.dataset.botId = data.bot_id || "";
+    if (data.level === "error") div.className = "text-red-400";
+    else if (data.level === "warning") div.className = "text-yellow-400";
+    else div.className = "text-gray-300";
+
+    // Hide if not matching active tab
+    if (activeLogTab !== "all" && data.bot_id && data.bot_id !== activeLogTab) {
+        div.style.display = "none";
+    }
+
+    container.appendChild(div);
+
+    // Limit to 500 lines
+    while (container.children.length > 500) container.removeChild(container.firstChild);
+
+    // Auto-scroll
+    var autoScroll = document.getElementById("log-autoscroll");
+    if (autoScroll && autoScroll.checked) {
+        container.scrollTop = container.scrollHeight;
+    }
+});
 </script>
 {% endblock %}

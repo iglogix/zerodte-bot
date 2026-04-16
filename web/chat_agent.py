@@ -30,10 +30,12 @@ class ChatAgent:
         bot_manager: Any,
         db: Any = None,
         api_client: Any = None,
+        model: str = "openai/gpt-4.1-mini",
     ) -> None:
         self.bot_manager = bot_manager
         self.db = db
         self.api_client = api_client
+        self._model = model
         self._conversations: Dict[str, List[Dict[str, Any]]] = {}
 
     def get_tool_definitions(self) -> List[Dict]:
@@ -314,7 +316,7 @@ class ChatAgent:
         """Full tool-loop chat: call LLM with tools, execute calls, return text."""
         from src_v2.services.llm_client import LLMClient
 
-        llm = LLMClient(model="anthropic/claude-haiku-4-5", temperature=0.3, max_tokens=2048)
+        llm = LLMClient(model=self._model, temperature=0.3, max_tokens=2048)
 
         # Get or create conversation history
         if session_id not in self._conversations:

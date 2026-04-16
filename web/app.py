@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,8 @@ from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+log = logging.getLogger(__name__)
 
 from web.auth import AuthMiddleware, _check_token, _get_session_token, _get_token
 from web.bot_manager import BotManager
@@ -230,6 +233,24 @@ def create_app() -> FastAPI:
         await ws.accept()
         await _ws_hub.connect(ws)
 
+        # Backfill: send recent log lines from all running bots
+        # so the client doesn't miss logs from fast-exiting bots
+        _bot_manager.check_health()
+        _lf = LogFilter()
+        for bot in _bot_manager.list_bots():
+            if bot.log_file:
+                for line in tail_lines(bot.log_file, n=100):
+                    if _lf.accept(line):
+                        try:
+                            await ws.send_json({"type": "log", "data": {
+                                "bot_id": bot.bot_id,
+                                "bot_name": bot.name,
+                                "line": line,
+                                "level": _lf.classify(line),
+                            }})
+                        except Exception:
+                            break
+
         try:
             while True:
                 data = await ws.receive_json()
@@ -270,10 +291,19 @@ def create_app() -> FastAPI:
         except Exception:
             _ws_hub.disconnect(ws)
 
+    @app.on_event("startup")
+    async def on_startup():
+        await _bot_manager.recover()
+        # Start log tailers for recovered bots
+        for bot in _bot_manager.list_bots():
+            if bot.status == "running" and bot.log_file:
+                await _start_log_tailer(bot.bot_id, bot.log_file, bot.name)
+
     @app.on_event("shutdown")
     async def on_shutdown():
         for bot_id in list(_log_tailers):
             _stop_log_tailer(bot_id)
-        await _bot_manager.stop_all()
+        # Don't stop_all — bots should keep running across web server restarts
+        # User can explicitly stop them from the UI
 
     return app

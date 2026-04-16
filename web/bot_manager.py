@@ -1,11 +1,17 @@
-"""Bot subprocess lifecycle manager."""
+"""Bot subprocess lifecycle manager.
+
+Persists bot metadata to a JSON state file so that running bots can be
+re-adopted after a web server restart.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import glob
+import json
 import logging
 import os
+import signal
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -14,6 +20,17 @@ from pathlib import Path
 from typing import IO, Optional
 
 log = logging.getLogger(__name__)
+
+_STATE_FILE = Path("logs/web_bots/.bot_state.json")
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
 
 
 @dataclass(frozen=True)
@@ -65,10 +82,72 @@ class _BotEntry:
 
 
 class BotManager:
-    """Manages bot subprocesses."""
+    """Manages bot subprocesses.
+
+    Persists bot metadata to a JSON file so running bots survive web server
+    restarts.  On init, ``recover()`` checks for still-alive PIDs and
+    re-adopts them.
+    """
 
     def __init__(self) -> None:
         self._bots: dict[str, _BotEntry] = {}
+
+    async def recover(self) -> None:
+        """Re-adopt bots from a previous server session.
+
+        Reads the state file, checks which PIDs are still alive, and
+        re-creates entries for them (without a Process handle — we can
+        only signal them, not wait on them via asyncio).
+        """
+        if not _STATE_FILE.exists():
+            return
+        try:
+            data = json.loads(_STATE_FILE.read_text())
+        except Exception:
+            log.warning("Could not read bot state file, starting fresh")
+            return
+
+        recovered = 0
+        for entry_data in data:
+            pid = entry_data.get("pid")
+            if pid and _pid_alive(pid):
+                entry = _BotEntry(
+                    bot_id=entry_data["bot_id"],
+                    name=entry_data["name"],
+                    config_path=entry_data["config_path"],
+                    mode=entry_data["mode"],
+                    process=None,  # can't re-attach to subprocess
+                    status="running",
+                    pid=pid,
+                    started_at=datetime.fromisoformat(entry_data["started_at"]) if entry_data.get("started_at") else None,
+                    log_file=entry_data.get("log_file"),
+                )
+                self._bots[entry.bot_id] = entry
+                recovered += 1
+                log.info("Recovered bot %s (pid=%s, name=%s)", entry.bot_id, pid, entry.name)
+            else:
+                log.info("Stale bot %s (pid=%s) — process no longer running", entry_data.get("bot_id"), pid)
+
+        if recovered:
+            log.info("Recovered %d bot(s) from previous session", recovered)
+
+    def _save_state(self) -> None:
+        """Persist current bot metadata to disk."""
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        entries = []
+        for e in self._bots.values():
+            if e.status != "running":
+                continue
+            entries.append({
+                "bot_id": e.bot_id,
+                "name": e.name,
+                "config_path": e.config_path,
+                "mode": e.mode,
+                "pid": e.pid,
+                "started_at": e.started_at.isoformat() if e.started_at else None,
+                "log_file": e.log_file,
+            })
+        _STATE_FILE.write_text(json.dumps(entries, indent=2))
 
     # -- queries --
 
@@ -114,10 +193,15 @@ class BotManager:
 
         log_fh = open(log_path, "w")
 
+        # PYTHONUNBUFFERED ensures subprocess output is flushed immediately
+        # so the log tailer can read lines in real time.
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=log_fh,
             stderr=asyncio.subprocess.STDOUT,
+            env=env,
         )
 
         entry = _BotEntry(
@@ -133,6 +217,7 @@ class BotManager:
             _log_fh=log_fh,
         )
         self._bots[bot_id] = entry
+        self._save_state()
         log.info("Started bot %s (pid=%s, config=%s)", bot_id, proc.pid, config_path)
         return bot_id
 
@@ -145,12 +230,26 @@ class BotManager:
 
         proc = entry.process
         if proc is not None and proc.returncode is None:
+            # Normal subprocess — we have a handle
             proc.terminate()
             try:
                 await asyncio.wait_for(proc.wait(), timeout=10)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
+        elif proc is None and entry.pid and _pid_alive(entry.pid):
+            # Recovered bot — no subprocess handle, use os.kill
+            try:
+                os.kill(entry.pid, signal.SIGTERM)
+                # Wait briefly for process to exit
+                for _ in range(20):
+                    await asyncio.sleep(0.5)
+                    if not _pid_alive(entry.pid):
+                        break
+                else:
+                    os.kill(entry.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
         entry.status = "stopped"
         entry.stopped_at = datetime.now(timezone.utc)
@@ -158,6 +257,7 @@ class BotManager:
             entry._log_fh.close()
             entry._log_fh = None
 
+        self._save_state()
         log.info("Stopped bot %s", bot_id)
         return True
 
@@ -173,17 +273,30 @@ class BotManager:
         return await self.start_bot(config_path, mode=mode, name=name)
 
     def check_health(self) -> None:
+        changed = False
         for entry in self._bots.values():
             if entry.status != "running":
                 continue
             proc = entry.process
             if proc is not None and proc.returncode is not None:
-                entry.status = "error"
-                entry.error = f"Process exited with code {proc.returncode}"
+                # Normal subprocess exited
+                if proc.returncode == 0:
+                    entry.status = "stopped"
+                else:
+                    entry.status = "error"
+                    entry.error = f"Process exited with code {proc.returncode}"
                 entry.stopped_at = datetime.now(timezone.utc)
                 if entry._log_fh:
                     entry._log_fh.close()
                     entry._log_fh = None
+                changed = True
+            elif proc is None and entry.pid and not _pid_alive(entry.pid):
+                # Recovered bot whose process has since died
+                entry.status = "stopped"
+                entry.stopped_at = datetime.now(timezone.utc)
+                changed = True
+        if changed:
+            self._save_state()
 
     async def stop_all(self) -> None:
         running = [bid for bid, e in self._bots.items() if e.status == "running"]
