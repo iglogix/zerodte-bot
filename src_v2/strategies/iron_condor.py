@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src_v2.strategies.base import (
     LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
 )
+from src_v2.agent.base_engine import BaseEngine, EngineDeps
 from src_v2.strategies.utils import mid_price as _mid
 
 
@@ -355,7 +356,7 @@ class IronCondorStrategy(LiveStrategy):
         new_stop = original_stop - total_decay
         return max(new_stop, 0.01)
 
-    def create_engine(self, deps):
+    def create_engine(self, deps: "EngineDeps") -> "BaseEngine":
         from src_v2.agent.scheduled_engine import ScheduledEngine
         return ScheduledEngine(deps, self)
 

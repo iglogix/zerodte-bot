@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src_v2.strategies.base import (
     LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
 )
+from src_v2.agent.base_engine import BaseEngine, EngineDeps
 from src_v2.strategies.utils import mid_price as _mid
 
 
@@ -41,7 +42,7 @@ class OrbEmIronCondorStrategy(LiveStrategy):
         self._multiplier = opt.get("contract_multiplier", 100)
         self._quantity = opt.get("quantity", 1)
 
-    def create_engine(self, deps):
+    def create_engine(self, deps: EngineDeps) -> BaseEngine:
         from src_v2.agent.orb_engine import OrbEngine
         return OrbEngine(deps, self)
 

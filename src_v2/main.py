@@ -26,10 +26,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-def _setup_logging(log_dir: str, level: str = "INFO"):
-    log_path = Path(log_dir)
+def _setup_logging(log_dir: str, level: str = "INFO", strategy: str = "bot"):
+    log_path = Path(log_dir) / date.today().isoformat()
     log_path.mkdir(parents=True, exist_ok=True)
-    log_file = log_path / f"{date.today().isoformat()}.log"
+    log_file = log_path / f"{strategy}.log"
 
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
@@ -320,9 +320,11 @@ def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
 
 async def main_async(args: argparse.Namespace):
     config = _load_config(args.config)
+    strategy_name = config.get("bot", {}).get("strategy", "bot")
     _setup_logging(
         config.get("logging", {}).get("log_dir", "logs"),
         config.get("logging", {}).get("level", "INFO"),
+        strategy=strategy_name,
     )
 
     mode = _resolve_mode(args, config)

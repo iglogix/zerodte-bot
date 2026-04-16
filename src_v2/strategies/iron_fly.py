@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src_v2.strategies.base import (
     LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
 )
+from src_v2.agent.base_engine import BaseEngine, EngineDeps
 from src_v2.strategies.utils import mid_price as _mid
 
 
@@ -175,7 +176,7 @@ class IronFlyStrategy(LiveStrategy):
     def build_order(self, setup: LiveTradeSetup) -> Dict[str, Any]:
         center = setup.strikes["center"]
         return {
-            "order_type": "iron_fly",
+            "order_type": "iron_condor",
             "short_call_strike": center,
             "short_put_strike": center,
             "long_call_strike": setup.strikes["long_call"],
@@ -256,7 +257,7 @@ class IronFlyStrategy(LiveStrategy):
         # Iron fly doesn't use trailing stops — exit is wing breach or TP.
         return None
 
-    def create_engine(self, deps):
+    def create_engine(self, deps: "EngineDeps") -> "BaseEngine":
         from src_v2.agent.scheduled_engine import ScheduledEngine
         return ScheduledEngine(deps, self)
 
