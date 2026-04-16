@@ -145,6 +145,35 @@ class OrbOptionsToolHandlers:
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
+            # For index options: derive spot from put-call parity (ES ≠ index)
+            option_root = self._opts._opt_cfg.get("option_root", "EW")
+            index_symbol = self._opt_cfg.get("index_quote_symbol", "")
+            is_index = option_root not in ("EW", "EW2", "EW3", "EW4")
+            if is_index:
+                spot = self._opts.derive_spot_from_chain(chain, es_price)
+                if spot is None and index_symbol:
+                    # Fallback: fetch index quote directly
+                    try:
+                        q = await self._tt.get_quote(index_symbol)
+                        idx_price = q.get("price") or q.get("mark") or q.get("last") or q.get("bid")
+                        if idx_price:
+                            spot = float(idx_price)
+                            logger.info("Index spot from API quote: %.2f (ES=%.2f, basis=%.1f)", spot, es_price, es_price - spot)
+                        else:
+                            result = {"error": "cannot_determine_index_spot", "detail": "put-call parity and API quote both failed"}
+                            await self._log("get_spread_candidates", {}, result, start)
+                            return result
+                    except Exception as exc:
+                        result = {"error": "cannot_determine_index_spot", "detail": str(exc)}
+                        await self._log("get_spread_candidates", {}, result, start)
+                        return result
+                elif spot is None:
+                    result = {"error": "cannot_determine_index_spot", "detail": "put-call parity failed and no index_quote_symbol configured"}
+                    await self._log("get_spread_candidates", {}, result, start)
+                    return result
+            else:
+                spot = es_price
+
             orb_bias = self._breakout_bias
             use_em = self._opts._use_em
             spread_mode = self._opts._spread_mode
@@ -154,13 +183,13 @@ class OrbOptionsToolHandlers:
                 spreads = []
                 for leg_type in ["put_credit_spread", "call_credit_spread"]:
                     if use_em:
-                        s = self._opts.select_em_spread(chain, es_price, leg_type, orb_bias)
+                        s = self._opts.select_em_spread(chain, spot, leg_type, orb_bias)
                     elif leg_type == "put_credit_spread":
-                        s = self._opts.select_put_spread(chain, self._orb_levels["low"], es_price)
+                        s = self._opts.select_put_spread(chain, self._orb_levels["low"], spot)
                     else:
-                        s = self._opts.select_call_spread(chain, self._orb_levels["high"], es_price)
+                        s = self._opts.select_call_spread(chain, self._orb_levels["high"], spot)
                     if s is not None:
-                        spreads.append({**s, "underlying_price": es_price, "bias": orb_bias})
+                        spreads.append({**s, "underlying_price": spot, "bias": orb_bias})
 
                 if not spreads:
                     result = {"error": "no_valid_spread_found", "bias": orb_bias}
@@ -171,7 +200,7 @@ class OrbOptionsToolHandlers:
                 result = {
                     "spreads": spreads,
                     "spread_mode": "iron_condor",
-                    "underlying_price": es_price,
+                    "underlying_price": spot,
                     "bias": orb_bias,
                 }
                 await self._log("get_spread_candidates", {}, result, start)
@@ -180,14 +209,14 @@ class OrbOptionsToolHandlers:
             # Directional mode: single leg
             if use_em:
                 leg_type = "put_credit_spread" if orb_bias == "long" else "call_credit_spread"
-                spread = self._opts.select_em_spread(chain, es_price, leg_type, orb_bias)
+                spread = self._opts.select_em_spread(chain, spot, leg_type, orb_bias)
             elif orb_bias == "long":
                 spread = self._opts.select_put_spread(
-                    chain, self._orb_levels["low"], es_price
+                    chain, self._orb_levels["low"], spot
                 )
             else:
                 spread = self._opts.select_call_spread(
-                    chain, self._orb_levels["high"], es_price
+                    chain, self._orb_levels["high"], spot
                 )
 
             if spread is None:
@@ -195,7 +224,7 @@ class OrbOptionsToolHandlers:
                 await self._log("get_spread_candidates", {}, result, start)
                 return result
 
-            result = {**spread, "underlying_price": es_price, "bias": orb_bias}
+            result = {**spread, "underlying_price": spot, "bias": orb_bias}
             await self._log("get_spread_candidates", {}, result, start)
             return result
         except Exception as exc:

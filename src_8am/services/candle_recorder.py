@@ -55,17 +55,14 @@ class CandleRecorder:
         iv_dir.mkdir(parents=True, exist_ok=True)
         self._iv_path = iv_dir / f"{date.today().isoformat()}.jsonl"
 
-        # Load PriceANN v3 model (direct bid/ask prediction)
-        self._price_ann = None
-        opt = config.get("options", {})
-        ann_model_path = opt.get("price_ann_model", "models/price_ann_v3.pt")
-        if ann_model_path and Path(ann_model_path).exists():
-            try:
-                from scripts.train_price_ann import PriceANN
-                self._price_ann = PriceANN.load(ann_model_path)
-                logger.info("CandleRecorder: loaded PriceANN from %s", ann_model_path)
-            except Exception as exc:
-                logger.warning("CandleRecorder: failed to load PriceANN: %s", exc)
+        # Price comparison for validation
+        # NOTE: All available ANN models (v3, v4_otm, v5) have training/architecture issues:
+        #   - v3: broken (outputs 100x too high)
+        #   - v4_otm: trained on OTM only, fails on ATM options
+        #   - v5: requires VIX, vol, ATM IV inputs not trivially available
+        # Use BS pricing only for now. Requires new models.
+        self._price_ann_bid = None
+        self._price_ann_ask = None
 
     def start(self):
         """Start the background recording loop."""
@@ -132,7 +129,7 @@ class CandleRecorder:
         logger.debug("Saved %d candle(s) to %s", len(candles), self._candle_path)
 
     async def _compare_prices(self):
-        """Fetch option quotes and compare: Market bid/ask vs BS theo vs ANN bid/ask."""
+        """Fetch option quotes and compare: Market bid/ask vs BS theo pricing."""
         if not self._tt:
             return
 
@@ -150,10 +147,19 @@ class CandleRecorder:
 
             # Get option chain
             product_code = self._config.get("bot", {}).get("symbol", "ES")
-            chain = await self._tt.get_future_option_chain(
-                product_code=product_code,
-                underlying_price=price,
-            )
+            try:
+                chain = await self._tt.get_future_option_chain(
+                    product_code=product_code,
+                    underlying_price=price,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Price comparison skipped: option chain fetch failed for %s (%s: %r)",
+                    product_code,
+                    type(exc).__name__,
+                    exc,
+                )
+                return
             if not chain:
                 return
 
@@ -172,25 +178,19 @@ class CandleRecorder:
                 if mid < 0.05:
                     continue
 
-                moneyness = price / strike if strike > 0 else 1.0
+                moneyness = strike / price if price > 0 else 1.0
+                is_otm = (
+                    (opt_type == "call" and strike > price)
+                    or (opt_type == "put" and strike < price)
+                )
+                if not is_otm:
+                    continue
                 if moneyness < 0.95 or moneyness > 1.05:
                     continue
 
                 # --- BS price (using market IV) ---
                 market_iv = self._bs_iv(mid, price, strike, tte_years, opt_type)
                 bs_price = self._bs_price(price, strike, tte_years, market_iv, opt_type) if market_iv else None
-
-                # --- ANN price (direct bid/ask prediction) ---
-                ann_bid = ann_ask = ann_mid = None
-                if self._price_ann:
-                    try:
-                        is_call = opt_type == "call"
-                        ann_bid, ann_ask = self._price_ann.predict_bid_ask(
-                            product_code, price, strike, tte_hours, is_call
-                        )
-                        ann_mid = (ann_bid + ann_ask) / 2
-                    except Exception:
-                        pass
 
                 rec = {
                     "timestamp": now_et.isoformat(),
@@ -206,17 +206,10 @@ class CandleRecorder:
                     # BS (using market IV)
                     "market_iv": round(market_iv, 5) if market_iv else None,
                     "bs_price": round(bs_price, 2) if bs_price is not None else None,
-                    # ANN (direct prediction)
-                    "ann_bid": round(ann_bid, 2) if ann_bid is not None else None,
-                    "ann_ask": round(ann_ask, 2) if ann_ask is not None else None,
-                    "ann_mid": round(ann_mid, 2) if ann_mid is not None else None,
                     # TT greeks
                     "delta": round(delta, 4) if delta else None,
                     # Errors (vs market mid)
                     "bs_err": round(bs_price - mid, 2) if bs_price is not None else None,
-                    "ann_err": round(ann_mid - mid, 2) if ann_mid is not None else None,
-                    "ann_bid_err": round(ann_bid - bid, 2) if ann_bid is not None else None,
-                    "ann_ask_err": round(ann_ask - ask, 2) if ann_ask is not None else None,
                 }
                 comparisons.append(rec)
 
@@ -226,17 +219,19 @@ class CandleRecorder:
                         f.write(json.dumps(c) + "\n")
 
                 # Summary: avg absolute errors
-                ann_errs = [abs(c["ann_err"]) for c in comparisons if c["ann_err"] is not None]
                 bs_errs = [abs(c["bs_err"]) for c in comparisons if c["bs_err"] is not None]
-                avg_ann = sum(ann_errs) / len(ann_errs) if ann_errs else 0
                 avg_bs = sum(bs_errs) / len(bs_errs) if bs_errs else 0
                 logger.info(
-                    "Price comparison: %d options | BS avg err=%.2f | ANN avg err=%.2f",
-                    len(comparisons), avg_bs, avg_ann,
+                    "Price comparison: %d options | BS avg err=%.2f",
+                    len(comparisons), avg_bs,
                 )
 
-        except Exception:
-            logger.exception("Price comparison failed")
+        except Exception as exc:
+            logger.warning(
+                "Price comparison skipped due to unexpected error (%s: %r)",
+                type(exc).__name__,
+                exc,
+            )
 
     @staticmethod
     def _bs_price(s, k, t, iv, opt_type):

@@ -209,6 +209,41 @@ class OrbOptionsService:
     # Straddle-EM strike selection
     # -------------------------------------------------------------------------
 
+    def derive_spot_from_chain(self, chain: List[Dict[str, Any]], es_price: float) -> Optional[float]:
+        """Derive index spot price from put-call parity at ATM strikes.
+
+        For 0DTE: S ≈ K + C_mid - P_mid at the ATM strike.
+        Returns None if chain lacks paired put/call data.
+        """
+        # Group by strike
+        puts_by_k: Dict[float, Dict] = {}
+        calls_by_k: Dict[float, Dict] = {}
+        for o in chain:
+            k = o.get("strike", 0)
+            if o.get("option_type") == "put" and o.get("bid", 0) > 0:
+                puts_by_k[k] = o
+            elif o.get("option_type") == "call" and o.get("bid", 0) > 0:
+                calls_by_k[k] = o
+
+        # Find strikes with both put and call
+        common = sorted(set(puts_by_k) & set(calls_by_k))
+        if not common:
+            return None
+
+        # Pick the strike nearest to ES price as starting ATM guess
+        atm_k = min(common, key=lambda k: abs(k - es_price))
+
+        # Derive spot: S = K + C_mid - P_mid
+        c_mid = self._mid(calls_by_k[atm_k])
+        p_mid = self._mid(puts_by_k[atm_k])
+        spot = atm_k + c_mid - p_mid
+
+        logger.info(
+            "Derived SPX spot=%.2f from put-call parity at K=%s (C=%.2f P=%.2f, ES=%.2f, basis=%.1f)",
+            spot, atm_k, c_mid, p_mid, es_price, es_price - spot,
+        )
+        return round(spot, 2)
+
     def atm_straddle(self, chain: List[Dict[str, Any]], spot: float) -> float:
         """Compute ATM straddle price from chain — this IS the 0DTE expected move."""
         import math

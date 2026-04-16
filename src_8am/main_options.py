@@ -180,7 +180,7 @@ class OrbOptionsBotOrchestrator:
             logger.info("Waiting for ORB window close (08:15 ET) — %ds", wait_secs)
             await asyncio.sleep(min(wait_secs, 30))
 
-        ok = await self._decision_engine.run_setup_phase()
+        ok = await self._decision_engine.run_setup_phase() # type: ignore
         if not ok:
             logger.error("ORB setup failed — aborting day")
             return
@@ -196,7 +196,7 @@ class OrbOptionsBotOrchestrator:
             logger.info("Waiting for market open (09:30 ET) — %ds", wait_secs)
             await asyncio.sleep(min(wait_secs, 30))
 
-        await self._decision_engine.run_entry_watch_loop()
+        await self._decision_engine.run_entry_watch_loop() # type: ignore
 
     async def shutdown(self):
         if self._candle_recorder:
@@ -217,7 +217,7 @@ class _DryRunTTClient:
     All prices are synthetic but use realistic Black-Scholes calculations.
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Dict[str, Any] = None): # type: ignore
         self._config = config or {}
         self._base_price = 5500.0  # Base ES price
         self._price_drift = 0.0    # Accumulated price drift for simulation

@@ -271,6 +271,29 @@ class CbboStore:
         call_mid = (call_q[0] + call_q[1]) / 2
         return put_mid + call_mid
 
+    def derive_spot(
+        self,
+        minute_et: str,
+        bar_price: float,
+        max_stale_minutes: int = 5,
+    ) -> Optional[float]:
+        """Derive index spot from put-call parity at the ATM strike.
+
+        For 0DTE: S ≈ K + C_mid - P_mid (discount ≈ 1).
+        Uses *bar_price* only to find the nearest ATM strike.
+        Returns None if quotes are unavailable.
+        """
+        if not self._strikes:
+            return None
+        atm_k = min(self._strikes, key=lambda k: abs(k - bar_price))
+        put_q = self.lookup(minute_et, atm_k, False, max_stale_minutes)
+        call_q = self.lookup(minute_et, atm_k, True, max_stale_minutes)
+        if put_q is None or call_q is None:
+            return None
+        c_mid = (call_q[0] + call_q[1]) / 2
+        p_mid = (put_q[0] + put_q[1]) / 2
+        return round(atm_k + c_mid - p_mid, 2)
+
     def has_day(self, trading_date: date) -> bool:
         """Check if zst file exists for this date."""
         ds = trading_date.strftime("%Y%m%d")

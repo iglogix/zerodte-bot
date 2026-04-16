@@ -242,6 +242,7 @@ class OrbOptionsBacktestEngine:
                     import logging
                     logging.getLogger(__name__).warning("Failed to load price ANN: %s", e)
 
+        self._option_root = opt.get("option_root", "")
         self._data_dir = cfg.get("backtest", {}).get("data_dir", "data")
         self._market_data = None  # Lazy-loaded
 
@@ -747,6 +748,13 @@ class OrbOptionsBacktestEngine:
 
         # --- Step 6: Delegate to strategy for strike selection + pricing ---
         option_underlying = self._get_underlying_price(session_date, es_entry_price)
+
+        # For index options with CBBO: derive true spot from put-call parity
+        if self._option_root and self._cbbo_store is not None:
+            minute_et = entry_time.strftime("%H:%M")
+            derived = self._cbbo_store.derive_spot(minute_et, option_underlying)
+            if derived is not None:
+                option_underlying = derived
         # Get session IV
         if self._iv_source == "realized":
             lookback_bars = []

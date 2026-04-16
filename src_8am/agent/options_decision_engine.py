@@ -228,19 +228,29 @@ class OrbOptionsDecisionEngine:
 
     async def _run_position_monitor(self):
         """
-        Poll spread mark price every 30s until TP, SL, or EOD.
-        In live mode, fetches current spread mark via TT option chain.
-        In dry_run/manual, simulates mark price decay.
+        Monitor all active spreads concurrently until TP, SL, or EOD.
+        Each spread is tracked independently.
         """
-        if not self._active_spread:
-            logger.warning("No active spread to monitor")
-            return
+        spreads = getattr(self, "_active_spreads", [])
+        if not spreads:
+            if self._active_spread:
+                spreads = [self._active_spread]
+            else:
+                logger.warning("No active spread to monitor")
+                return
 
+        tasks = [self._monitor_single_spread(s) for s in spreads]
+        await asyncio.gather(*tasks)
+
+    async def _monitor_single_spread(self, spread: dict):
+        """
+        Poll a single spread's mark price every 30s until TP, SL, or EOD.
+        """
         poll_secs = self._opt_cfg.get("monitor_poll_seconds", 30)
-        credit = self._active_spread.get("credit_received", 0.0)
-        tp_debit = self._active_spread["tp_debit"]
-        sl_debit = self._active_spread["sl_debit"]
-        spread_type = self._active_spread["spread_type"]
+        credit = spread.get("credit_received", 0.0)
+        tp_debit = spread["tp_debit"]
+        sl_debit = spread["sl_debit"]
+        spread_type = spread["spread_type"]
 
         logger.info(
             "Phase C: monitoring spread %s | credit=%.2f TP=%.2f SL=%.2f",
@@ -253,44 +263,45 @@ class OrbOptionsDecisionEngine:
             now_et = datetime.now(ET)
 
             if now_et.time() >= self._eod:
-                await self._exit_position("eod_close", mark=None)
+                await self._exit_position("eod_close", mark=None, spread=spread)
                 return
 
-            mark = await self._get_spread_mark(sim_tick)
+            mark = await self._get_spread_mark(sim_tick, spread=spread)
             sim_tick += 1
 
             if mark is not None:
-                logger.debug("Spread mark=%.2f tp_debit=%.2f sl_debit=%.2f", mark, tp_debit, sl_debit)
+                logger.debug("[%s] mark=%.2f tp_debit=%.2f sl_debit=%.2f", spread_type, mark, tp_debit, sl_debit)
 
                 if mark <= tp_debit:
-                    logger.info("TP hit: mark=%.2f <= tp_debit=%.2f", mark, tp_debit)
-                    await self._exit_position("tp_50pct", mark=mark)
+                    logger.info("[%s] TP hit: mark=%.2f <= tp_debit=%.2f", spread_type, mark, tp_debit)
+                    await self._exit_position("tp_50pct", mark=mark, spread=spread)
                     return
 
-                if mark >= sl_debit:
-                    logger.info("SL hit: mark=%.2f >= sl_debit=%.2f", mark, sl_debit)
-                    await self._exit_position("sl_200pct", mark=mark)
+                if sl_debit > 0 and mark >= sl_debit:
+                    logger.info("[%s] SL hit: mark=%.2f >= sl_debit=%.2f", spread_type, mark, sl_debit)
+                    await self._exit_position("sl_200pct", mark=mark, spread=spread)
                     return
 
             await asyncio.sleep(poll_secs)
 
-    async def _get_spread_mark(self, tick: int) -> Optional[float]:
+    async def _get_spread_mark(self, tick: int, spread: Optional[dict] = None) -> Optional[float]:
         """
         Return current spread mark price.
         dry_run: simulate linear decay to 0 over 120 ticks (1h at 30s poll).
         live: fetch from TT option chain.
         """
+        s = spread or self._active_spread
         if self.mode == "dry_run":
-            if self._active_spread is None:
+            if s is None:
                 return None
-            credit = self._active_spread["credit_received"]
+            credit = s["credit_received"]
             decay = max(0.0, credit * (1 - tick / 120))
             return round(decay, 2)
         try:
-            if self._active_spread is None:
+            if s is None:
                 return None
-            short_sym = self._active_spread.get("short_symbol", "")
-            long_sym = self._active_spread.get("long_symbol", "")
+            short_sym = s.get("short_symbol", "")
+            long_sym = s.get("long_symbol", "")
             if not short_sym:
                 return None
             short_q = await self._tt_mark(short_sym)
@@ -518,19 +529,20 @@ class OrbOptionsDecisionEngine:
     # Exit
     # -------------------------------------------------------------------------
 
-    async def _exit_position(self, reason: str, mark: Optional[float]):
+    async def _exit_position(self, reason: str, mark: Optional[float], spread: Optional[dict] = None):
         """Close the spread and record exit."""
-        if not self._active_spread:
+        s = spread or self._active_spread
+        if not s:
             return
 
-        trade_id = self._active_spread.get("trade_id")
-        credit = self._active_spread.get("credit_received", 0.0)
+        trade_id = s.get("trade_id")
+        credit = s.get("credit_received", 0.0)
 
         if reason == "eod_close":
             # Determine if likely OTM (expire worthless) vs ITM (must close)
             spx_price = await self._md.get_current_price()
             if spx_price is not None:
-                short_strike = (self._active_spread.get("short_symbol") or "")
+                short_strike = (s.get("short_symbol") or "")
                 debit = 0.0  # assume expires worthless — conservative approximation
                 reason = "expired_worthless"
             else:
@@ -555,6 +567,6 @@ class OrbOptionsDecisionEngine:
             )
 
         logger.info(
-            "Spread closed: reason=%s debit=%.2f pnl=$%.2f",
-            reason, debit, pnl,
+            "[%s] Spread closed: reason=%s debit=%.2f pnl=$%.2f",
+            s.get("spread_type", "unknown"), reason, debit, pnl,
         )

@@ -1,0 +1,63 @@
+bot:
+  name: "spx-0dte-iron-fly"
+  timezone: "America/New_York"
+  mode: "dry_run"
+  symbol: "SPX"
+  strategy: "iron_fly"
+
+strategy:
+  # ORB = 30-min opening range (9:30–10:00 ET)
+  orb_window_start: "09:30"
+  orb_window_end: "10:00"
+  entry_time: "10:00"               # execute at exactly 10:00 AM ET
+  eod_force_close: "15:50"
+  orb_filter_tolerance_pct: 0.05    # allow entry up to 5% outside ORB range
+
+  macro_filter:
+    enabled: true
+    max_candle_body_pct_of_em: 0.50 # skip if any ORB candle body > 50% of EM
+    max_vix: 30.0                   # skip if VIX proxy > 30
+
+  # Calendar filters
+  skip_nfp_fridays: false
+  skip_fomc_days: false
+  skip_cpi_days: false
+
+options:
+  strike_step_pts: 5                # SPX strikes at 5-pt intervals
+  em_wing_fraction: 0.50            # wing distance = 0.50 × ATM straddle EM
+  tp_fixed_dollars: 200             # take profit per contract
+  sl_fixed_dollars: 0               # value-based SL per contract (0 = disabled, wing-only)
+  slippage_per_leg: 0.05            # 4 legs × $0.05 = $0.20 total slippage
+  contract_multiplier: 100          # SPX options = $100 per point
+  quantity: 1
+  em_source: "straddle"             # "straddle" (CBBO ATM straddle) or "vix"
+  assumed_iv: 0.15                  # fallback IV when no VIX data
+  iv_source: "vix"
+  pricing_model: "bs"               # "bs" = Black-Scholes
+
+entry:
+  schedule: ["10:00"]               # single entry at 10:00 AM ET
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 5.0
+  max_buying_power_percent: 50.0
+
+backtest:
+  data_file: "data/spy_1m.csv"      # SPY 1-min bars (scaled × 10 → SPX)
+  data_source: "spy"
+  data_dir: "data"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2025-09-22"
+  end_date: "2026-02-26"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"             # SPX PM-settled
+
+logging:
+  level: "INFO"
