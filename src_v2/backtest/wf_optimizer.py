@@ -19,12 +19,14 @@ from __future__ import annotations
 import copy
 import logging
 import multiprocessing
+import os
 import time
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from itertools import product
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import psutil
 
 from src_v2.backtest.orchestrator import BacktestOrchestrator
 from src_v2.backtest.report import generate_report
@@ -36,6 +38,53 @@ logger = logging.getLogger(__name__)
 # Avoids re-pickling base_config / strategy_cls / cbbo_store / days for every combo.
 _WORKER_STATE: Dict[str, Any] = {}
 
+# Memory-throttle defaults (tunable via env if needed)
+MEMORY_THROTTLE_PCT = float(os.environ.get("WF_MEMORY_THROTTLE_PCT", "85"))
+MEMORY_THROTTLE_SLEEP_S = float(os.environ.get("WF_MEMORY_THROTTLE_SLEEP_S", "2.0"))
+MEMORY_THROTTLE_TIMEOUT_S = float(os.environ.get("WF_MEMORY_THROTTLE_TIMEOUT_S", "600"))
+
+
+def _wait_for_memory(threshold_pct: float = MEMORY_THROTTLE_PCT,
+                     sleep_s: float = MEMORY_THROTTLE_SLEEP_S,
+                     timeout_s: float = MEMORY_THROTTLE_TIMEOUT_S) -> None:
+    """Block until system memory usage drops below threshold_pct.
+
+    Called by each worker BEFORE starting a new backtest so we don't pile new
+    heavy allocations onto an already-saturated system. Workers mid-task are not
+    affected — they run to completion and free memory, allowing throttled
+    workers to resume.
+
+    On timeout: logs a warning and proceeds. Risking OOM is preferable to
+    deadlocking all workers waiting indefinitely. The primary memory defense
+    is _suggest_workers which caps pool size at startup.
+    """
+    if psutil.virtual_memory().percent <= threshold_pct:
+        return
+    deadline = time.monotonic() + timeout_s
+    while psutil.virtual_memory().percent > threshold_pct:
+        if time.monotonic() > deadline:
+            logger.warning(
+                "Worker pid=%d memory throttle timeout after %.0fs (memory "
+                "still > %.0f%%). Proceeding anyway.",
+                os.getpid(), timeout_s, threshold_pct,
+            )
+            return
+        time.sleep(sleep_s)
+
+
+def _suggest_workers(requested: int,
+                     gb_per_worker: float = 5.0,
+                     safety_factor: float = 1.5) -> int:
+    """Cap requested worker count based on available memory.
+
+    Each backtest peaks ~5GB (measured empirically with 365-870 day windows);
+    safety_factor=1.5 means we want ~7.5GB headroom per worker.
+    Returns max(1, available_gb // (gb_per_worker * safety_factor)).
+    """
+    avail_gb = psutil.virtual_memory().available / (1024 ** 3)
+    max_safe = max(1, int(avail_gb / (gb_per_worker * safety_factor)))
+    return min(requested, max_safe)
+
 
 def _init_worker(base_config, strategy_cls, cbbo_store, days):
     """Pool initializer — runs once per worker process."""
@@ -46,7 +95,12 @@ def _init_worker(base_config, strategy_cls, cbbo_store, days):
 
 
 def _run_one_combo(combo: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Run a single backtest in the worker. Returns (combo, metrics_dict)."""
+    """Run a single backtest in the worker. Returns (combo, metrics_dict).
+
+    Throttles at start: if system memory is critical, sleep until other workers
+    finish and free memory.
+    """
+    _wait_for_memory()
     cfg = WalkForwardOptimizer._apply_combo(
         copy.deepcopy(_WORKER_STATE["base_config"]), combo
     )
@@ -254,14 +308,30 @@ class WalkForwardOptimizer:
                 results.append((combo, self._extract(report)))
             return results
 
+        # Memory-aware worker count: cap requested workers based on available
+        # memory. Each backtest peaks ~2GB, want 3GB headroom each.
+        effective_workers = _suggest_workers(self._n_workers)
+        if effective_workers < self._n_workers:
+            logger.warning(
+                "Capping workers from %d to %d due to available memory "
+                "(%.1fGB free)",
+                self._n_workers, effective_workers,
+                psutil.virtual_memory().available / 1024**3,
+            )
+        # Use multiprocessing.Pool with fork + maxtasksperchild to recycle workers
+        # periodically. Fork means the loaded CbboStore (~625MB) is shared via COW.
+        # maxtasksperchild forces worker process restart every N tasks so peak
+        # memory from each backtest (orchestrator state, trade records) gets
+        # released. Workers also self-throttle via _wait_for_memory before
+        # starting each task.
         ctx = multiprocessing.get_context("fork")
-        with ProcessPoolExecutor(
-            max_workers=self._n_workers,
-            mp_context=ctx,
+        with ctx.Pool(
+            processes=effective_workers,
             initializer=_init_worker,
             initargs=(self._base, self._strategy_cls, self._cbbo, days),
+            maxtasksperchild=10,
         ) as pool:
-            return list(pool.map(_run_one_combo, combos))
+            return pool.map(_run_one_combo, combos)
 
     def _make_windows(self) -> List[Tuple[List, List]]:
         """Ratio-based anchored splitting on unique dates.

@@ -29,4 +29,5 @@ pytest-mock>=3.12.0
 pyyaml>=6.0.0
 zstandard>=0.22.0
 databento>=0.40.0
+psutil>=5.9.0
 torch==2.11.0
