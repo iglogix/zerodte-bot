@@ -125,19 +125,45 @@ The new `min_em_pts=20` filter is the critical addition — it explicitly exclud
 4. **Monitor breach rate live** — if it materially exceeds 21%, the strategy regime has changed.
 5. **Consider min_em_pts=25 or 30 at smaller contract size** — the filter's purpose is to skip low-vol days; tighter would trade fewer days but at better expected value.
 
+## 8-fold WF-CV (re-validation with smaller folds)
+
+To increase the number of independent OOS windows and stress-test the winner under more regime samples, re-ran with `--folds 8 --ratio 5` (val window ≈ 74 days, vs 106 days at 4 folds).
+
+| Metric | 4-fold | **8-fold** |
+|---|---:|---:|
+| Folds appeared | 4/4 | **8/8** ✅ |
+| Folds profitable | 4/4 | **8/8** ✅ |
+| OOS trades | 98 | **120** |
+| Total OOS PnL | +$6,079 | **+$7,728** |
+| Aggregate WR | 89.8% | **90.0%** |
+| Worst fold PnL | +$624 | **+$285** |
+| Mean fold Sharpe | 5.86 | 14.53 (inflated by small-fold variance — high-WR folds skew this) |
+| Max fold DD | $1,270 | $1,270 |
+| Annualized ARR @ 1 ct | 3.6% | **3.3%** |
+
+**Identical winner params** in both runs. The fact that the same combo dominated 8 independent validation windows (not just 4) is the strongest single robustness signal we have. None of the 8 folds lost money with these params.
+
 ## Commands to reproduce
 
 ```bash
 # Single-config backtest (Step A)
 python scripts/run_v2_backtest.py --config config/config_orb_dir_breakout_spx.yaml
 
-# WF-CV with all-folds-profitable (Step B)
+# WF-CV 4-fold with all-folds-profitable (Step B)
 python scripts/run_v2_wf_cv.py \
     --config config/config_orb_dir_breakout_spx.yaml \
     --objective total_pnl \
     --min-trades 50 --min-sharpe 3 \
     --require-all-folds-profitable \
     --top-k 10 --folds 4 --ratio 5
+
+# WF-CV 8-fold (smaller folds, more independent OOS windows)
+python scripts/run_v2_wf_cv.py \
+    --config config/config_orb_dir_breakout_spx.yaml \
+    --objective total_pnl \
+    --min-trades 50 --min-sharpe 3 \
+    --require-all-folds-profitable \
+    --top-k 10 --folds 8 --ratio 5
 ```
 
 ## Data provenance
