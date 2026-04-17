@@ -9,24 +9,33 @@
 
 The previous WF-CV run on 2026-04-13 was limited to 125 days of CBBO history (2025-09-22 → 2026-03-20), producing only **24 OOS trades** — too thin a sample for confident parameter selection. We backfilled CBBO from Databento (cost: $1.58, ~10.4M quotes across 712 new days), then re-ran WF-CV with the same strategy and methodology on a **4× larger OOS sample**.
 
-## Single-config IS backtest (with WF-CV winning params plugged in)
+## Single-config IS backtest
 
-Just to size up the picture before fold splits:
+Two runs on the full 3.78-yr history — first with the OLD 2026-04-13 winner params (still in the config at the time), then re-run after the WF-CV in this report picked NEW winner params and the config was updated.
 
-| Metric | Old data (5 mo, 49 trades) | **New data (3.8 yr, 371 trades)** |
+| Metric | Old config (width=15, midline_tol=1.0, no min_em) | **NEW config (WF-CV winner: width=20, midline_tol=3.0, min_em=20, hold_put_breach=true)** |
 |---|---:|---:|
-| Trades | 49 | **371** (7.6×) |
-| Win rate | ~84% | **79.2%** |
-| Avg win | ~$80 | **$99** |
-| Avg loss | ~$280 | **$271** |
-| Total PnL @ 1 ct | +$1,460 | **+$8,371** |
-| Profit factor | 3.44 | **1.40** ⚠️ |
-| Worst single loss | ~$310 | **$407** |
-| Breach rate | 10% (5/49) | **21% (78/371)** |
+| Trades | 371 | **202** (−46%, the `min_em=20` filter at work) |
+| Win rate | 79.2% | **90.1%** |
+| Avg win | $99 | **$139** |
+| Avg loss | $271 | **$507** ⚠️ |
+| **Worst single loss** | $407 | **$1,632** ⚠️ |
+| Total PnL @ 1 ct | +$8,371 | **+$15,117** |
+| Profit factor | 1.40 | **2.49** |
+| Breach rate | 21% (78/371) | **8.4% (17/202)** |
+| ARR @ 1 ct | 2.2% | **4.0%** |
 
-**Profit factor collapsed from 3.44 → 1.40** when the sample size grew. The original analysis was significantly rosier than reality. Win rate held up but breach rate doubled.
+The `min_em_pts=20` filter cut trades by 46% but kept all the high-quality ones — win rate jumped from 79% to 90% and PF nearly doubled.
 
-Annualized: $8,371 / 3.8 yr = **2.2% ARR @ 1 contract**. To hit 70% target: ~32 contracts.
+**However:** wider spreads (`width=20` vs 15) plus `hold_put_breach=true` (let breached spreads ride to expiry hoping for recovery) dramatically expand max single-trade loss. Worst loss went from $407 → **$1,632 per contract**.
+
+### Sizing reality check (CRITICAL)
+
+The strategy's worst-case per-contract loss is now ~$1,800 (full $20-width less credit). Per the config:
+- `max_daily_risk_percent: 5.0` → max $5,000 daily loss on a $100K account
+- $5,000 / $1,800 = **2-3 contracts** is the realistic risk-managed cap
+
+So the actual sustainable ARR is **8-12% per account** (at 2-3 contracts), NOT the 70% target the original 2026-04-13 doc projected at 10 contracts. The path to 70% requires either multiple sub-accounts in parallel, relaxed daily-risk caps with full awareness of tail risk, or a lower-max-loss variant (e.g., `width=10` and `hold_put_breach=false`).
 
 ## Walk-Forward CV (ratio 5:1, 4 folds, total_pnl objective with Sharpe ≥ 3 floor and `--require-all-folds-profitable`)
 
@@ -119,11 +128,11 @@ The new `min_em_pts=20` filter is the critical addition — it explicitly exclud
 
 ## Recommendations
 
-1. **Use the new winner params** for live deployment, NOT the old ones from 2026-04-13. Specifically: `width_with_trend=20`, `midline_tolerance_pts=3.0`, and the `min_em_pts=20` filter.
-2. **Start at 5-10 contracts**, not 19 — Kelly sizing on this PF (1.4) and 21% breach rate would suggest <½ Kelly initially.
+1. **Use the new winner params** for live deployment, NOT the old ones from 2026-04-13. Specifically: `width_with_trend=20`, `midline_tolerance_pts=3.0`, `hold_put_breach=true`, and the `min_em_pts=20` filter. (Config has been updated.)
+2. **Realistic sizing is 2-3 contracts per account** given `max_daily_risk_percent: 5.0`. ARR @ 1 ct is 4.0% IS / 3.3% OOS, so 2-3 contracts → **8-12% per-account ARR**.
 3. **Re-run WF-CV every quarter** as new data accrues. The strategy may benefit from a rolling-window training rather than anchored, given the regime variance hinted at by fold 4.
-4. **Monitor breach rate live** — if it materially exceeds 21%, the strategy regime has changed.
-5. **Consider min_em_pts=25 or 30 at smaller contract size** — the filter's purpose is to skip low-vol days; tighter would trade fewer days but at better expected value.
+4. **Monitor breach rate live** — if it materially exceeds 9%, the strategy regime has changed.
+5. **Consider tighter width variant at smaller spreads** if you want a higher contract count without violating risk caps. A separate WF-CV with `width=10, hold_put_breach=false` would test whether bounded-loss params can scale up trades.
 
 ## 8-fold WF-CV (re-validation with smaller folds)
 
