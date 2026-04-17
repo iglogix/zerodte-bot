@@ -40,6 +40,7 @@ class OrbEmDirectionalStrategy(LiveStrategy):
         self._tp_pct = opt.get("tp_pct_of_credit", 0.75)
         self._sl_mult = opt.get("sl_mult_of_credit", 0.0)
         self._hold_put_breach = opt.get("hold_put_breach", False)
+        self._hold_call_breach = opt.get("hold_call_breach", False)
         self._slippage = opt.get("slippage_per_spread", 0.10)
         self._multiplier = opt.get("contract_multiplier", 100)
         self._quantity = opt.get("quantity", 1)
@@ -220,7 +221,7 @@ class OrbEmDirectionalStrategy(LiveStrategy):
             tp_debit = credit * self._tp_pct
             if credit > 0 and mark <= tp_debit:
                 return ExitAction(
-                    action="take_profit",
+                    action="take_profit",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
                     legs_to_close=[short_sym, long_sym],
                     reason=f"{side} TP: mark={mark:.2f} <= tp={tp_debit:.2f}",
                 )
@@ -231,7 +232,7 @@ class OrbEmDirectionalStrategy(LiveStrategy):
         if price > 0:
             short_call = trade.get("short_call_strike", 0)
             short_put = trade.get("short_put_strike", 0)
-            if short_call and price >= short_call:
+            if short_call and price >= short_call and not self._hold_call_breach:
                 return ExitAction(
                     action="stop_loss",
                     legs_to_close=[s for s in [trade.get("short_call_symbol"),
