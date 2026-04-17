@@ -10,7 +10,7 @@ strategy:
   orb_window_end:   "08:15"
   market_open:      "09:30"
   eod_force_close:  "15:50"
-  midline_tolerance_pts: 1.0
+  midline_tolerance_pts: 3.0   # WF-CV winner 2026-04-16 (was 1.0)
   retest_mode: "breakout_level"   # Variant A: retest broken level for continuation
   orb_range_filter:
     min_pts: 2.0
@@ -27,9 +27,10 @@ options:
   min_credit_per_spread: 0.05
   tp_pct_of_credit: 0.75
   sl_mult_of_credit: 0
-  hold_put_breach: false           # exit on breach for directional
+  hold_put_breach: true            # WF-CV winner 2026-04-16 (was false)
   em_with_trend: 0.5               # short strike = spot ± 0.5 × ATM_straddle
-  width_with_trend: 15             # spread width (pts)
+  width_with_trend: 20             # WF-CV winner 2026-04-16 (was 15)
+  min_em_pts: 20                   # WF-CV winner 2026-04-16 — skip days where ATM straddle < 20pts
   slippage_per_spread: 0.10
   contract_multiplier: 100
   commission_per_contract_per_leg: 1.0
@@ -58,5 +59,5 @@ backtest:
   data_source: "spy"
   price_scale: 10.0
   cbbo_cache_dir: "data/cbbo_cache"
-  start_date: "2025-09-22"
+  start_date: "2022-04-18"
   end_date: "2026-03-20"
