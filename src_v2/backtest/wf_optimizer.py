@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import copy
 import logging
+import multiprocessing
 import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from itertools import product
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -28,6 +30,33 @@ from src_v2.backtest.orchestrator import BacktestOrchestrator
 from src_v2.backtest.report import generate_report
 
 logger = logging.getLogger(__name__)
+
+
+# Worker-side state populated once per forked process via initializer.
+# Avoids re-pickling base_config / strategy_cls / cbbo_store / days for every combo.
+_WORKER_STATE: Dict[str, Any] = {}
+
+
+def _init_worker(base_config, strategy_cls, cbbo_store, days):
+    """Pool initializer — runs once per worker process."""
+    _WORKER_STATE["base_config"] = base_config
+    _WORKER_STATE["strategy_cls"] = strategy_cls
+    _WORKER_STATE["cbbo_store"] = cbbo_store
+    _WORKER_STATE["days"] = days
+
+
+def _run_one_combo(combo: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Run a single backtest in the worker. Returns (combo, metrics_dict)."""
+    cfg = WalkForwardOptimizer._apply_combo(
+        copy.deepcopy(_WORKER_STATE["base_config"]), combo
+    )
+    orchestrator = BacktestOrchestrator(
+        cfg, _WORKER_STATE["strategy_cls"], _WORKER_STATE["cbbo_store"]
+    )
+    bt_results = orchestrator.run(_WORKER_STATE["days"])
+    report = generate_report(bt_results)
+    metrics = WalkForwardOptimizer._extract(report)
+    return combo, metrics
 
 
 @dataclass
@@ -70,6 +99,7 @@ class WalkForwardOptimizer:
         objective: str = "sharpe_annualised",
         min_sharpe: Optional[float] = None,
         require_all_folds_profitable: bool = False,
+        n_workers: int = 1,
     ):
         self._base = base_config
         self._strategy_cls = strategy_cls
@@ -83,6 +113,7 @@ class WalkForwardOptimizer:
         self._objective = objective
         self._min_sharpe = min_sharpe
         self._require_all_folds_profitable = require_all_folds_profitable
+        self._n_workers = max(1, int(n_workers))
 
     def run(self, progress_cb: Optional[Callable[[str], None]] = None) -> WFResult:
         combos = self._enumerate_combos()
@@ -104,13 +135,9 @@ class WalkForwardOptimizer:
                 progress_cb(f"Fold {fold_idx}/{len(windows)} train={train_start}..{train_end} ({len(train_days)}d) val={val_start}..{val_end} ({len(val_days)}d)")
 
             # 1. Grid search on train
+            train_raw = self._eval_combos(combos, train_days)
             train_results: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-            for combo in combos:
-                cfg = self._apply_combo(copy.deepcopy(self._base), combo)
-                orchestrator = BacktestOrchestrator(cfg, self._strategy_cls, self._cbbo)
-                bt_results = orchestrator.run(train_days)
-                report = generate_report(bt_results)
-                metrics = self._extract(report)
+            for combo, metrics in train_raw:
                 if metrics["trades"] < self._min_trades:
                     continue
                 if self._min_sharpe is not None and (metrics["sharpe_annualised"] or 0) < self._min_sharpe:
@@ -130,14 +157,14 @@ class WalkForwardOptimizer:
                 progress_cb(f"  Fold {fold_idx} train: {len(train_results)} valid, best Sharpe={best[1]['sharpe_annualised']:.2f}")
 
             # 3. Evaluate top-K on val
+            top_combos_only = [c for c, _ in top_k_combos]
+            val_raw = self._eval_combos(top_combos_only, val_days)
+            # Re-order val_raw to match top_k_combos order (parallel may shuffle)
+            val_lookup = {self._combo_key(c): m for c, m in val_raw}
             val_metrics_list = []
             top_params = []
             for combo, train_m in top_k_combos:
-                cfg = self._apply_combo(copy.deepcopy(self._base), combo)
-                orchestrator = BacktestOrchestrator(cfg, self._strategy_cls, self._cbbo)
-                bt_results = orchestrator.run(val_days)
-                val_report = generate_report(bt_results)
-                val_m = self._extract(val_report)
+                val_m = val_lookup[self._combo_key(combo)]
                 val_metrics_list.append(val_m)
                 top_params.append(combo)
                 appearances[self._combo_key(combo)].append((fold_idx, val_m))
@@ -206,6 +233,35 @@ class WalkForwardOptimizer:
         )
 
     # ------------------------------------------------------------------
+
+    def _eval_combos(
+        self, combos: List[Dict[str, Any]], days: List[Any]
+    ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        """Run a backtest for every combo on `days`. Returns list of (combo, metrics).
+
+        Parallelizes via fork-based ProcessPool when n_workers > 1. The CbboStore
+        cache (~625MB) is shared across forked workers via copy-on-write.
+        Determinism is preserved: sequential and parallel paths both compute the
+        same metrics per combo from the same orchestrator.run() call.
+        """
+        if self._n_workers <= 1 or len(combos) <= 1:
+            results = []
+            for combo in combos:
+                cfg = self._apply_combo(copy.deepcopy(self._base), combo)
+                orchestrator = BacktestOrchestrator(cfg, self._strategy_cls, self._cbbo)
+                bt_results = orchestrator.run(days)
+                report = generate_report(bt_results)
+                results.append((combo, self._extract(report)))
+            return results
+
+        ctx = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(
+            max_workers=self._n_workers,
+            mp_context=ctx,
+            initializer=_init_worker,
+            initargs=(self._base, self._strategy_cls, self._cbbo, days),
+        ) as pool:
+            return list(pool.map(_run_one_combo, combos))
 
     def _make_windows(self) -> List[Tuple[List, List]]:
         """Ratio-based anchored splitting on unique dates.

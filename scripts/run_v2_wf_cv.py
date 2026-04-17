@@ -28,12 +28,12 @@ PARAM_GRID = {
     "options.em_with_trend":          [0.5, 0.75, 1.0],
     "options.width_with_trend":       [10, 15, 20],
     "options.tp_pct_of_credit":       [0.65, 0.75],
-    "options.hold_put_breach":        [True],
+    "options.hold_put_breach":        [True, False],
     "options.min_em_pts":             [0, 10, 15, 20],
     "strategy.midline_tolerance_pts": [1.0, 3.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*3*2*4*2 = 144
+# Combos = 3*3*2*2*4*2 = 288
 
 
 def _strategy_cls(config):
@@ -77,6 +77,8 @@ def main():
                         choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
     parser.add_argument("--require-all-folds-profitable", action="store_true",
                         help="Only consider combos profitable in EVERY fold (anti-overfitting)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Parallel worker processes for combo evaluation (default 1; use os.cpu_count() to max out)")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -103,7 +105,7 @@ def main():
     n_combos = 1
     for vs in PARAM_GRID.values():
         n_combos *= len(vs)
-    print(f"Grid: {n_combos} combos, WF-CV: ratio={args.ratio}:1, folds={args.folds}, top-k={args.top_k}\n")
+    print(f"Grid: {n_combos} combos, WF-CV: ratio={args.ratio}:1, folds={args.folds}, top-k={args.top_k}, workers={args.workers}\n")
 
     strategy_class = _strategy_cls(config)
     opt = WalkForwardOptimizer(
@@ -119,6 +121,7 @@ def main():
         objective=args.objective,
         min_sharpe=args.min_sharpe,
         require_all_folds_profitable=args.require_all_folds_profitable,
+        n_workers=args.workers,
     )
 
     start_time = time.time()
