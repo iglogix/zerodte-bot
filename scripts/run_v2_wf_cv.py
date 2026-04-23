@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from datetime import date
@@ -23,17 +24,20 @@ from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
 
-# Directional grid — works for all retest modes (set in config)
+# Stage 2 — tail-risk-aware grid (2026-04-17)
+# Sweeps tp_pct + both hold_*_breach axes + width to find configs that
+# bound max loss while preserving PnL.
 PARAM_GRID = {
-    "options.em_with_trend":          [0.5, 0.75, 1.0],
+    "options.em_with_trend":          [0.5, 0.75],
     "options.width_with_trend":       [10, 15, 20],
-    "options.tp_pct_of_credit":       [0.65, 0.75],
+    "options.tp_pct_of_credit":       [0.30, 0.50, 0.65, 0.75],
     "options.hold_put_breach":        [True, False],
-    "options.min_em_pts":             [0, 10, 15, 20],
-    "strategy.midline_tolerance_pts": [1.0, 3.0],
+    "options.hold_call_breach":       [True, False],
+    "options.min_em_pts":             [15, 20],
+    "strategy.midline_tolerance_pts": [3.0],
     "strategy.orb_range_filter.min_pts": [2.0],
 }
-# Combos = 3*3*2*2*4*2 = 288
+# Combos = 2*3*4*2*2*2 = 192
 
 
 def _strategy_cls(config):
@@ -77,8 +81,9 @@ def main():
                         choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
     parser.add_argument("--require-all-folds-profitable", action="store_true",
                         help="Only consider combos profitable in EVERY fold (anti-overfitting)")
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Parallel worker processes for combo evaluation (default 1; use os.cpu_count() to max out)")
+    default_workers = max(1, (os.cpu_count() or 2) - 2)
+    parser.add_argument("--workers", type=int, default=default_workers,
+                        help=f"Parallel worker processes (default {default_workers} = cpu_count - 2, leaves 2 cores free)")
     args = parser.parse_args()
 
     with open(args.config) as f:
