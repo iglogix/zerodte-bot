@@ -1,0 +1,80 @@
+bot:
+  name: "spx-0dte-open-ic"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "SPX"
+  strategy: "open_ic"
+
+# Time-window iron condor: enter once at configured time near the open.
+strategy:
+  market_open:     "09:30"
+  eod_force_close: "15:50"
+  skip_nfp_fridays: true
+  skip_fomc_days:   true
+  skip_cpi_days:    true
+
+entry:
+  entry_time: "09:35"          # tastytrade-style one-shot entry near open
+  stability_check: true
+  stability_fraction: 0.20      # 3-bar range / EM threshold
+  single_candle_fraction: 0.15
+  fallback_stability_pts: 12.0  # fallback when EM unavailable
+
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  target_short_delta: 0.25      # WF-CV winner (post bug-fix, 2023-09 → 2026-02)
+  wing_width: 25                # WF-CV winner
+  min_credit_per_spread: 0.05
+  max_credit_imbalance: 1.50    # max abs(call_credit - put_credit)
+  tp_pct_of_credit: 0.25        # tastytrade-style: close at 25% of credit
+  tp_mode: "total"              # close whole IC at tp_pct of TOTAL credit
+  sl_mult_of_credit: 2.0        # tastytrade "manage at 2× credit"
+  hold_put_breach: true         # no breach-based stop (vanilla TT)
+  hold_call_breach: true
+  spread_mode: "iron_condor"
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  quantity: 1
+  commission_per_contract_per_leg: 1.0
+  monitor_poll_seconds: 30
+  pricing_model: "bs"
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "spx_0dte_open_ic.db"
+  cache_db: "data/spx_0dte_open_ic_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_spx_0dte_open_ic"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+# Optional regime filter (prior-day VIX9D close)
+regime:
+  enabled: false                # toggle via grid
+  vix_csv: "data/vix9d_daily.csv"
+  vix_min: null
+  vix_max: null
+
+backtest:
+  data_dir: "data"
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2022-05-11"
+  end_date: "2026-02-28"

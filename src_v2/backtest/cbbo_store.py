@@ -33,12 +33,24 @@ class CbboStore:
         self._mem_cache: Optional[Dict] = preloaded
 
     @staticmethod
-    def preload_cache(cache_dir: str | Path) -> Dict:
-        """Load all pickle files into memory. Returns {date: QuoteMap}."""
+    def preload_cache(
+        cache_dir: str | Path,
+        start: Optional[date] = None,
+        end: Optional[date] = None,
+    ) -> Dict:
+        """Load pickle files into memory. Returns {date: QuoteMap}.
+
+        Optional start/end (inclusive) restrict which days are loaded — useful
+        for keeping forked-worker memory in check on long backtests.
+        """
         cache_path = Path(cache_dir)
         mem: Dict = {}
         for pkl in sorted(cache_path.glob("*.pkl")):
             d = date.fromisoformat(pkl.stem)
+            if start and d < start:
+                continue
+            if end and d > end:
+                continue
             with open(pkl, "rb") as f:
                 mem[d] = pickle.load(f)
         return mem

@@ -36,6 +36,9 @@ def _strategy_cls(config):
     if name == "orb_em_directional":
         from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
         return OrbEmDirectionalStrategy
+    if name == "open_ic":
+        from src_v2.strategies.open_ic import OpenIcStrategy
+        return OpenIcStrategy
     raise ValueError(f"Unsupported strategy for backtest: {name}")
 
 

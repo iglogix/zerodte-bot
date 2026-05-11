@@ -205,10 +205,18 @@ class PositionMonitor:
                 logger.warning("[STOP-LOSS] %s: %s", trade_id, exit_action.reason)
                 for sym in exit_action.legs_to_close:
                     await self._close_leg(trade_id, sym, "stop_loss_leg", reason="stop_loss")
-                await self.db.update_trade(trade_id, {
-                    "status": "closed",
-                    "close_reason": exit_action.reason,
-                })
+                # Mark trade fully closed only if ALL legs are now closed.
+                # Otherwise leave it open so the remaining side keeps being monitored
+                # (intraday breaches / TP / trailing logic still apply).
+                refreshed = await self.db.get_trade(trade_id) if hasattr(self.db, "get_trade") else None
+                if refreshed is None:
+                    open_trades = await self.db.get_open_trades()
+                    refreshed = next((t for t in open_trades if t.get("trade_id") == trade_id), None)
+                if refreshed is None or not self._any_legs_remain(refreshed):
+                    await self.db.update_trade(trade_id, {
+                        "status": "closed",
+                        "close_reason": exit_action.reason,
+                    })
                 return
 
             # Trailing stop update
@@ -378,6 +386,14 @@ class PositionMonitor:
             return symbol not in symbols
         except Exception:
             return False
+
+    @staticmethod
+    def _any_legs_remain(trade: Dict[str, Any]) -> bool:
+        """True if any short/long leg symbol on the trade is still set."""
+        return any(trade.get(k) for k in (
+            "short_put_symbol", "long_put_symbol",
+            "short_call_symbol", "long_call_symbol",
+        ))
 
     async def _close_leg(
         self,

@@ -122,8 +122,11 @@ class BacktestOrchestrator:
             clock=clock,
         )
 
-        # Run OrbEngine (entry phase)
-        engine = OrbEngine(deps, strategy)
+        # Run the engine the strategy requires (OrbEngine, WindowEntryEngine, etc.)
+        if hasattr(strategy, "create_engine"):
+            engine = strategy.create_engine(deps)
+        else:
+            engine = OrbEngine(deps, strategy)
         result = await engine.run()
 
         if result.outcome != "executed":
