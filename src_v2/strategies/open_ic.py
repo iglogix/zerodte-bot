@@ -35,6 +35,11 @@ class OpenIcStrategy(LiveStrategy):
         self._wing_width = opt.get("wing_width", 25)
         self._min_credit = opt.get("min_credit_per_spread", 0.10)
         self._max_credit_imbalance = opt.get("max_credit_imbalance", 1.00)
+        # tp_pct_of_credit is the EXIT THRESHOLD as a fraction of total credit:
+        #   value <= tp_pct_of_credit × credit  →  exit
+        # So tp_pct=0.75 means "exit when value drops to 75% of credit collected"
+        # which captures 25% of max profit (tastytrade's "25% TP" rule).
+        # And tp_pct=0.25 means "let value drop to 25% of credit" → capture 75% of max.
         self._tp_pct = opt.get("tp_pct_of_credit", 0.50)
         self._hold_put_breach = opt.get("hold_put_breach", False)
         self._hold_call_breach = opt.get("hold_call_breach", False)

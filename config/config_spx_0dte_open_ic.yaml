@@ -8,7 +8,7 @@ bot:
 # Time-window iron condor: enter once at configured time near the open.
 strategy:
   market_open:     "09:30"
-  eod_force_close: "15:50"
+  eod_force_close: "15:59"      # hold to settlement for vanilla-TT replica
   skip_nfp_fridays: true
   skip_fomc_days:   true
   skip_cpi_days:    true
@@ -27,8 +27,12 @@ options:
   wing_width: 25                # WF-CV winner
   min_credit_per_spread: 0.05
   max_credit_imbalance: 1.50    # max abs(call_credit - put_credit)
-  tp_pct_of_credit: 0.25        # tastytrade-style: close at 25% of credit
-  tp_mode: "total"              # close whole IC at tp_pct of TOTAL credit
+  # tp_pct_of_credit semantics: "exit when current IC value <= tp_pct × credit".
+  #   0.75 = canonical tastytrade "25% TP" (exit having captured 25% of max profit)
+  #   0.25 = late TP — let value drop to 25% of credit (capture 75% of max profit)
+  #   The WF-CV winner uses the *late* TP (0.25) combined with sl_mult=2.0.
+  tp_pct_of_credit: 0.25        # WF-CV winner: late TP (75% of max profit captured)
+  tp_mode: "total"              # close whole IC at tp_pct × TOTAL credit
   sl_mult_of_credit: 2.0        # tastytrade "manage at 2× credit"
   hold_put_breach: true         # no breach-based stop (vanilla TT)
   hold_call_breach: true

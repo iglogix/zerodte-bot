@@ -206,7 +206,7 @@ class BacktestOrchestrator:
                     reason = s_exit.get("reason", "closed")
                     exit_time = s_exit.get("time")
                     if "take_profit" in reason or "tp" in reason.lower():
-                        exit_reason = "tp_50pct"
+                        exit_reason = "take_profit"
                     elif "stop_loss" in reason or "breach" in reason.lower():
                         exit_reason = "short_breached"
                     elif "eod" in reason:
