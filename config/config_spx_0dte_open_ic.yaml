@@ -12,6 +12,8 @@ strategy:
   skip_nfp_fridays: true
   skip_fomc_days:   true
   skip_cpi_days:    true
+  skip_fomc_next_day: true      # WF-CV winner loses on FOMC+1; analysis 2026-05-12
+  skip_cpi_next_day:  false     # sweep candidate
 
 entry:
   entry_time: "09:35"          # tastytrade-style one-shot entry near open
@@ -19,6 +21,16 @@ entry:
   stability_fraction: 0.20      # 3-bar range / EM threshold
   single_candle_fraction: 0.15
   fallback_stability_pts: 12.0  # fallback when EM unavailable
+
+  # Opening-range gate: skip days where the first 5-min bar's range
+  # exceeds a fraction of the ATM straddle EM (proxy for "this day will be
+  # wide, breach probability elevated").
+  opening_range_filter:
+    enabled: true               # WF-CV v5 winner (2026-05-12)
+    window_start: "09:30"
+    window_end:   "09:35"
+    max_open_range_pts:     null
+    max_open_range_em_ratio: 0.5
 
 options:
   option_root: "SPXW"

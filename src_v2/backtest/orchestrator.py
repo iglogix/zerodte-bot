@@ -40,6 +40,8 @@ class BacktestOrchestrator:
         self._skip_nfp = strat.get("skip_nfp_fridays", False)
         self._skip_fomc = strat.get("skip_fomc_days", False)
         self._skip_cpi = strat.get("skip_cpi_days", False)
+        self._skip_fomc_next = strat.get("skip_fomc_next_day", False)
+        self._skip_cpi_next = strat.get("skip_cpi_next_day", False)
         self._market_open_str = strat.get("market_open", "09:30")
 
         opt = config.get("options", {})
@@ -63,6 +65,13 @@ class BacktestOrchestrator:
                 continue
             if self._skip_cpi and sd in _CPI_DATES:
                 results.append(self._skip(sd, day.symbol, "cpi_day"))
+                continue
+            from datetime import timedelta as _td
+            if self._skip_fomc_next and (sd - _td(days=1)) in _FOMC_DATES:
+                results.append(self._skip(sd, day.symbol, "fomc_next_day"))
+                continue
+            if self._skip_cpi_next and (sd - _td(days=1)) in _CPI_DATES:
+                results.append(self._skip(sd, day.symbol, "cpi_next_day"))
                 continue
 
             day_results = asyncio.run(self._run_day(day))

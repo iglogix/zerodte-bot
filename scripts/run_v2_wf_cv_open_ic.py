@@ -30,15 +30,20 @@ from src_v2.strategies.open_ic import OpenIcStrategy
 # Short delta + wing width are the primary axes; secondary axes capture
 # tail-risk/exit handling. Trim further if total combos balloon.
 PARAM_GRID = {
-    # tastytrade clone v3 (post bug-fix): un-stopped side IS now monitored,
-    # so the real exit dynamics are visible. Sweep both SL flavors plus vanilla TT.
-    "options.target_short_delta":   [0.10, 0.15, 0.20, 0.25],
-    "options.wing_width":           [15, 20, 25, 30],
-    "options.sl_mult_of_credit":    [0.0, 1.0, 1.5, 2.0],  # 0 = no SL (vanilla TT)
-    "options.hold_put_breach":      [False, True],          # True = vanilla TT (no breach stop)
-    "options.hold_call_breach":     [False, True],
+    # tastytrade clone v4: pin the WF-CV winner skeleton (late TP, sl=2x, hold breach),
+    # sweep new gates from the wins/losses analysis (2026-05-12):
+    #   - opening_range_filter: max 5-min range as multiple of ATM straddle EM
+    #   - skip_fomc_next_day / skip_cpi_next_day
+    "options.target_short_delta":            [0.20, 0.25],
+    "options.wing_width":                    [20, 25],
+    "options.sl_mult_of_credit":             [1.5, 2.0],
+    "options.tp_pct_of_credit":              [0.25, 0.50],          # late vs mid TP
+    "entry.opening_range_filter.enabled":    [False, True],
+    "entry.opening_range_filter.max_open_range_em_ratio": [0.30, 0.40, 0.50],
+    "strategy.skip_fomc_next_day":           [False, True],
+    "strategy.skip_cpi_next_day":            [False, True],
 }
-# Combos = 4 * 4 * 4 * 2 * 2 = 256
+# Combos = 2*2*2*2*2*3*2*2 = 192
 
 
 def _format_params(params):

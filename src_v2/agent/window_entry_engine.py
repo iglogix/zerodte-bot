@@ -50,6 +50,15 @@ class WindowEntryEngine(BaseEngine):
         self._vix_min = regime_cfg.get("vix_min", None)
         self._vix_max = regime_cfg.get("vix_max", None)
 
+        # Opening-range gate: skip when the first 5-min bar's range exceeds
+        # `max_open_range_em_ratio × ATM straddle EM`.
+        open_gate = entry_cfg.get("opening_range_filter", {})
+        self._open_gate_enabled = open_gate.get("enabled", False)
+        self._open_window_start = open_gate.get("window_start", "09:30")
+        self._open_window_end = open_gate.get("window_end", "09:35")
+        self._open_max_em_ratio = open_gate.get("max_open_range_em_ratio", None)
+        self._open_max_pts = open_gate.get("max_open_range_pts", None)
+
     async def run(self) -> CycleResult:
         et_h, et_m = [int(x) for x in self._entry_time_str.split(":")]
         target = time(et_h, et_m)
@@ -97,6 +106,12 @@ class WindowEntryEngine(BaseEngine):
         except Exception as exc:
             return CycleResult(outcome="error", reason=f"candidates_failed: {exc}").finish()
 
+        # Opening-range gate fires after candidates so we have EM from strategy.
+        if self._open_gate_enabled:
+            block = self._opening_range_check()
+            if block:
+                return CycleResult(outcome="waited", reason=block).finish()
+
         if candidates.get("candidates_found", 0) == 0:
             return CycleResult(outcome="waited", reason="no_candidates").finish()
 
@@ -126,6 +141,37 @@ class WindowEntryEngine(BaseEngine):
             trade=trade_result,
             candidates_found=candidates.get("candidates_found", 0),
         ).finish()
+
+    def _opening_range_check(self) -> Optional[str]:
+        """Compute the opening 5-min bar's range and gate entry on it.
+
+        Blocks if range > max_open_range_pts (absolute), or > max_open_range_em_ratio × EM.
+        """
+        th = self.deps.tool_handlers
+        bars = getattr(th, "_bars", None)
+        if not bars:
+            return None  # live mode: skip silently (could call 5min handler instead)
+        from datetime import time as _time
+        sh, sm = [int(x) for x in self._open_window_start.split(":")]
+        eh, em_ = [int(x) for x in self._open_window_end.split(":")]
+        st = _time(sh, sm)
+        et = _time(eh, em_)
+        window = [b for b in bars if st <= b["ts_et"].time() < et]
+        if not window:
+            return None
+        rng = max(b["high"] for b in window) - min(b["low"] for b in window)
+
+        if self._open_max_pts is not None and rng > self._open_max_pts:
+            return f"opening_range_skip: range={rng:.1f}pts > max_pts={self._open_max_pts}"
+
+        if self._open_max_em_ratio is not None:
+            em = getattr(self.strategy, "_last_em_pts", None)
+            if em and em > 0:
+                ratio = rng / em
+                if ratio > self._open_max_em_ratio:
+                    return (f"opening_range_skip: range={rng:.1f}/EM={em:.1f}="
+                            f"{ratio:.2f} > {self._open_max_em_ratio}")
+        return None
 
     def _regime_check(self) -> Optional[str]:
         from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
