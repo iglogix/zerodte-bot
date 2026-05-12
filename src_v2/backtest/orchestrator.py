@@ -42,6 +42,17 @@ class BacktestOrchestrator:
         self._skip_cpi = strat.get("skip_cpi_days", False)
         self._skip_fomc_next = strat.get("skip_fomc_next_day", False)
         self._skip_cpi_next = strat.get("skip_cpi_next_day", False)
+        # weekday skip list — e.g. ["Fri"] to skip Fridays.
+        # Accepts short ("Mon"-"Sun") or numeric (0=Mon..6=Sun).
+        raw_wd = strat.get("skip_weekdays", []) or []
+        _name_to_idx = {n: i for i, n in enumerate(
+            ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])}
+        self._skip_weekdays = set()
+        for w in raw_wd:
+            if isinstance(w, int):
+                self._skip_weekdays.add(w)
+            elif isinstance(w, str) and w[:3].title() in _name_to_idx:
+                self._skip_weekdays.add(_name_to_idx[w[:3].title()])
         self._market_open_str = strat.get("market_open", "09:30")
 
         opt = config.get("options", {})
@@ -72,6 +83,9 @@ class BacktestOrchestrator:
                 continue
             if self._skip_cpi_next and (sd - _td(days=1)) in _CPI_DATES:
                 results.append(self._skip(sd, day.symbol, "cpi_next_day"))
+                continue
+            if sd.weekday() in self._skip_weekdays:
+                results.append(self._skip(sd, day.symbol, f"weekday_skip_{sd.strftime('%a')}"))
                 continue
 
             day_results = asyncio.run(self._run_day(day))

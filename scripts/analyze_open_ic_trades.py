@@ -25,23 +25,18 @@ from src_v2.strategies.open_ic import OpenIcStrategy
 
 
 CONFIGS = {
-    "WF-CV winner": {
+    "WF-CV v5 winner (with new gates)": {
         "options.target_short_delta": 0.25,
         "options.wing_width": 25,
-        "options.tp_pct_of_credit": 0.25,   # late TP
+        "options.tp_pct_of_credit": 0.25,
         "options.tp_mode": "total",
         "options.sl_mult_of_credit": 2.0,
         "options.hold_put_breach": True,
         "options.hold_call_breach": True,
-    },
-    "Vanilla TT": {
-        "options.target_short_delta": 0.25,
-        "options.wing_width": 20,
-        "options.tp_pct_of_credit": 0.75,   # canonical TT "25% TP"
-        "options.tp_mode": "total",
-        "options.sl_mult_of_credit": 0.0,
-        "options.hold_put_breach": True,
-        "options.hold_call_breach": True,
+        "entry.opening_range_filter.enabled": True,
+        "entry.opening_range_filter.max_open_range_em_ratio": 0.5,
+        "strategy.skip_fomc_next_day": True,
+        "strategy.skip_cpi_next_day": False,
     },
 }
 
