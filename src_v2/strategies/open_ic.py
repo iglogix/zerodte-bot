@@ -41,6 +41,21 @@ class OpenIcStrategy(LiveStrategy):
         # which captures 25% of max profit (tastytrade's "25% TP" rule).
         # And tp_pct=0.25 means "let value drop to 25% of credit" → capture 75% of max.
         self._tp_pct = opt.get("tp_pct_of_credit", 0.50)
+        # Optional time-decaying TP: linearly interpolate from tp_pct_of_credit (at entry)
+        # to tp_pct_of_credit_end (at eod_force_close) over the trade's life.
+        #   tp_pct=0.25, tp_pct_end=0.75 → start strict (capture 75% of max), end loose
+        #   (will exit on any sliver of profit by EOD).
+        # Set tp_pct_end == tp_pct (or omit) to disable.
+        self._tp_pct_end = opt.get("tp_pct_of_credit_end", None)
+        # Trailing-stop on captured profit. Activates once we've captured at least
+        # `trail_activate_at_captured` of credit (mark <= (1 - X) × credit). After
+        # activation we track the lowest mark seen; exit when mark rises back by
+        # `trail_give_back_pct` of the captured-at-low profit.
+        # Set trail_activate_at_captured=0 (default) to disable.
+        self._trail_activate = opt.get("trail_activate_at_captured", 0.0)
+        self._trail_give_back = opt.get("trail_give_back_pct", 0.30)
+        # Per-trade state for the trailing stop (in-process; backtest only resets per run).
+        self._trail_state: Dict[str, Dict[str, Any]] = {}
         self._hold_put_breach = opt.get("hold_put_breach", False)
         self._hold_call_breach = opt.get("hold_call_breach", False)
         self._slippage = opt.get("slippage_per_spread", 0.10)
@@ -59,11 +74,18 @@ class OpenIcStrategy(LiveStrategy):
         h, m = [int(x) for x in market_close.split(":")]
         self._market_close = time(h, m)
 
+        eod = config.get("strategy", {}).get("eod_force_close", "15:59")
+        eh, em_ = [int(x) for x in eod.split(":")]
+        self._eod_time = time(eh, em_)
+
         self._now_dt: Optional[datetime] = None  # injected by engine
         self._last_em_pts: Optional[float] = None
 
     def create_engine(self, deps: EngineDeps) -> BaseEngine:
         from src_v2.agent.window_entry_engine import WindowEntryEngine
+        from src_v2.backtest.sim_clock import WallClock
+        # Save the clock so check_exit can read current time for dynamic-TP ramping.
+        self._clock_ref = deps.clock or WallClock()
         return WindowEntryEngine(deps, self)
 
     # ------------------------------------------------------------------
@@ -219,11 +241,99 @@ class OpenIcStrategy(LiveStrategy):
     # Exit
     # ------------------------------------------------------------------
 
+    def _check_profit_trail(
+        self,
+        trade: Dict[str, Any],
+        quotes: Dict[str, Dict[str, Any]],
+    ) -> Optional[ExitAction]:
+        """Trailing profit ratchet.
+
+        Activates once we've captured at least `_trail_activate` × credit
+        (mark ≤ (1 - activate) × credit). After activation, track the lowest
+        mark seen; exit when mark rises back by `_trail_give_back` of the
+        captured-at-low profit.
+        """
+        put_mark = self._spread_mark(trade, "put", quotes)
+        call_mark = self._spread_mark(trade, "call", quotes)
+        if put_mark is None or call_mark is None:
+            return None
+        total_mark = put_mark + call_mark
+        total_credit = trade.get("put_credit", 0) + trade.get("call_credit", 0)
+        if total_credit <= 0:
+            return None
+
+        trade_id = trade.get("trade_id", "")
+        st = self._trail_state.setdefault(trade_id, {"activated": False, "low": float("inf")})
+
+        # Activate once mark drops below (1 - activate) × credit
+        activate_mark = (1.0 - self._trail_activate) * total_credit
+        if not st["activated"] and total_mark <= activate_mark:
+            st["activated"] = True
+            st["low"] = total_mark
+            return None
+
+        if not st["activated"]:
+            return None
+
+        # Update low-water mark
+        if total_mark < st["low"]:
+            st["low"] = total_mark
+            return None
+
+        captured = total_credit - st["low"]
+        if captured <= 0:
+            return None
+        give_back_dollars = self._trail_give_back * captured
+        exit_level = st["low"] + give_back_dollars
+
+        if total_mark >= exit_level:
+            return ExitAction(
+                action="take_profit",
+                legs_to_close=self._all_leg_symbols(trade),
+                reason=(f"trail: mark={total_mark:.2f} >= exit={exit_level:.2f} "
+                        f"(low={st['low']:.2f}, captured={captured:.2f})"),
+            )
+        return None
+
+    def _current_tp_pct(self, trade: Dict[str, Any]) -> float:
+        """Time-ramp tp_pct from initial → end over the trade's life."""
+        if self._tp_pct_end is None or self._tp_pct_end == self._tp_pct:
+            return self._tp_pct
+        clock = getattr(self, "_clock_ref", None)
+        entry_time = trade.get("entry_time")
+        if clock is None or entry_time is None:
+            return self._tp_pct
+        from zoneinfo import ZoneInfo as _ZI
+        ET = _ZI("America/New_York")
+        now = clock.now(ET)
+        from datetime import datetime as _dt
+        eod_dt = _dt(now.year, now.month, now.day,
+                     self._eod_time.hour, self._eod_time.minute, tzinfo=now.tzinfo)
+        # entry_time may be naive (no tz); fall back to using now.date for math.
+        if hasattr(entry_time, "tzinfo") and entry_time.tzinfo is None:
+            entry_dt = entry_time.replace(tzinfo=now.tzinfo)
+        else:
+            entry_dt = entry_time
+        total = (eod_dt - entry_dt).total_seconds()
+        elapsed = (now - entry_dt).total_seconds()
+        if total <= 0:
+            return self._tp_pct_end
+        f = max(0.0, min(1.0, elapsed / total))
+        return self._tp_pct + (self._tp_pct_end - self._tp_pct) * f
+
     def check_exit(
         self,
         trade: Dict[str, Any],
         quotes: Dict[str, Dict[str, Any]],
     ) -> ExitAction:
+        tp_pct = self._current_tp_pct(trade)
+
+        # Trailing profit ratchet — only meaningful while both sides are open.
+        if self._trail_activate > 0:
+            trail_action = self._check_profit_trail(trade, quotes)
+            if trail_action is not None:
+                return trail_action
+
         # Total-credit TP: close ALL legs when combined mark <= tp_pct * total_credit.
         if self._tp_mode == "total":
             put_mark = self._spread_mark(trade, "put", quotes)
@@ -231,7 +341,7 @@ class OpenIcStrategy(LiveStrategy):
             if put_mark is not None and call_mark is not None:
                 total_credit = trade.get("put_credit", 0) + trade.get("call_credit", 0)
                 if total_credit > 0:
-                    tp_debit = total_credit * self._tp_pct
+                    tp_debit = total_credit * tp_pct
                     if (put_mark + call_mark) <= tp_debit:
                         legs = self._all_leg_symbols(trade)
                         return ExitAction(
@@ -257,7 +367,7 @@ class OpenIcStrategy(LiveStrategy):
 
             # Per-side TP (only in per_side mode)
             if self._tp_mode == "per_side":
-                tp_debit = credit * self._tp_pct
+                tp_debit = credit * tp_pct
                 if credit > 0 and mark <= tp_debit:
                     return ExitAction(
                         action="take_profit",
