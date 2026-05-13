@@ -17,17 +17,27 @@ strategy:
   skip_weekdays:      ["Fri"]   # Fri systematically loses post-v5-gates (mean -$17/day)
 
 entry:
-  entry_time: "09:35"          # tastytrade-style one-shot entry near open
+  # entry_mode:
+  #   "fixed_time" — original: enter at exactly entry_time (with optional stability/opening-range gates)
+  #   "post_move"  — wait from watch_start; enter once cumulative high-low range
+  #                  crosses trigger_em_ratio × ATM-straddle EM (IV peak strategy)
+  entry_mode: "fixed_time"
+  entry_time: "09:35"
   stability_check: true
-  stability_fraction: 0.20      # 3-bar range / EM threshold
+  stability_fraction: 0.20
   single_candle_fraction: 0.15
-  fallback_stability_pts: 12.0  # fallback when EM unavailable
+  fallback_stability_pts: 12.0
 
-  # Opening-range gate: skip days where the first 5-min bar's range
-  # exceeds a fraction of the ATM straddle EM (proxy for "this day will be
-  # wide, breach probability elevated").
+  # Used only when entry_mode == "post_move"
+  post_move:
+    watch_start: "09:30"
+    watch_end:   "10:30"
+    trigger_em_ratio: 0.30        # cumulative range ≥ 0.30 × EM
+    trigger_pts: null              # optional absolute fallback (pts)
+
+  # Used only when entry_mode == "fixed_time"
   opening_range_filter:
-    enabled: true               # WF-CV v5 winner (2026-05-12)
+    enabled: true                 # WF-CV v5 winner (per-side SL legacy mode)
     window_start: "09:30"
     window_end:   "09:35"
     max_open_range_pts:     null
@@ -36,8 +46,11 @@ entry:
 options:
   option_root: "SPXW"
   strike_step_pts: 5
-  target_short_delta: 0.25      # WF-CV winner (post bug-fix, 2023-09 → 2026-02)
-  wing_width: 25                # WF-CV winner
+  # strike_mode: "em_mult" (default, model-free) or "delta" (BS-based, unreliable for 0DTE)
+  strike_mode: "em_mult"
+  em_mult: 0.35                 # WF-CV v6 winner: shorts at spot ± 0.35 × ATM-straddle
+  target_short_delta: 0.25      # legacy delta-mode parameter (unused unless strike_mode=delta)
+  wing_width: 30                # WF-CV v6 winner — MUST be multiple of strike_step_pts (5)
   min_credit_per_spread: 0.05
   max_credit_imbalance: 1.50    # max abs(call_credit - put_credit)
   # tp_pct_of_credit semantics: "exit when current IC value <= tp_pct × credit".
@@ -46,7 +59,9 @@ options:
   #   The WF-CV winner uses the *late* TP (0.25) combined with sl_mult=2.0.
   tp_pct_of_credit: 0.25        # WF-CV winner: late TP (75% of max profit captured)
   tp_mode: "total"              # close whole IC at tp_pct × TOTAL credit
-  sl_mult_of_credit: 2.0        # tastytrade "manage at 2× credit"
+  sl_mult_of_credit: 1.5        # tighter than canonical 2.0 — WF-CV winner
+  sl_scope: "total"             # "total" = SL on combined mark (TT canon)
+                                # "per_side" = asymmetric leg-out (research-only)
   hold_put_breach: true         # no breach-based stop (vanilla TT)
   hold_call_breach: true
   spread_mode: "iron_condor"

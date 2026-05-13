@@ -31,7 +31,17 @@ class OpenIcStrategy(LiveStrategy):
     def configure(self, config: Dict[str, Any]) -> None:
         opt = config.get("options", {})
         self._strike_step = opt.get("strike_step_pts", 5.0)
+        # strike_mode:
+        #   "delta"   — pick shorts at target_short_delta via BS inversion of ATM
+        #               straddle (legacy; BS unreliable for 0DTE).
+        #   "em_mult" — pick shorts at spot ± em_mult × EM, where
+        #               EM = ATM straddle mid (tastytrade-style, model-free).
+        self._strike_mode = opt.get("strike_mode", "delta")
         self._target_short_delta = opt.get("target_short_delta", 0.15)
+        self._em_mult = opt.get("em_mult", 0.30)
+        # Optional asymmetric EM multipliers per side; default both = em_mult.
+        self._em_mult_put = opt.get("em_mult_put", None)
+        self._em_mult_call = opt.get("em_mult_call", None)
         self._wing_width = opt.get("wing_width", 25)
         self._min_credit = opt.get("min_credit_per_spread", 0.10)
         self._max_credit_imbalance = opt.get("max_credit_imbalance", 1.00)
@@ -62,6 +72,15 @@ class OpenIcStrategy(LiveStrategy):
         self._multiplier = opt.get("contract_multiplier", 100)
         self._quantity = opt.get("quantity", 1)
         self._sl_mult = opt.get("sl_mult_of_credit", 0.0)
+        # sl_scope decouples SL from tp_mode:
+        #   "total"    — SL fires when (put_mark + call_mark) >= sl_mult × total_credit;
+        #                closes the WHOLE IC.  Canonical "manage IC as one position".
+        #   "per_side" — SL fires per-side when side_mark >= sl_mult × side_credit;
+        #                only that side closes (asymmetric leg-out — the un-stopped
+        #                side keeps running and decays to ~0 by EOD).
+        #                Empirically a strong edge in CBBO data (+$15k vs total $4k),
+        #                kept as an option for comparison/research.
+        self._sl_scope = opt.get("sl_scope", "total")
         # tp_mode: "per_side" closes one side when that side's spread mark <= tp_pct*side_credit.
         #          "total"     closes the WHOLE IC when (call_mark+put_mark) <= tp_pct*total_credit
         #                      (tastytrade-style: close at X% of max profit).
@@ -100,26 +119,36 @@ class OpenIcStrategy(LiveStrategy):
         if not chain or spot <= 0:
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
 
-        t = self._time_to_expiration_years()
-        if t <= 0:
-            return {"candidates_found": 0, "top_candidate": None, "candidates": []}
-
         chain_by = self._chain_map(chain)
 
-        iv = self._derive_iv_from_atm(chain_by, spot, t)
-        if iv is None:
+        # Compute model-free EM from ATM straddle (no BS needed for this).
+        em = self._compute_em_from_straddle(chain_by, spot)
+        if em is None or em <= 0:
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
-
-        em = iv * spot * math.sqrt(t)
         self._last_em_pts = em
 
-        # Find short strikes by target delta on each side.
-        short_call_k = self._find_strike_for_delta(
-            chain_by, spot, self._target_short_delta, "call", t, iv,
-        )
-        short_put_k = self._find_strike_for_delta(
-            chain_by, spot, self._target_short_delta, "put", t, iv,
-        )
+        if self._strike_mode == "em_mult":
+            # Model-free strike selection at multiples of EM.
+            put_mult = (self._em_mult_put if self._em_mult_put is not None
+                        else self._em_mult)
+            call_mult = (self._em_mult_call if self._em_mult_call is not None
+                         else self._em_mult)
+            short_call_k = math.ceil((spot + call_mult * em) / self._strike_step) * self._strike_step
+            short_put_k = math.floor((spot - put_mult * em) / self._strike_step) * self._strike_step
+        else:
+            # Legacy delta mode (BS inversion — unreliable for 0DTE).
+            t = self._time_to_expiration_years()
+            if t <= 0:
+                return {"candidates_found": 0, "top_candidate": None, "candidates": []}
+            iv = self._derive_iv_from_atm(chain_by, spot, t)
+            if iv is None:
+                return {"candidates_found": 0, "top_candidate": None, "candidates": []}
+            short_call_k = self._find_strike_for_delta(
+                chain_by, spot, self._target_short_delta, "call", t, iv,
+            )
+            short_put_k = self._find_strike_for_delta(
+                chain_by, spot, self._target_short_delta, "put", t, iv,
+            )
         if short_call_k is None or short_put_k is None:
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
 
@@ -148,9 +177,6 @@ class OpenIcStrategy(LiveStrategy):
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
 
         total_credit = round(call_credit + put_credit, 2)
-        call_delta = bs_call_delta(spot, short_call_k, t, iv)
-        put_delta = abs(bs_put_delta(spot, short_put_k, t, iv))
-
         setup = LiveTradeSetup(
             strategy_type="open_ic",
             legs=[
@@ -169,12 +195,10 @@ class OpenIcStrategy(LiveStrategy):
             extra={
                 "put_credit": put_credit,
                 "call_credit": call_credit,
-                "iv": round(iv, 4),
                 "em_pts": round(em, 2),
+                "strike_mode": self._strike_mode,
                 "wing_width": self._wing_width,
-                "target_short_delta": self._target_short_delta,
-                "call_delta": round(call_delta, 4),
-                "put_delta": round(put_delta, 4),
+                "em_mult_used": self._em_mult,
             },
         )
 
@@ -334,21 +358,30 @@ class OpenIcStrategy(LiveStrategy):
             if trail_action is not None:
                 return trail_action
 
-        # Total-credit TP: close ALL legs when combined mark <= tp_pct * total_credit.
+        # Total-credit TP / SL: treat the IC as a single position.
+        # Close ALL legs when combined mark crosses either threshold.
         if self._tp_mode == "total":
             put_mark = self._spread_mark(trade, "put", quotes)
             call_mark = self._spread_mark(trade, "call", quotes)
             if put_mark is not None and call_mark is not None:
                 total_credit = trade.get("put_credit", 0) + trade.get("call_credit", 0)
+                total_mark = put_mark + call_mark
                 if total_credit > 0:
                     tp_debit = total_credit * tp_pct
-                    if (put_mark + call_mark) <= tp_debit:
-                        legs = self._all_leg_symbols(trade)
+                    if total_mark <= tp_debit:
                         return ExitAction(
                             action="take_profit",
-                            legs_to_close=legs,
-                            reason=f"total TP: mark={put_mark + call_mark:.2f} <= tp={tp_debit:.2f}",
+                            legs_to_close=self._all_leg_symbols(trade),
+                            reason=f"total TP: mark={total_mark:.2f} <= tp={tp_debit:.2f}",
                         )
+                    if self._sl_mult > 0 and self._sl_scope == "total":
+                        sl_debit = total_credit * self._sl_mult
+                        if total_mark >= sl_debit:
+                            return ExitAction(
+                                action="stop_loss",
+                                legs_to_close=self._all_leg_symbols(trade),
+                                reason=f"total SL: mark={total_mark:.2f} >= sl={sl_debit:.2f}",
+                            )
 
         for side, short_key, long_key in [
             ("put", "short_put_symbol", "long_put_symbol"),
@@ -375,8 +408,8 @@ class OpenIcStrategy(LiveStrategy):
                         reason=f"{side} TP: mark={mark:.2f} <= tp={tp_debit:.2f}",
                     )
 
-            # Credit-multiple stop loss: mark >= sl_mult * credit (always per-side)
-            if self._sl_mult > 0 and credit > 0:
+            # Per-side SL fires when sl_scope == "per_side" (regardless of tp_mode).
+            if self._sl_scope == "per_side" and self._sl_mult > 0 and credit > 0:
                 sl_debit = credit * self._sl_mult
                 if mark >= sl_debit:
                     legs = (self._all_leg_symbols(trade)
@@ -442,6 +475,28 @@ class OpenIcStrategy(LiveStrategy):
         )
         seconds = max(0.0, (close_dt - now).total_seconds())
         return seconds / (365.0 * 24.0 * 3600.0)
+
+    def _compute_em_from_straddle(
+        self, chain_by: Dict, spot: float,
+    ) -> Optional[float]:
+        """ATM straddle mid as the model-free expected move (in points)."""
+        step = self._strike_step
+        atm_k = round(spot / step) * step
+        call = chain_by.get((atm_k, "call"))
+        put = chain_by.get((atm_k, "put"))
+        if not call or not put:
+            strikes = sorted({k for (k, _) in chain_by.keys()})
+            if not strikes:
+                return None
+            atm_k = min(strikes, key=lambda k: abs(k - spot))
+            call = chain_by.get((atm_k, "call"))
+            put = chain_by.get((atm_k, "put"))
+        if not call or not put:
+            return None
+        c_mid = _mid(call); p_mid = _mid(put)
+        if c_mid is None or p_mid is None:
+            return None
+        return c_mid + p_mid
 
     def _derive_iv_from_atm(
         self, chain_by: Dict, spot: float, t: float,

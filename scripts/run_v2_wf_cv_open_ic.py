@@ -30,20 +30,18 @@ from src_v2.strategies.open_ic import OpenIcStrategy
 # Short delta + wing width are the primary axes; secondary axes capture
 # tail-risk/exit handling. Trim further if total combos balloon.
 PARAM_GRID = {
-    # tastytrade clone v4: pin the WF-CV winner skeleton (late TP, sl=2x, hold breach),
-    # sweep new gates from the wins/losses analysis (2026-05-12):
-    #   - opening_range_filter: max 5-min range as multiple of ATM straddle EM
-    #   - skip_fomc_next_day / skip_cpi_next_day
-    "options.target_short_delta":            [0.20, 0.25],
-    "options.wing_width":                    [20, 25],
-    "options.sl_mult_of_credit":             [1.5, 2.0],
-    "options.tp_pct_of_credit":              [0.25, 0.50],          # late vs mid TP
-    "entry.opening_range_filter.enabled":    [False, True],
-    "entry.opening_range_filter.max_open_range_em_ratio": [0.30, 0.40, 0.50],
-    "strategy.skip_fomc_next_day":           [False, True],
-    "strategy.skip_cpi_next_day":            [False, True],
+    # v6 (2026-05-13): EM-multiplier strike mode replaces BS-delta picker.
+    # Focused grid on em_mult × wing × sl_mult × tp; gates pinned to winners.
+    "options.strike_mode":          ["em_mult"],
+    "options.em_mult":              [0.25, 0.30, 0.35, 0.40],
+    "options.wing_width":           [20, 25, 30],
+    "options.sl_mult_of_credit":    [1.5, 2.0],
+    "options.sl_scope":             ["total"],
+    "options.tp_pct_of_credit":     [0.25, 0.50],
+    "strategy.skip_fomc_next_day":  [True],
+    "strategy.skip_weekdays":       [["Fri"]],
 }
-# Combos = 2*2*2*2*2*3*2*2 = 192
+# Combos = 1*4*3*2*1*2*1*1 = 48
 
 
 def _format_params(params):

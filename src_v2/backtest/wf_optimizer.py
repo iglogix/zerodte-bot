@@ -379,7 +379,13 @@ class WalkForwardOptimizer:
 
     @staticmethod
     def _combo_key(combo: Dict[str, Any]) -> tuple:
-        return tuple(sorted(combo.items()))
+        def _hashable(v):
+            if isinstance(v, list):
+                return tuple(v)
+            if isinstance(v, dict):
+                return tuple(sorted(v.items()))
+            return v
+        return tuple(sorted((k, _hashable(v)) for k, v in combo.items()))
 
     @staticmethod
     def _extract(report: Dict[str, Any]) -> Dict[str, Any]:

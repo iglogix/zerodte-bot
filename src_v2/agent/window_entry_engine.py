@@ -31,7 +31,20 @@ class WindowEntryEngine(BaseEngine):
         self._clock = deps.clock or WallClock()
 
         entry_cfg = deps.config.get("entry", {})
+        # entry_mode:
+        #   "fixed_time" — original: enter at exactly entry_time
+        #   "post_move"  — watch from watch_start; enter once cumulative move from
+        #                  watch_start crosses move_trigger_em_ratio × ATM-straddle EM
+        #                  (computed at watch_start). Bails at watch_end.
+        self._entry_mode = entry_cfg.get("entry_mode", "fixed_time")
         self._entry_time_str = entry_cfg.get("entry_time", "09:45")
+
+        post_move = entry_cfg.get("post_move", {})
+        self._watch_start_str = post_move.get("watch_start", "09:30")
+        self._watch_end_str = post_move.get("watch_end", "10:30")
+        self._move_trigger_em_ratio = post_move.get("trigger_em_ratio", 0.30)
+        self._move_trigger_pts = post_move.get("trigger_pts", None)  # absolute fallback
+
         self._stability_fraction = entry_cfg.get("stability_fraction", 0.15)
         self._single_candle_fraction = entry_cfg.get("single_candle_fraction", 0.10)
         self._fallback_stability_pts = entry_cfg.get("fallback_stability_pts", 8.0)
@@ -60,9 +73,13 @@ class WindowEntryEngine(BaseEngine):
         self._open_max_pts = open_gate.get("max_open_range_pts", None)
 
     async def run(self) -> CycleResult:
+        if self._entry_mode == "post_move":
+            return await self._run_post_move()
+        return await self._run_fixed_time()
+
+    async def _run_fixed_time(self) -> CycleResult:
         et_h, et_m = [int(x) for x in self._entry_time_str.split(":")]
         target = time(et_h, et_m)
-
         while True:
             now_et = self._clock.now(ET)
             now_t = now_et.time()
@@ -71,8 +88,105 @@ class WindowEntryEngine(BaseEngine):
             if now_t >= target:
                 break
             await self._clock.sleep(self._poll_interval)
-
         return await self._execute_entry()
+
+    async def _run_post_move(self) -> CycleResult:
+        """Wait from watch_start. Compute baseline EM at watch_start, then watch
+        cumulative high-low range until it crosses trigger_em_ratio × EM.
+        Enter on the next bar after trigger.  If we hit watch_end with no
+        trigger, skip the day.
+        """
+        ws_h, ws_m = [int(x) for x in self._watch_start_str.split(":")]
+        we_h, we_m = [int(x) for x in self._watch_end_str.split(":")]
+        watch_start = time(ws_h, ws_m)
+        watch_end = time(we_h, we_m)
+
+        # Sleep to watch_start
+        while True:
+            now_t = self._clock.now(ET).time()
+            if now_t >= self._eod:
+                return CycleResult(outcome="waited", reason="eod_no_entry").finish()
+            if now_t >= watch_start:
+                break
+            await self._clock.sleep(self._poll_interval)
+
+        # Capture baseline EM (compute from ATM straddle; retry up to 5 min if
+        # the very first bar's chain is incomplete).
+        baseline_em = None
+        for _ in range(5):
+            baseline_em = await self._compute_em()
+            if baseline_em and baseline_em > 0:
+                break
+            await self._clock.sleep(self._poll_interval)
+            if self._clock.now(ET).time() >= watch_end:
+                break
+        if baseline_em is None or baseline_em <= 0:
+            return CycleResult(outcome="waited", reason="no_em_at_watch_start").finish()
+
+        threshold_pts = (self._move_trigger_pts
+                         if self._move_trigger_pts is not None
+                         else self._move_trigger_em_ratio * baseline_em)
+
+        bars = getattr(self.deps.tool_handlers, "_bars", None)
+
+        # Poll bars until trigger or watch_end
+        while True:
+            now_dt = self._clock.now(ET)
+            now_t = now_dt.time()
+            if now_t >= watch_end:
+                return CycleResult(
+                    outcome="waited",
+                    reason=f"no_move_trigger (em={baseline_em:.1f} thr={threshold_pts:.1f})",
+                ).finish()
+
+            cur_range = self._cumulative_range(bars, watch_start, now_dt)
+            if cur_range is not None and cur_range >= threshold_pts:
+                await self._clock.sleep(self._poll_interval)
+                return await self._execute_entry()
+
+            await self._clock.sleep(self._poll_interval)
+
+    async def _compute_em(self) -> Optional[float]:
+        """Derive EM from ATM straddle at current time. Returns absolute pts."""
+        try:
+            chain = await self.deps.tool_handlers.get_option_chain(expiration="0DTE")
+            spot_data = await self.deps.tool_handlers.get_spx_price()
+            spot = spot_data.get("price", 0)
+        except Exception:
+            return None
+        if not chain or spot <= 0:
+            return None
+        # Find ATM strike
+        strikes = sorted({float(o.get("strike", 0)) for o in chain if o.get("strike")})
+        if not strikes:
+            return None
+        atm = min(strikes, key=lambda k: abs(k - spot))
+        call_mid = put_mid = None
+        for o in chain:
+            if float(o.get("strike", 0)) != atm:
+                continue
+            mid = ((o.get("bid", 0) + o.get("ask", 0)) / 2) if o.get("ask") else None
+            if mid is None or mid <= 0:
+                continue
+            if o.get("option_type", "").lower() == "call":
+                call_mid = mid
+            else:
+                put_mid = mid
+        if call_mid is None or put_mid is None:
+            return None
+        return call_mid + put_mid
+
+    @staticmethod
+    def _cumulative_range(bars, watch_start: time, now_dt) -> Optional[float]:
+        if not bars:
+            return None
+        # 1-min bars from watch_start through current minute
+        cur_t = now_dt.time()
+        chunk = [b for b in bars
+                 if watch_start <= b["ts_et"].time() <= cur_t]
+        if not chunk:
+            return None
+        return max(b["high"] for b in chunk) - min(b["low"] for b in chunk)
 
     async def _execute_entry(self) -> CycleResult:
         # Regime gate (prior-close VIX9D)
@@ -85,8 +199,10 @@ class WindowEntryEngine(BaseEngine):
         if len(candles) < 3:
             return CycleResult(outcome="waited", reason="insufficient_candles").finish()
 
-        # Stability guards (mirror ScheduledEngine)
-        if self._stability_check_enabled:
+        # Stability + opening-range gates only apply in fixed_time mode.
+        # post_move mode INVERTS the volatility logic (we WANT the recent move),
+        # so these gates would auto-reject valid setups.
+        if self._entry_mode != "post_move" and self._stability_check_enabled:
             block = self._stability_check(candles)
             if block:
                 return CycleResult(outcome="waited", reason=block).finish()
@@ -106,8 +222,8 @@ class WindowEntryEngine(BaseEngine):
         except Exception as exc:
             return CycleResult(outcome="error", reason=f"candidates_failed: {exc}").finish()
 
-        # Opening-range gate fires after candidates so we have EM from strategy.
-        if self._open_gate_enabled:
+        # Opening-range gate only in fixed_time mode (see comment above).
+        if self._entry_mode != "post_move" and self._open_gate_enabled:
             block = self._opening_range_check()
             if block:
                 return CycleResult(outcome="waited", reason=block).finish()
