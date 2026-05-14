@@ -30,18 +30,17 @@ from src_v2.strategies.open_ic import OpenIcStrategy
 # Short delta + wing width are the primary axes; secondary axes capture
 # tail-risk/exit handling. Trim further if total combos balloon.
 PARAM_GRID = {
-    # v6 (2026-05-13): EM-multiplier strike mode replaces BS-delta picker.
-    # Focused grid on em_mult × wing × sl_mult × tp; gates pinned to winners.
+    # v7 (2026-05-13): per-side SL + em_mult strikes.
     "options.strike_mode":          ["em_mult"],
-    "options.em_mult":              [0.25, 0.30, 0.35, 0.40],
+    "options.em_mult":              [0.20, 0.25, 0.30, 0.35],
     "options.wing_width":           [20, 25, 30],
-    "options.sl_mult_of_credit":    [1.5, 2.0],
-    "options.sl_scope":             ["total"],
+    "options.sl_mult_of_credit":    [1.5, 2.0, 2.5],
+    "options.sl_scope":             ["per_side"],
     "options.tp_pct_of_credit":     [0.25, 0.50],
     "strategy.skip_fomc_next_day":  [True],
     "strategy.skip_weekdays":       [["Fri"]],
 }
-# Combos = 1*4*3*2*1*2*1*1 = 48
+# Combos = 1*4*3*3*1*2*1*1 = 72
 
 
 def _format_params(params):
