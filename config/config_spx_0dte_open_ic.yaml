@@ -13,7 +13,9 @@ strategy:
   skip_fomc_days:   true
   skip_cpi_days:    true
   skip_fomc_next_day: true      # WF-CV winner loses on FOMC+1; analysis 2026-05-12
-  skip_cpi_next_day:  false     # sweep candidate
+  skip_cpi_next_day:  true      # enabled 2026-05-14 — slight Sharpe boost (1.93→1.98),
+                                # PnL impact ~-$760 across 14 days, reduces psych load
+                                # from CPI-week streaks (per loss-streak analysis)
   skip_weekdays:      ["Fri"]   # Fri systematically loses post-v5-gates (mean -$17/day)
 
 entry:
