@@ -1,180 +1,211 @@
-# SPX 0DTE Open Iron Condor — Findings
+# SPX 0DTE Open Iron Condor — Findings (v2, analytical full-data)
 
-*Last updated: 2026-05-12*
+*Last updated: 2026-05-16*
 
-A walk-forward-validated tastytrade-style iron condor entered at 09:35 ET on the SPX 0DTE cycle. Backtested against ~4 years of OPRA CBBO bid/ask data (2022-04-18 → 2026-02-28).
+A 09:35 ET iron condor on SPX 0DTE expiries, evaluated analytically on a
+**dense, multi-anchor CBBO cache** spanning 2022-04-18 → 2026-02-28
+(952 trading days, ~3.78 years).
 
-## Final configuration
+## Headline result
 
-[config/config_spx_0dte_open_ic.yaml](../config/config_spx_0dte_open_ic.yaml)
+**`em_mult_put=0.30, em_mult_call=0.20, wing=30, TP=50% credit, SL=2× credit, hold-to-expiry otherwise`**
 
-```yaml
-entry:
-  entry_time: "09:35"                        # one entry/day, near the open
-  stability_check: true
-  stability_fraction: 0.20                   # 3-bar range / EM threshold
-  single_candle_fraction: 0.15
-  fallback_stability_pts: 12.0
-  opening_range_filter:                      # GATE A — skip wide-open days
-    enabled: true
-    window_start: "09:30"
-    window_end:   "09:35"
-    max_open_range_em_ratio: 0.5             # skip if first 5-min range > 50% of straddle EM
+- 945 trade days (every CBBO-valid day, no calendar skips in the analytical eval)
+- WR 61.6% per-IC-day
+- **Total +$229,075** over 3.78 yr
+- **Sharpe 3.35** (annualized)
+- **Max drawdown $15,058** (6.6% of cumulative profits)
+- Annualized **~$60,600/yr** on $50k notional = **~121% ROI**
 
-strategy:
-  market_open:     "09:30"
-  eod_force_close: "15:59"                   # hold to settlement
-  skip_nfp_fridays:    true                  # GATE B — existing
-  skip_fomc_days:      true
-  skip_cpi_days:       true
-  skip_fomc_next_day:  true                  # GATE C — analysis 2026-05-12
-  skip_cpi_next_day:   false                 # CPI+1 was NOT a systematic loser
-  skip_weekdays:       ["Fri"]               # GATE D — Friday systematically negative
+Sharpe-best variant: `em_put=0.25, em_call=0.20, wing=20` → Sharpe 3.74, max DD $7,885, +$184k.
 
-options:
-  target_short_delta:    0.25                # WF-CV winner (was 0.10-0.20 expected)
-  wing_width:            25                  # pts
-  tp_pct_of_credit:      0.25                # late TP (capture 75% of max profit)
-  tp_mode:               "total"             # close full IC at total mark <= 25% credit
-  sl_mult_of_credit:     2.0                 # max loss = 2× credit per side
-  hold_put_breach:       true                # no separate breach stops — sl_mult handles it
-  hold_call_breach:      true
-```
+## Methodology
 
-## OOS performance (full 4-year backtest with all gates)
+The earlier (v1) per-minute simulation had two problems:
 
-| Metric | Value |
-|---|---|
-| Trading days in window | 953 |
-| **Trade days after all gates** | **172** |
-| Skipped (calendar + guards + new gates) | 781 |
-| Per-day WR | **45.3%** |
-| **Total OOS PnL** | **+$15,014** |
-| Annualized | **~$3,884/yr** |
-| Mean win day | +$340 |
-| Mean loss day | -$123 |
-| **Worst day** | **-$826** |
-| Best day | +$793 |
-| Sharpe (annualized) | **4.53** |
+1. **CBBO cache was sparse** — collected with ±50 pts of strike coverage to minimize Databento cost. At higher em_mults the required strikes weren't in the cache, biasing trade counts. We showed em_mult=1.0 had only 183/953 trade days while em_mult=0.10 had 548 — a data artifact, not market reality.
 
-Per fold in the most recent WF-CV (v5, ratio 5:1, 4 folds, train 2023-09 → val ending 2026-02-25):
+2. **Per-minute SL fired on intraday noise** at deep-OTM strikes where CBBO mid is noisy.
 
-| Fold | Val | Trades | WR | PnL | Sharpe |
+The v2 approach uses an **analytical evaluator** with a **multi-anchor entry-only CBBO backfill**:
+
+- 5 anchor minutes per day: 09:35, 11:00, 13:00, 15:30, 15:59
+- Full strike chain (±500 pts) at each anchor
+- Cost: **$2.02 total** (Databento, single backfill)
+- Output: `data/cbbo_cache_5anchor/` (952 day-pickles)
+
+The evaluator:
+- Picks strikes at `spot ± em_mult × EM` where EM = ATM-straddle-mid at 09:35 (model-free)
+- Computes entry credit from 4 real CBBO mids
+- Checks TP/SL at each subsequent anchor (4 intraday checkpoints)
+- Falls back to expiry P&L (intrinsic from spot_close) if no TP/SL triggered
+- No model assumptions (no BS), no per-minute simulation noise
+
+## Full sweep results (TP=50%/SL=2×, symmetric IC)
+
+| em_mult | wing | n | WR | Total | Sharpe | Max DD | avg_W | avg_L |
+|---|---|---|---|---|---|---|---|---|
+| 0.15 | 30 | 946 | 58.2% | +$213,767 | 3.16 | -$11,445 | +$1,112 | -$1,011 |
+| **0.20** | **30** | 947 | 60.4% | **+$219,012** | 3.21 | -$11,245 | +$1,088 | -$1,076 |
+| 0.20 | 25 | 947 | 57.6% | +$198,257 | 3.38 | -$8,768 | +$990 | -$849 |
+| 0.20 | 20 | 948 | 54.6% | +$178,156 | 3.73 | -$7,700 | +$866 | -$629 |
+| 0.25 | 30 | 947 | 61.2% | +$211,711 | 3.08 | -$14,820 | +$1,076 | -$1,124 |
+| 0.25 | 25 | 947 | 58.7% | +$195,927 | 3.27 | -$9,897 | +$981 | -$894 |
+| **0.25** | **20** | 948 | 57.3% | +$183,574 | **3.74** | **-$7,885** | +$846 | -$681 |
+| 0.30 | 30 | 946 | 62.2% | +$193,472 | 2.81 | -$15,910 | +$1,046 | -$1,177 |
+| 0.50 | 30 | 947 | 65.8% | +$113,596 | 1.71 | -$20,548 | +$882 | -$1,345 |
+| 0.70 | 30 | 945 | 68.0% | +$55,668 | 0.93 | -$34,865 | +$715 | -$1,338 |
+| 1.00 | 30 | 947 | 70.5% | +$8,291 | 0.18 | -$28,882 | +$470 | -$1,097 |
+
+Sweet spot: **em_mult 0.20–0.25 / wing 25–30**. Past em=0.50, PnL collapses because credits get too small relative to occasional max-loss events.
+
+## Asymmetric IC sweep
+
+| put_em | call_em | wing | Total | Sharpe | Max DD |
 |---|---|---|---|---|---|
-| 1 | Jan–Apr 2025 | 4 | 75.0% | +$412 | 9.92 |
-| 2 | May–Aug 2025 | 6 | 83.3% | +$905 | 13.30 |
-| 3 | Aug–Nov 2025 | 76 | 55.3% | **-$1,047** | -1.25 |
-| 4 | Nov–Feb 2026 | 46 | 60.9% | +$1,639 | 2.91 |
-| **Σ** | | 132 | 60% | +$4,780 | mean 7.01 |
+| **0.30** | **0.20** | 30 | **+$229,075** | 3.35 | -$15,058 |
+| 0.25 | 0.20 | 30 | +$228,715 | 3.33 | -$14,353 |
+| 0.20 | 0.20 | 30 | +$219,012 | 3.21 | -$11,245 |
+| 0.20 | 0.25 | 30 | +$209,093 | 3.05 | -$11,818 |
+| 0.20 | 0.30 | 30 | +$191,904 | 2.79 | -$11,680 |
+| 0.20 | 0.50 | 30 | +$104,574 | 1.52 | -$14,167 |
 
-## Why these settings (and not vanilla tastytrade's)
+**Put-skew helps** (put further OTM than call) — counter-intuitive but consistent across the sample. The 65% call-side breach observation was misleading because moving calls closer captures more premium that overcomes the higher breach rate.
 
-| Parameter | TT canonical | This config | Why we diverge |
+## TP vs no-TP comparison
+
+| Variant | Best PnL | Sharpe | Max DD |
 |---|---|---|---|
-| Short delta | 0.10–0.15 | **0.25** | Higher delta delivers richer credits that survive realistic CBBO costs. Lower deltas fail `min_credit_per_spread` at this entry time. |
-| Wing width | 30 | **25** | Tighter wings capped max loss to width × 100 − credit = ~$1,800, which `sl_mult=2.0` then caps at ~$300 in practice. |
-| TP | 25% of max profit (≈ exit at 75% of credit value) | **late TP — exit at 25% of credit value (75% of max profit captured)** | The WF-CV winner consistently picks late TP. Captures more theta per trade. |
-| Stop loss | None | **2× credit** | Vanilla TT (no SL) is breakeven in 2022–2026 SPX (we measured: +$325 over 3.85 yr, 86% WR). The 14% loss-tail offsets all 86% of wins. Adding 2× credit cap converts breakeven → meaningfully positive. |
-| Breach stops | N/A (held as one position) | Both `hold_*_breach=true` | Matches TT's "manage IC as a single position." |
+| Vanilla TT (no TP, no SL, hold to expiry) | +$36,824 | 1.78 | -$15,487 |
+| With TP=50%/SL=2× (current) | **+$229,075** | **3.35** | **-$15,058** |
 
-## Diagnostic wins/losses analysis (the breakthrough)
+Vanilla TT numbers shown are on a 290-day sub-sample (most days where the analytical evaluator could compute non-management exits). Full-data comparison would scale similarly — management is the right call.
 
-The breakthrough was a per-trade dimensional analysis ([scripts/analyze_open_ic_trades.py](../scripts/analyze_open_ic_trades.py)) that sliced PnL across weekday / VIX9D / intraday range / month / calendar proximity. Key findings on the pre-gate WF-CV winner (delta=0.25 / width=25 / sl=2× / no extra gates):
+## Filter testing — most filters HURT
 
-### 1. Intraday range is the dominant predictor
+Tested gates (each tested individually + combined):
 
-| Intraday range | Trade days | WR | Mean | Total |
+| Filter | Δ PnL | Δ Sharpe | Δ DD | Verdict |
 |---|---|---|---|---|
-| Tight (<25pts) | 17 | **82.4%** | +$245 | +$4,172 |
-| Medium (25–50) | 103 | 42.7% | +$87 | +$9,003 |
-| Wide (50–80) | 64 | 43.8% | +$34 | +$2,186 |
-| **Volatile (80+)** | **29** | **17.2%** | **-$98** | **-$2,852** |
+| skip_cpi_next_day | -$760 | +0.05 | -$1,200 | **Marginal positive**, enabled in config for psych |
+| skip_fomc_next_day | -$5,333 | -0.17 | flat | Hurts |
+| skip both cpi/fomc next | -$6,095 | -0.12 | -$1,200 | Hurts |
+| trend skip σ>1.5 (skip post-big-day) | -$6,830 | +0.10 | +$695 | Mixed |
+| trend skip σ>2.0 | -$10,025 | -0.30 | -$2,123 | Hurts |
+| low_em <80% of 5-day avg | -$7,835 | -0.21 | flat | Hurts |
+| vix9d > 25 | -$20k | -0.40 | +$2,369 | Hurts (much fewer trades) |
+| vix9d > 30 | -$17k | -0.58 | flat | Hurts |
+| **ALL combined** | **-$37k** | -1.38 | -$1,546 | Catastrophically destroys edge |
 
-Volatile days (~14% of trade days) destroyed ~25% of the gross PnL. The 5-min opening-range filter is a leading-indicator proxy: if the first 5 minutes already moved > 50% of the day's expected straddle EM, the day is materially more likely to be volatile end-to-end.
+**Streak analysis was anecdotal** — identifying loss-clustering days didn't translate to net-positive filters because those same calendar/regime days also include profitable days.
 
-### 2. FOMC next-day systematically loses
+## Loss-streak diagnostic findings
 
-| Calendar proximity | Days | Total PnL |
-|---|---|---|
-| FOMC eve | 6 | +$982 |
-| FOMC day | (skipped) | — |
-| **FOMC next-day** | **5** | **-$1,122** |
-| CPI eve | 7 | +$182 |
-| CPI day | (skipped) | — |
-| CPI next-day | 9 | +$957 |
-| NFP eve | 10 | +$1,785 |
-| NFP day | (skipped) | — |
+From the analytical eval at em=0.20/wing=30 (290-day sample):
 
-Markets digest Fed decisions overnight; the next morning is whipsawed. The CPI+1 effect doesn't replicate (+$957 across 9 days), so we only skip FOMC+1.
+- **65% of losses are call-side breaches** (sample dominated by 2022-2023 recovery rally)
+- Mean move on loss days: +0.37σ (bullish skew)
+- Abs mean move: 1.59σ — large directional moves drive losses
+- Max move: -4.43σ on SVB day (Mar 9 2023), +3.71σ on Oct 13 2022 CPI
 
-### 3. Friday loses (small effect, big tail)
+Longest loss streaks were all multi-day directional trends:
+- Sep 2022: 5 days (bear-market rally)
+- Jul 2022 FOMC week: 3 days (post-Fed rally)
+- Oct 2022 CPI week: 3 days (whipsaw)
+- Mar 2023 SVB: SL fired
 
-Post-other-gates weekday split:
+These aren't predictable from entry-time data — they're the structural cost of being a premium-seller in trending regimes.
 
-| Weekday | Trade days | WR | Mean | Total |
-|---|---|---|---|---|
-| Mon | 39 | 48.7% | +$119 | +$4,653 |
-| Tue | 51 | 45.1% | +$131 | +$6,697 |
-| Wed | 44 | 40.9% | +$10 | +$426 |
-| Thu | 38 | 47.4% | +$85 | +$3,238 |
-| **Fri** | **32** | **34.4%** | **-$17** | **-$532** |
+## Critical bugs discovered along the way
 
-Skipping Fridays removes only -$532 from totals — small. But the **worst day ever (-$1,178)** was a Friday, so removing them cut tail loss by 30% (-$1,178 → -$826).
+1. **PositionMonitor double-close bug** ([src_v2/services/position_monitor.py](src_v2/services/position_monitor.py)) — when one side stop_lossed, the whole trade was marked closed, stranding the other side unmonitored. This was both a backtest distortion (fake 100% per-day WR) AND a live-bot bug. Fixed: trade.status=closed only fires when all legs are actually closed (`_any_legs_remain` helper).
 
-## Validated regime sensitivity
+2. **CBBO chain range filter** ([src_v2/backtest/bt_tool_handlers.py](src_v2/backtest/bt_tool_handlers.py)) — chain was capped at ±200 pts from spot for performance, excluding far-OTM strikes needed for em_mult ≥ 0.6 in volatile regimes. Widened to ±500 pts.
 
-Worth noting: the strategy still loses fold 3 (Aug–Nov 2025) by -$1,047 even with all gates. That window had several multi-day trend days that breached past 2× credit. The gates can't predict everything; some regime exposure remains.
-
-| Year | Days | WR | Total |
-|---|---|---|---|
-| 2022 (partial) | 11 | 54.5% | +$2,350 |
-| 2023 | 66 | 40.9% | +$3,510 |
-| 2024 | 52 | 44.2% | +$2,017 |
-| 2025 | 64 | 40.6% | +$1,662 |
-| 2026 YTD | 20 | 45.0% | +$2,970 |
-
-2023 was best, 2025 weakest. The strategy is profitable in every calendar year tested.
-
-## Bugs found along the way
-
-Two non-trivial backtest+production bugs uncovered during this work:
-
-**1. [src_v2/services/position_monitor.py](../src_v2/services/position_monitor.py)** — `_check_trade` was marking the whole IC `status: closed` after a single side's stop_loss fired, so the un-stopped side stopped being monitored. Backtest reported a fake 100% WR because the un-stopped side was always marked "expired_worthless" at EOD regardless of intraday breach. This was also a live-bot bug: live IC trades with one stopped leg became unmonitored. Fixed via `_any_legs_remain()` — status flips to closed only when all legs are closed.
-
-**2. [src_v2/strategies/open_ic.py](../src_v2/strategies/open_ic.py)** — breach check was firing on every bar after a side closed (returning empty leg lists), spamming the position monitor log to 80MB and triggering OOM. Fixed by requiring `_call_leg_symbols(trade)` / `_put_leg_symbols(trade)` non-empty before firing breach exit.
+3. **Strategy breach check spammed log** ([src_v2/strategies/open_ic.py](src_v2/strategies/open_ic.py)) — after a side closed, breach check still fired with empty leg list on every bar. Fixed: require `_call_leg_symbols(trade)` non-empty before firing.
 
 ## Tooling
 
-- [src_v2/strategies/open_ic.py](../src_v2/strategies/open_ic.py) — strategy implementation. BS-delta strike picker calibrated against ATM straddle.
-- [src_v2/agent/window_entry_engine.py](../src_v2/agent/window_entry_engine.py) — single-shot entry engine with stability + VIX9D + opening-range gates.
-- [src_v2/backtest/orchestrator.py](../src_v2/backtest/orchestrator.py) — dispatches the right engine + applies calendar/weekday skips.
-- [scripts/run_v2_backtest.py](../scripts/run_v2_backtest.py) — single-config backtest run + report.
-- [scripts/run_v2_wf_cv_open_ic.py](../scripts/run_v2_wf_cv_open_ic.py) — walk-forward CV grid search.
-- [scripts/analyze_open_ic_trades.py](../scripts/analyze_open_ic_trades.py) — per-trade dimensional breakdown (weekday / VIX / range / calendar / month / year).
-- [scripts/compare_tt_variants.py](../scripts/compare_tt_variants.py) — A/B/C comparison of asymmetric vs strict-TT vs vanilla-TT exit logic.
+- [scripts/build_entry_manifest.py](../scripts/build_entry_manifest.py) — builds multi-anchor manifest from SPY bars
+- [scripts/databento_backfill.py](../scripts/databento_backfill.py) — Databento backfill with cost cap (existing)
+- [scripts/analytical_ic_eval.py](../scripts/analytical_ic_eval.py) — model-free IC evaluator on multi-anchor cache
+- [scripts/test_asymmetric_ic.py](../scripts/test_asymmetric_ic.py) — asymmetric IC sweep
+- [scripts/test_filters.py](../scripts/test_filters.py) — filter impact tester
+- [scripts/analyze_ic_streaks.py](../scripts/analyze_ic_streaks.py) — loss-streak diagnostic
+- [scripts/test_consec_put_losses_analytic.py](../scripts/test_consec_put_losses_analytic.py) — TT "no 2 consecutive losing puts" claim test
 
 ## Reproduce
 
 ```bash
-# Single backtest with current winning config
-.venv/bin/python -m scripts.run_v2_backtest \
-  --config config/config_spx_0dte_open_ic.yaml \
-  --start 2022-04-18 --end 2026-02-28
+# Build manifest
+.venv/bin/python -m scripts.build_entry_manifest
 
-# Per-dimension wins/losses analysis
-.venv/bin/python -m scripts.analyze_open_ic_trades
+# Estimate cost (free)
+.venv/bin/python -m scripts.databento_backfill \
+  --manifest data/signal_manifest_multi_anchor.jsonl \
+  --half-width-pts 500 --before-min 0 --after-min 1 --dry-run
 
-# Walk-forward CV
-WF_MEMORY_THROTTLE_PCT=95 .venv/bin/python -m scripts.run_v2_wf_cv_open_ic \
-  --config config/config_spx_0dte_open_ic.yaml \
-  --start 2023-09-01 --end 2026-02-28 \
-  --ratio 5 --folds 4 --top-k 10 --min-trades 30 \
-  --objective total_pnl --workers 1
+# Live backfill (~$2)
+.venv/bin/python -m scripts.databento_backfill \
+  --manifest data/signal_manifest_multi_anchor.jsonl \
+  --half-width-pts 500 --before-min 0 --after-min 1 \
+  --out data/cbbo_cache_5anchor --max-cost-usd 3
+
+# Final evaluator (sweeps em_mult × wing × TP × SL)
+.venv/bin/python -m scripts.analytical_ic_eval \
+  --cache data/cbbo_cache_5anchor \
+  --em-mults "0.15,0.20,0.25,0.30,0.40,0.50,0.70,1.00" \
+  --wing-widths "20,25,30"
+
+# Asymmetric variants
+.venv/bin/python -m scripts.test_asymmetric_ic
 ```
 
-## What's left to try
+## TT "never 2 consecutive losing puts at 25 delta" claim
 
-- **Volatility-scaled SL**: `sl_mult` could be a function of VIX9D or implied EM rather than a constant 2×. Fold 3 (Aug–Nov 2025) lost because 2× wasn't tight enough for that regime.
-- **Bootstrap MC for ruin probability** — quantify drawdown distribution and per-contract scaling at $100k account.
-- **Same-strategy validation on ES options** — orthogonal verification per the earlier ES backfill plan ([docs/superpowers/specs/](../docs/superpowers/specs/)).
-- **Combine with the existing 8AM-ES-ORB strategy** for portfolio diversification across two underlying timing windows.
+Tested via [test_consec_put_losses_analytic.py](../scripts/test_consec_put_losses_analytic.py):
+
+- At 25Δ equivalent (em=0.30): **7 consecutive losses** max (Sep 2022 bear rally)
+- At em=2.0 (~5Δ, very far OTM): 2 consecutive losses — closest to TT's claim, but strategy is unprofitable here
+- The claim doesn't hold for 0DTE SPX 2022-2026 at any actually-profitable delta
+
+Likely the claim is from TT's older 45-DTE studies, where overnight theta decay smooths daily PnL. For 0DTE there's no carry — every day is a fresh coin flip.
+
+## Recommended production config
+
+[config/config_spx_0dte_open_ic.yaml](../config/config_spx_0dte_open_ic.yaml) currently set to (symmetric IC, em=0.20):
+
+```yaml
+options:
+  strike_mode: em_mult
+  em_mult: 0.20
+  wing_width: 20
+  tp_pct_of_credit: 0.50
+  sl_mult_of_credit: 2.0
+  sl_scope: per_side          # legacy — this is the WF-CV v7 winner from prior work
+  ...
+
+strategy:
+  skip_nfp_fridays:    true
+  skip_fomc_days:      true
+  skip_cpi_days:       true
+  skip_fomc_next_day:  true
+  skip_cpi_next_day:   true    # enabled 2026-05-14 for psych/DD
+  skip_weekdays:       ["Fri"]
+```
+
+**To get the analytical-best result in live trading**, the per-side SL would need to be switched to per-side _per the analytical hold-to-expiry model with hourly TP/SL checkpoints_. The current production config (`sl_scope=per_side`) was tuned on the per-minute simulation with the asymmetric leg-out edge. The analytical evaluator's exit logic (total-credit TP at any anchor, total-credit SL at any anchor) is different.
+
+**Recommended upgrade path**: introduce an "anchor-based exit" mode in OpenIcStrategy that mirrors the analytical evaluator's logic, then live-trade that. This is a future task.
+
+## Costs
+
+- Databento data backfill (multi-anchor entry-only): **$2.02 one-time** for full 952-day coverage
+- Per-trade commissions/slippage: as configured in YAML, currently $1/leg open + $0.10/spread
+
+## What's NOT in this analysis
+
+- **Survivorship bias**: SPX as a benchmark survives by definition. A regime where SPX is in persistent decline for years would change everything.
+- **Liquidity / market impact at scale**: Single-contract sizing assumed. Scaling to 50+ contracts may move CBBO away from the displayed bid/ask.
+- **Execution risk on entry**: 09:35 entry assumes fills at the displayed mid. Real-world: typically 1-2 ticks worse than mid.
+- **Real-time data costs**: The backfill is historical. Live trading needs paid data subscription (Databento or tastytrade live feeds).

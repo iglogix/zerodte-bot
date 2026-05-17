@@ -194,7 +194,9 @@ class BacktestToolHandlers:
 
         chain = []
         for strike in sorted(self._cbbo.available_strikes):
-            if abs(strike - spot) > 200:
+            # Widened from 200 → 500 pts: at high IV, em_mult ≥ 0.6 with wide wings
+            # can require strikes beyond ±200 pts. CBBO cache covers way wider.
+            if abs(strike - spot) > 500:
                 continue
             for is_call in [False, True]:
                 q = self._cbbo.lookup(minute, strike, is_call)
