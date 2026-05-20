@@ -281,9 +281,100 @@ class OpenStrangleStrategy(LiveStrategy):
     # Exit — implemented in Task 5
     # ------------------------------------------------------------------
 
-    def check_exit(self, trade, quotes) -> ExitAction:
-        # Implemented in Task 5; placeholder so the ABC is satisfied.
+    def check_exit(
+        self,
+        trade: Dict[str, Any],
+        quotes: Dict[str, Dict[str, Any]],
+    ) -> ExitAction:
+        tp_pct = self._current_tp_pct(trade)
+
+        put_sym = trade.get("short_put_symbol")
+        call_sym = trade.get("short_call_symbol")
+
+        put_mark = _mid(quotes.get(put_sym)) if put_sym else None
+        call_mark = _mid(quotes.get(call_sym)) if call_sym else None
+
+        legs_all = [s for s in (put_sym, call_sym) if s]
+        total_credit = trade.get("put_credit", 0) + trade.get("call_credit", 0)
+
+        # Total-mode TP/SL.
+        if self._tp_mode == "total" and put_mark is not None and call_mark is not None:
+            total_mark = put_mark + call_mark
+            if total_credit > 0:
+                tp_debit = total_credit * tp_pct
+                if total_mark <= tp_debit:
+                    return ExitAction(
+                        action="take_profit",
+                        legs_to_close=legs_all,
+                        reason=f"total TP: mark={total_mark:.2f} <= tp={tp_debit:.2f}",
+                    )
+                sl_dollars_raw = trade.get("sl_dollars")
+                if sl_dollars_raw is None:
+                    sl_dollars_raw = self._sl_fallback
+                sl_dollars = float(sl_dollars_raw) if sl_dollars_raw is not None else 0.0
+                if sl_dollars > 0:
+                    # Per-contract loss in dollars: (mark - credit) × multiplier.
+                    loss_dollars = (total_mark - total_credit) * self._multiplier
+                    if loss_dollars >= sl_dollars:
+                        return ExitAction(
+                            action="stop_loss",
+                            legs_to_close=legs_all,
+                            reason=(
+                                f"sl_dollars: loss=${loss_dollars:.0f} " f">= cap=${sl_dollars:.0f}"
+                            ),
+                        )
+
+        # Per-side TP (does not fire in tp_mode=total).
+        if self._tp_mode == "per_side":
+            for side, sym, credit_key in (
+                ("put", put_sym, "put_credit"),
+                ("call", call_sym, "call_credit"),
+            ):
+                if not sym:
+                    continue
+                m = _mid(quotes.get(sym))
+                if m is None:
+                    continue
+                credit = trade.get(credit_key, 0)
+                if credit > 0 and m <= credit * tp_pct:
+                    return ExitAction(
+                        action="take_profit",
+                        legs_to_close=[sym],
+                        reason=f"{side} TP: mark={m:.2f} <= tp={credit * tp_pct:.2f}",
+                    )
+
         return ExitAction(action="hold")
+
+    def _current_tp_pct(self, trade: Dict[str, Any]) -> float:
+        """Time-ramp tp_pct from initial → end over the trade's life."""
+        if self._tp_pct_end is None or self._tp_pct_end == self._tp_pct:
+            return self._tp_pct
+        clock = getattr(self, "_clock_ref", None)
+        entry_time = trade.get("entry_time")
+        if clock is None or entry_time is None:
+            return self._tp_pct
+        from zoneinfo import ZoneInfo
+
+        et_tz = ZoneInfo("America/New_York")
+        now = clock.now(et_tz)
+        eod_dt = datetime(
+            now.year,
+            now.month,
+            now.day,
+            self._eod_time.hour,
+            self._eod_time.minute,
+            tzinfo=now.tzinfo,
+        )
+        if hasattr(entry_time, "tzinfo") and entry_time.tzinfo is None:
+            entry_dt = entry_time.replace(tzinfo=now.tzinfo)
+        else:
+            entry_dt = entry_time
+        total = (eod_dt - entry_dt).total_seconds()
+        elapsed = (now - entry_dt).total_seconds()
+        if total <= 0:
+            return self._tp_pct_end
+        f = max(0.0, min(1.0, elapsed / total))
+        return self._tp_pct + (self._tp_pct_end - self._tp_pct) * f
 
     def compute_trailing_stop(self, trade, quotes) -> Optional[float]:
         return None

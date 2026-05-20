@@ -169,3 +169,103 @@ def test_setup_records_sl_dollars(tmp_path):
     out = asyncio.run(s.search_candidates(chain, spot=5000.0))
     setup = out["top_candidate"]
     assert setup.extra["sl_dollars"] == 275.0
+
+
+# ---------------- exit logic ----------------
+
+
+def _entered_trade(setup, sl_dollars=300.0, entry_dt=None):
+    """Build a trade dict shaped the way PositionMonitor/backtest passes it."""
+    return {
+        "trade_id": "t1",
+        "short_put_symbol": "SPX_P_4995",
+        "short_call_symbol": "SPX_C_5005",
+        "short_put_strike": setup.strikes["short_put"],
+        "short_call_strike": setup.strikes["short_call"],
+        "put_credit": setup.extra["put_credit"],
+        "call_credit": setup.extra["call_credit"],
+        "total_credit": setup.total_credit,
+        "sl_dollars": setup.extra.get("sl_dollars", sl_dollars),
+        "entry_time": entry_dt or datetime(2025, 6, 2, 9, 35, tzinfo=ET),
+    }
+
+
+def _quotes(put_mid: float, call_mid: float):
+    return {
+        "SPX_P_4995": {"bid": put_mid - 0.02, "ask": put_mid + 0.02},
+        "SPX_C_5005": {"bid": call_mid - 0.02, "ask": call_mid + 0.02},
+    }
+
+
+def test_check_exit_hold_when_quiet():
+    s = _make_strategy(tp_pct_of_credit=0.50)
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    setup = asyncio.run(s.search_candidates(chain, 5000.0))["top_candidate"]
+    trade = _entered_trade(setup)
+    # Marks at entry credit → no TP or SL trigger.
+    quotes = _quotes(
+        put_mid=setup.extra["put_credit"] + s._slippage,
+        call_mid=setup.extra["call_credit"] + s._slippage,
+    )
+    s._now_dt = datetime(2025, 6, 2, 10, 0, tzinfo=ET)
+    action = s.check_exit(trade, quotes)
+    assert action.action == "hold"
+
+
+def test_check_exit_total_tp_fires():
+    s = _make_strategy(tp_pct_of_credit=0.50, tp_mode="total")
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    setup = asyncio.run(s.search_candidates(chain, 5000.0))["top_candidate"]
+    trade = _entered_trade(setup)
+    # Marks at half the credit → total_mark = 0.5*total_credit → TP fires.
+    quotes = _quotes(
+        put_mid=setup.extra["put_credit"] * 0.5,
+        call_mid=setup.extra["call_credit"] * 0.5,
+    )
+    s._now_dt = datetime(2025, 6, 2, 10, 0, tzinfo=ET)
+    action = s.check_exit(trade, quotes)
+    assert action.action == "take_profit"
+    assert "SPX_P_4995" in action.legs_to_close
+    assert "SPX_C_5005" in action.legs_to_close
+
+
+def test_check_exit_sl_dollars_fires():
+    s = _make_strategy(tp_pct_of_credit=0.25, tp_mode="total")
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    setup = asyncio.run(s.search_candidates(chain, 5000.0))["top_candidate"]
+    # Manually set per-trade SL$ to $50 for a clean trigger.
+    setup.extra["sl_dollars"] = 50.0
+    trade = _entered_trade(setup)
+    trade["sl_dollars"] = 50.0
+    # SL fires when (total_mark - total_credit) * 100 >= sl_dollars.
+    # total_credit ≈ put_credit + call_credit (per-contract dollars).
+    # Choose marks so total_mark = total_credit + 0.51 → loss = $51 > $50 SL.
+    bump = (50.0 / 100) + 0.01  # 0.51 in per-contract terms
+    quotes = _quotes(
+        put_mid=setup.extra["put_credit"] + bump / 2,
+        call_mid=setup.extra["call_credit"] + bump / 2,
+    )
+    s._now_dt = datetime(2025, 6, 2, 10, 0, tzinfo=ET)
+    action = s.check_exit(trade, quotes)
+    assert action.action == "stop_loss"
+    assert "sl_dollars" in action.reason or "SL" in action.reason
+
+
+def test_check_exit_no_breach_action():
+    """Strangle does not exit on spot-breach — relies on $-SL only."""
+    s = _make_strategy(tp_pct_of_credit=0.25, tp_mode="total")
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    setup = asyncio.run(s.search_candidates(chain, 5000.0))["top_candidate"]
+    trade = _entered_trade(setup)
+    trade["sl_dollars"] = 1_000_000.0  # effectively unlimited
+    # Spot crosses short call but SL$ huge → still hold.
+    quotes = _quotes(
+        put_mid=setup.extra["put_credit"] * 0.5,
+        call_mid=setup.extra["call_credit"] * 0.5,
+    )
+    quotes["_underlying"] = {"price": setup.strikes["short_call"] + 50}
+    s._now_dt = datetime(2025, 6, 2, 10, 0, tzinfo=ET)
+    action = s.check_exit(trade, quotes)
+    # tp_pct=0.25 means TP requires mark <= 0.25*credit. With marks at 0.5*credit, no TP.
+    # No breach action ever fires for strangle → must be hold.
+    assert action.action == "hold", f"expected hold, got {action.action}"
