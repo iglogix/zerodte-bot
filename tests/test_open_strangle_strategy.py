@@ -1,0 +1,105 @@
+"""Unit tests for OpenStrangleStrategy."""
+
+import asyncio
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from src_v2.strategies.open_strangle import OpenStrangleStrategy
+
+ET = ZoneInfo("America/New_York")
+
+
+def _make_chain(spot: float, atm_credit: float = 10.0):
+    """Build a synthetic chain centered on spot.
+
+    ATM straddle = atm_credit (so EM = atm_credit).
+    Symmetric prices decreasing linearly with strike distance.
+    """
+    strikes = [spot + i * 5 for i in range(-30, 31)]
+    chain = []
+    for k in strikes:
+        d = abs(k - spot)
+        # Linear taper, floor at $0.05
+        c_mid = max(0.05, atm_credit / 2 - d * 0.10)
+        p_mid = max(0.05, atm_credit / 2 - d * 0.10)
+        chain.append(
+            {
+                "strike": k,
+                "option_type": "call",
+                "bid": c_mid - 0.02,
+                "ask": c_mid + 0.02,
+            }
+        )
+        chain.append(
+            {
+                "strike": k,
+                "option_type": "put",
+                "bid": p_mid - 0.02,
+                "ask": p_mid + 0.02,
+            }
+        )
+    return chain
+
+
+def _make_strategy(**opt_overrides):
+    s = OpenStrangleStrategy()
+    cfg = {
+        "options": {
+            "strike_step_pts": 5.0,
+            "strike_mode": "em_mult",
+            "em_mult": 0.30,
+            "min_credit_per_spread": 0.05,
+            "slippage_per_spread": 0.05,
+            "contract_multiplier": 100,
+            "quantity": 1,
+            "tp_pct_of_credit": 0.50,
+            "sl_dollars_csv": None,
+            "sl_dollars_fallback": 300.0,
+            **opt_overrides,
+        },
+        "market": {"market_close": "16:00"},
+        "strategy": {"eod_force_close": "15:30"},
+    }
+    s.configure(cfg)
+    s._now_dt = datetime(2025, 6, 2, 9, 35, tzinfo=ET)
+    return s
+
+
+def test_search_candidates_returns_two_legs():
+    s = _make_strategy()
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    out = asyncio.run(s.search_candidates(chain, spot=5000.0))
+    assert out["candidates_found"] == 1
+    setup = out["top_candidate"]
+    assert len(setup.legs) == 2, f"expected 2 legs, got {len(setup.legs)}"
+    sides = sorted(leg.option_type for leg in setup.legs)
+    assert sides == ["call", "put"]
+    assert all(leg.side == "sell" for leg in setup.legs)
+
+
+def test_gross_credit_no_wing_subtraction():
+    s = _make_strategy()
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    out = asyncio.run(s.search_candidates(chain, spot=5000.0))
+    setup = out["top_candidate"]
+    # Strangle credit = put_mid + call_mid - 2 * slippage; no wings.
+    assert setup.total_credit > 0
+    assert "put_credit" in setup.extra and "call_credit" in setup.extra
+    # Total = put_credit + call_credit (post-slippage)
+    expected = round(setup.extra["put_credit"] + setup.extra["call_credit"], 2)
+    assert setup.total_credit == expected
+
+
+def test_em_mult_strike_placement():
+    """At em_mult=0.30 with EM=10pt and 5pt strike step:
+    0.30 × 10 = 3.0 pt offset.
+    Put: floor((5000 - 3) / 5) * 5 = 4995.
+    Call: ceil((5000 + 3) / 5) * 5 = 5005."""
+    s = _make_strategy(em_mult=0.30)
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    out = asyncio.run(s.search_candidates(chain, spot=5000.0))
+    setup = out["top_candidate"]
+    assert setup.strikes["short_put"] == 4995.0
+    assert setup.strikes["short_call"] == 5005.0
+    assert "long_put" not in setup.strikes
+    assert "long_call" not in setup.strikes
