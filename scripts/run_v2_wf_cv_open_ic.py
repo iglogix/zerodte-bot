@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 import time
@@ -20,25 +21,38 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from src_v2.backtest.data_loader import SpyLoader
 from src_v2.backtest.cbbo_store import CbboStore
+from src_v2.backtest.data_loader import SpyLoader
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 from src_v2.strategies.open_ic import OpenIcStrategy
+
+
+def resolve_strategy_class(dotted_path: str | None):
+    """Resolve a strategy class from a dotted import path.
+
+    Defaults to OpenIcStrategy when path is None or empty (backcompat).
+    """
+    if not dotted_path:
+        return OpenIcStrategy
+    mod_path, _, cls_name = dotted_path.rpartition(".")
+    if not mod_path:
+        raise ValueError(f"strategy.class must be a dotted path; got {dotted_path!r}")
+    mod = importlib.import_module(mod_path)
+    return getattr(mod, cls_name)
 
 
 # Short delta + wing width are the primary axes; secondary axes capture
 # tail-risk/exit handling. Trim further if total combos balloon.
 PARAM_GRID = {
     # v7 (2026-05-13): per-side SL + em_mult strikes.
-    "options.strike_mode":          ["em_mult"],
-    "options.em_mult":              [0.20, 0.25, 0.30, 0.35],
-    "options.wing_width":           [20, 25, 30],
-    "options.sl_mult_of_credit":    [1.5, 2.0, 2.5],
-    "options.sl_scope":             ["per_side"],
-    "options.tp_pct_of_credit":     [0.25, 0.50],
-    "strategy.skip_fomc_next_day":  [True],
-    "strategy.skip_weekdays":       [["Fri"]],
+    "options.strike_mode": ["em_mult"],
+    "options.em_mult": [0.20, 0.25, 0.30, 0.35],
+    "options.wing_width": [20, 25, 30],
+    "options.sl_mult_of_credit": [1.5, 2.0, 2.5],
+    "options.sl_scope": ["per_side"],
+    "options.tp_pct_of_credit": [0.25, 0.50],
+    "strategy.skip_fomc_next_day": [True],
+    "strategy.skip_weekdays": [["Fri"]],
 }
 # Combos = 1*4*3*3*1*2*1*1 = 72
 
@@ -67,8 +81,11 @@ def main():
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--min-trades", type=int, default=10)
     parser.add_argument("--min-sharpe", type=float, default=None)
-    parser.add_argument("--objective", default="sharpe_annualised",
-                        choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"])
+    parser.add_argument(
+        "--objective",
+        default="sharpe_annualised",
+        choices=["sharpe_annualised", "total_pnl", "profit_factor", "win_rate"],
+    )
     parser.add_argument("--require-all-folds-profitable", action="store_true")
     default_workers = max(1, (os.cpu_count() or 2) - 2)
     parser.add_argument("--workers", type=int, default=default_workers)
@@ -80,8 +97,16 @@ def main():
     bt = config.get("backtest", {})
     data_file = bt.get("data_file", "data/spy_1m.csv")
     price_scale = bt.get("price_scale", 10.0)
-    start = date.fromisoformat(args.start) if args.start else date.fromisoformat(bt.get("start_date", "2022-05-11"))
-    end = date.fromisoformat(args.end) if args.end else date.fromisoformat(bt.get("end_date", "2026-02-28"))
+    start = (
+        date.fromisoformat(args.start)
+        if args.start
+        else date.fromisoformat(bt.get("start_date", "2022-05-11"))
+    )
+    end = (
+        date.fromisoformat(args.end)
+        if args.end
+        else date.fromisoformat(bt.get("end_date", "2026-02-28"))
+    )
     symbol = config.get("bot", {}).get("symbol", "SPX")
 
     cbbo_dir = bt.get("cbbo_cache_dir", "data/cbbo_cache")
@@ -98,12 +123,14 @@ def main():
     n_combos = 1
     for vs in PARAM_GRID.values():
         n_combos *= len(vs)
-    print(f"Grid: {n_combos} combos, WF-CV: ratio={args.ratio}:1, folds={args.folds}, "
-          f"top-k={args.top_k}, workers={args.workers}\n")
+    print(
+        f"Grid: {n_combos} combos, WF-CV: ratio={args.ratio}:1, folds={args.folds}, "
+        f"top-k={args.top_k}, workers={args.workers}\n"
+    )
 
     opt = WalkForwardOptimizer(
         base_config=config,
-        strategy_cls=OpenIcStrategy,
+        strategy_cls=resolve_strategy_class(config.get("strategy", {}).get("class")),
         cbbo_store=cbbo,
         days=days,
         param_grid=PARAM_GRID,
@@ -133,8 +160,10 @@ def main():
     print("  Per-fold OOS results:")
     print(sep)
     for fr in result.fold_results:
-        print(f"\n  Fold {fr.fold}: train={fr.train_start}..{fr.train_end} ({fr.n_train_days}d)  "
-              f"val={fr.val_start}..{fr.val_end} ({fr.n_val_days}d)")
+        print(
+            f"\n  Fold {fr.fold}: train={fr.train_start}..{fr.train_end} ({fr.n_train_days}d)  "
+            f"val={fr.val_start}..{fr.val_end} ({fr.n_val_days}d)"
+        )
         for i, (p, m) in enumerate(zip(fr.top_params, fr.val_metrics), 1):
             print(f"    {i}. {_format_params(p):<100s}  val: {_format_metrics(m)}")
 
@@ -142,7 +171,9 @@ def main():
     print("  WINNING PARAMS (robust selection)")
     print(sep)
     print(f"    {_format_params(result.best_params)}")
-    print(f"    Top-{opt._top_k} appearances:  {result.best_appearances}/{len(result.fold_results)} folds")
+    print(
+        f"    Top-{opt._top_k} appearances:  {result.best_appearances}/{len(result.fold_results)} folds"
+    )
     print(f"    Profitable folds:    {result.best_n_profitable}/{len(result.fold_results)}")
     print(f"    Worst fold PnL:      ${result.best_min_pnl:+.0f}")
     print(f"    Mean fold val Sharpe: {result.best_mean_val_sharpe:.2f}")
