@@ -206,26 +206,32 @@ class BacktestOrchestrator:
         for trade in trades:
             for side in ("put", "call"):
                 short_k = trade.get(f"short_{side}_strike")
-                long_k = trade.get(f"long_{side}_strike")
-                if short_k is None or long_k is None:
+                if short_k is None:
                     continue
+                long_k = trade.get(f"long_{side}_strike")  # may be None for naked shorts (strangles)
+                has_long = long_k is not None
 
                 credit = trade.get(f"{side}_credit", 0)
-                width = abs(short_k - long_k)
+                width = abs(short_k - long_k) if has_long else 0.0
 
                 # Symbols were built at entry; the trade dict may have them cleared if closed.
                 # Reconstruct from strikes + date for exit_log lookup.
                 short_sym = bt_handlers._make_symbol(short_k, side == "call")
-                long_sym = bt_handlers._make_symbol(long_k, side == "call")
+                long_sym = bt_handlers._make_symbol(long_k, side == "call") if has_long else None
 
                 # Per-leg exit info from exit_log
                 s_exit = bt_handlers._exit_log.get(short_sym)
-                l_exit = bt_handlers._exit_log.get(long_sym)
+                l_exit = bt_handlers._exit_log.get(long_sym) if has_long else None
 
-                if s_exit and l_exit:
+                # Close debit: spread = max(0, s_mid - l_mid) capped at width;
+                # naked short = max(0, s_mid) uncapped.
+                if s_exit and (l_exit or not has_long):
                     s_mid = (s_exit["bid"] + s_exit["ask"]) / 2
-                    l_mid = (l_exit["bid"] + l_exit["ask"]) / 2
-                    debit = round(min(max(s_mid - l_mid, 0), width), 2)
+                    if has_long:
+                        l_mid = (l_exit["bid"] + l_exit["ask"]) / 2
+                        debit = round(min(max(s_mid - l_mid, 0), width), 2)
+                    else:
+                        debit = round(max(s_mid, 0), 2)
                     reason = s_exit.get("reason", "closed")
                     exit_time = s_exit.get("time")
                     if "take_profit" in reason or "tp" in reason.lower():
@@ -233,7 +239,7 @@ class BacktestOrchestrator:
                     elif "stop_loss" in reason or "breach" in reason.lower():
                         exit_reason = "short_breached"
                     elif "eod" in reason:
-                        # At EOD, if spread is worthless it expired; otherwise forced close
+                        # At EOD, if mark is worthless it expired; otherwise forced close
                         exit_reason = "expired_worthless" if debit < 0.05 else "eod_forced_close"
                     else:
                         exit_reason = reason or "closed"
@@ -243,10 +249,13 @@ class BacktestOrchestrator:
                     exit_reason = "expired_worthless"
                     exit_time = trade.get("exit_time")
 
-                # Commission: 2 legs per side × qty × commission_per_leg
+                # Commission: 2 legs/side for spreads, 1 leg/side for naked shorts.
                 # (TT SPX: $1 open only, $0 close → models opening commission)
-                commission = 2 * self._qty * self._commission_per_leg
+                legs_per_side = 2 if has_long else 1
+                commission = legs_per_side * self._qty * self._commission_per_leg
                 pnl = round((credit - debit) * self._multiplier * self._qty - commission, 2)
+
+                spread_type = f"{side}_credit_spread" if has_long else f"{side}_short"
 
                 orb = bt_handlers._orb_levels or {}
                 results.append(BacktestResult(
@@ -260,9 +269,9 @@ class BacktestOrchestrator:
                     bias=bt_handlers._breakout_bias,
                     entry_time=trade.get("entry_time"),
                     underlying_at_entry=trade.get("entry_price"),
-                    spread_type=f"{side}_credit_spread",
+                    spread_type=spread_type,
                     short_strike=short_k,
-                    long_strike=long_k,
+                    long_strike=long_k if has_long else 0,
                     spread_width=width,
                     credit_received=credit,
                     exit_time=exit_time,

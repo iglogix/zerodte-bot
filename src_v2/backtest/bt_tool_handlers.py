@@ -256,6 +256,7 @@ class BacktestToolHandlers:
             "entry_price": entry_price,
         }
 
+        # Put side — credit spread if both strikes present, naked short if only sp_k.
         if sp_k > 0 and lp_k > 0:
             put_credit = round(_mid_at(sp_k, False) - _mid_at(lp_k, False) - self._slippage, 2)
             trade.update({
@@ -265,7 +266,15 @@ class BacktestToolHandlers:
                 "long_put_strike": lp_k,
                 "put_credit": max(put_credit, 0.0),
             })
+        elif sp_k > 0:
+            put_credit = round(_mid_at(sp_k, False) - self._slippage, 2)
+            trade.update({
+                "short_put_symbol": self._make_symbol(sp_k, False),
+                "short_put_strike": sp_k,
+                "put_credit": max(put_credit, 0.0),
+            })
 
+        # Call side — credit spread if both strikes present, naked short if only sc_k.
         if sc_k > 0 and lc_k > 0:
             call_credit = round(_mid_at(sc_k, True) - _mid_at(lc_k, True) - self._slippage, 2)
             trade.update({
@@ -273,6 +282,13 @@ class BacktestToolHandlers:
                 "long_call_symbol": self._make_symbol(lc_k, True),
                 "short_call_strike": sc_k,
                 "long_call_strike": lc_k,
+                "call_credit": max(call_credit, 0.0),
+            })
+        elif sc_k > 0:
+            call_credit = round(_mid_at(sc_k, True) - self._slippage, 2)
+            trade.update({
+                "short_call_symbol": self._make_symbol(sc_k, True),
+                "short_call_strike": sc_k,
                 "call_credit": max(call_credit, 0.0),
             })
 
