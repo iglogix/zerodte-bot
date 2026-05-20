@@ -257,11 +257,14 @@ class OpenStrangleStrategy(LiveStrategy):
 
     def build_order(self, setup: LiveTradeSetup) -> Dict[str, Any]:
         s = setup.strikes
+        # sl_dollars is resolved at setup-time from the IC artifact; pass it
+        # through so check_exit can read it off the trade dict.
         return {
             "order_type": "strangle",
             "short_put_strike": s["short_put"],
             "short_call_strike": s["short_call"],
             "quantity": self._quantity,
+            "sl_dollars": setup.extra.get("sl_dollars", 0.0),
         }
 
     # ------------------------------------------------------------------

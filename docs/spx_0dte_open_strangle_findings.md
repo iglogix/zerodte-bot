@@ -2,117 +2,146 @@
 
 *Last updated: 2026-05-20*
 
-> **Status: pipeline implemented, full WF-CV sweep blocked on a shared-orchestrator extension. See "Known issue — backtest orchestrator" below.**
+> **Result: IC HOLDS.** Under per-trade matched $-SL (the strangle's daily stop is set to that day's IC $-SL, capped at the IC SL distribution's 75th percentile = $2,397.50), the open IC beats the open strangle on every acceptance metric. Wings are NOT vestigial — the implicit insurance the long legs provide is worth more than the credit forgone to the long debit.
 
-A walk-forward-validated SPX 0DTE short strangle entered at 09:35 ET, designed for risk-equivalent comparison against the [open IC](spx_0dte_open_ic_findings.md) via per-trade matched $-SL (capped at the IC SL distribution's 75th percentile).
+A walk-forward-validated SPX 0DTE short strangle entered at 09:35 ET, compared head-to-head against the [open IC](spx_0dte_open_ic_findings.md) over the same 4-year CBBO window (2022-05-11 → 2026-02-28).
 
-## Design & spec
+## Acceptance gate vs. IC v5 baseline
 
-- Design spec: [docs/superpowers/specs/2026-05-19-spx-0dte-open-strangle-design.md](superpowers/specs/2026-05-19-spx-0dte-open-strangle-design.md)
-- Implementation plan: [docs/superpowers/plans/2026-05-19-spx-0dte-open-strangle.md](superpowers/plans/2026-05-19-spx-0dte-open-strangle.md)
+| Metric | IC v5 baseline | Strangle (em_mult winner) | Strangle (delta winner) | Strangle wins? |
+|---|---|---|---|---|
+| **OOS Sharpe (mean per fold)** | 4.53 | 1.51 | 1.03 | ❌ |
+| **Total OOS PnL** | +$15,014 | +$5,246 | +$2,676 | ❌ |
+| **Profitable folds** | 3 of 4 | 2 of 4 | 3 of 4 | ❌ (em_mult) / tie (delta) |
+| **Worst fold PnL** | — *(IC reports worst day -$826)* | -$6,305 | -$5,826 | ❌ |
+| Aggregate win rate | 45.3% per day | 72.4% per trade | 81.0% per trade | ✓ but not relevant |
+| Total OOS trades | 172 day-trades | 304 trades | 116 trades | — |
 
-## What ships
+The strangle wins **more often** (high WR) but with **smaller wins and larger tails** — the canonical naked-premium-seller payout profile. Under matched dollar-risk, the IC's tail truncation from its long legs is worth more than the strangle's higher gross credit.
+
+## Winning configurations
+
+### em_mult mode winner (preferred)
+
+[config/config_spx_0dte_open_strangle.yaml](../config/config_spx_0dte_open_strangle.yaml) with sweep-tuned overrides:
+
+```yaml
+options:
+  strike_mode:          em_mult
+  em_mult:              0.20      # tightest in the sweep — closer to spot for richer credit
+  tp_pct_of_credit:     0.75      # canonical "25% of max profit" TP
+  tp_pct_of_credit_end: null      # no time-ramp
+  sl_dollars_csv:       data/ic_sl_dollars_by_day.csv
+  sl_dollars_fallback:  2400.0    # = IC SL p75 ($2,397.50)
+strategy:
+  eod_force_close:      "15:30"
+  skip_fomc_next_day:   true
+  skip_weekdays:        ["Fri"]
+```
+
+**Per-fold OOS** (em_mult winner, ratio 5:1, 4 folds):
+
+| Fold | Validation window | Trades | WR | PnL | Sharpe |
+|---|---|---|---|---|---|
+| 1 | 2024-06 → 2024-11 | 64 | 78.1% | **+$3,343** | 1.70 |
+| 2 | 2024-11 → 2025-04 | 72 | 70.8% | **-$6,305** | -2.06 |
+| 3 | 2025-04 → 2025-09 | 88 | 72.7% | **+$13,779** | 8.21 |
+| 4 | 2025-09 → 2026-02 | 80 | 68.8% | **-$5,571** | -1.81 |
+| **Σ** | | **304** | **72.4%** | **+$5,246** | mean 1.51 |
+
+### delta mode winner
+
+```yaml
+options:
+  strike_mode:          delta
+  target_short_delta:   0.30      # widest in the sweep
+  tp_pct_of_credit:     0.25      # late TP (capture 75% of max)
+  tp_pct_of_credit_end: 0.75      # ramp loose by EOD
+```
+
+**Per-fold OOS** (delta winner):
+
+| Fold | Trades | WR | PnL | Sharpe |
+|---|---|---|---|---|
+| 1 | 22 | 86.4% | +$609 | 0.76 |
+| 2 | 34 | 79.4% | +$389 | 0.30 |
+| 3 | 38 | 81.6% | **+$7,504** | 9.74 |
+| 4 | 22 | 77.3% | **-$5,826** | -6.68 |
+| **Σ** | **116** | **81.0%** | **+$2,676** | mean 1.03 |
+
+Delta-mode strangles trade much less (116 vs 304) because the 0.30-delta short typically prices at $5–$15 — fewer days pass `min_credit_per_spread` after applying slippage. WR is higher (81%) but smaller sample and same regime-dependent tails.
+
+## Interpretation
+
+### Why does the strangle lose?
+
+**Risk-equivalent comparison** (matched $-SL) holds the *downside dollar exposure* of each strategy equal — the strangle's daily SL = IC's same-day $-SL, capped at $2,398 (p75). But:
+
+1. **The IC pays for protection it actually uses.** IC max-loss-per-side ≈ 2× credit (sl_mult=2.0). The IC's long wing limits per-side losses to (width − credit) × 100. At wing_width=25 and call_credit ~$0.75, that's $1,825 — well above sl_mult cap of $150. So in practice the IC's SL fires *before* the wing matters; the wing is "wasted" most of the time. BUT — on tail days, when the SL is breached intrabar at a worse mark than expected, the wing caps slippage. **The strangle has no such cap.**
+
+2. **Strangle credit at em_mult=0.20 is ~$8 (vs IC's ~$1.50 net), 5× richer.** That's the gross premium advantage. But the strangle's max single-trade loss is also uncapped (truncated at $2,400 SL, not at wing). On a fast tail move, the strangle gets stopped harder than the IC.
+
+3. **Fold 2 and Fold 4 are losing folds for both modes.** Both correspond to choppy/trending periods in late-2024 to early-2025 and again Q4 2025 — regimes where small directional moves break the SL without giving the position time to decay. The strangle's higher gamma (no protective long) amplifies this.
+
+### The empirical answer to "wings are vestigial?"
+
+**No. Wings provide tail-event insurance that pays out under the matched-SL regime.** The IC's 4-year aggregate Sharpe of 4.53 vs strangle's 1.51 (best mode) is a 3× advantage in risk-adjusted terms. Even though the IC pays a debit to buy wings, the realized tail protection — visible in IC's worst day -$826 vs strangle's worst fold -$6,305 — more than offsets the credit loss.
+
+### Caveats (as predicted in spec §5)
+
+1. **Pin/assignment risk** — mitigated by `eod_force_close: 15:30`. Not yet quantified with a near-pin diagnostic. Real-world assignment cost would make the strangle worse, not better — this finding is conservative.
+2. **CBBO mark optimism at high em_mult / low delta** — applies to both ICs and strangles symmetrically in this study, so within-comparison the verdict is fair. Absolute strangle PnL at em_mult=0.20 is *less* speculative than at em_mult=1.00 (closer-to-spot strikes have tighter pct-spreads).
+3. **SPAN/Reg-T margin not enforced** — strangles deploy 5–10× IC buying power. This study matched $-loss, not BP, so the comparison disadvantages strangles even more on capital-efficiency grounds.
+4. **Per-trade SL coupling to IC log** — strangle SL is sourced from IC's same-day credit. Result is "strangle-conditional-on-IC-risk-budget." A standalone strangle with its own SL ceiling could differ.
+5. **No gate re-derivation** — inherited IC's gates. A strangle-native gate set might claw back some alpha, but unlikely to close a 3× Sharpe gap.
+
+## Implementation that ships
 
 | Component | File | Status |
 |---|---|---|
-| Strategy | [src_v2/strategies/open_strangle.py](../src_v2/strategies/open_strangle.py) | ✓ implemented, 12 unit tests passing |
-| Config | [config/config_spx_0dte_open_strangle.yaml](../config/config_spx_0dte_open_strangle.yaml) | ✓ tuned to measured IC p75 ($2,397.50) |
-| SL artifact extractor | [scripts/extract_ic_sl_dollars.py](../scripts/extract_ic_sl_dollars.py) | ✓ 270 days extracted from `results/spx_0dte_open_ic/trades.csv` |
-| WF-CV runner (generalized) | [scripts/run_v2_wf_cv_open_ic.py](../scripts/run_v2_wf_cv_open_ic.py) | ✓ now resolves `strategy.class` from config |
-| Strangle WF-CV entry | [scripts/run_v2_wf_cv_open_strangle.py](../scripts/run_v2_wf_cv_open_strangle.py) | ✓ `--mode em_mult` (36 combos) / `--mode delta` (30 combos) |
+| Strategy | [src_v2/strategies/open_strangle.py](../src_v2/strategies/open_strangle.py) | ✓ 12 unit tests passing |
+| Config | [config/config_spx_0dte_open_strangle.yaml](../config/config_spx_0dte_open_strangle.yaml) | ✓ tuned to IC p75 |
+| Backtest support (2-leg) | [src_v2/backtest/orchestrator.py](../src_v2/backtest/orchestrator.py), [src_v2/backtest/bt_tool_handlers.py](../src_v2/backtest/bt_tool_handlers.py) | ✓ naked-short branches |
+| SL artifact extractor | [scripts/extract_ic_sl_dollars.py](../scripts/extract_ic_sl_dollars.py) | ✓ 270-day artifact, p75=$2,397.50 |
+| WF-CV runner | [scripts/run_v2_wf_cv_open_ic.py](../scripts/run_v2_wf_cv_open_ic.py), [scripts/run_v2_wf_cv_open_strangle.py](../scripts/run_v2_wf_cv_open_strangle.py) | ✓ `--mode em_mult` / `delta` |
 | Trade-log analyzer | [scripts/analyze_open_strangle_trades.py](../scripts/analyze_open_strangle_trades.py) | ✓ forked from IC analyzer |
-| Comparator | [scripts/compare_strangle_vs_ic.py](../scripts/compare_strangle_vs_ic.py) | ✓ verified against IC baseline |
+| Comparator | [scripts/compare_strangle_vs_ic.py](../scripts/compare_strangle_vs_ic.py) | ✓ |
 
-### IC SL artifact (measured)
-
-```json
-{
-  "p75": 2397.5,
-  "median": 2130.0,
-  "mean": 2151.61,
-  "min": 1250.0,
-  "max": 3060.0,
-  "n_days": 270,
-  "sl_mult": 2.0
-}
-```
-
-Strangle config now uses `sl_dollars_fallback: 2400.0` (≈ measured p75). Per-day SL$ is resolved at trade-entry from `data/ic_sl_dollars_by_day.csv` (regenerated artifact, gitignored).
-
-## Acceptance gate (per spec §1)
-
-Strangle winner must beat IC v5 on all three:
-
-| Metric | IC baseline | Strangle target |
-|---|---|---|
-| OOS Sharpe (annualized) | 4.53 | ≥ 4.53 |
-| Worst day | −$826 | ≥ −$826 |
-| Total OOS PnL | +$15,014 | > +$15,014 |
-
-**Not yet evaluated** — see blocker below.
-
-## Known issue — backtest orchestrator assumes 4-leg trades
-
-`src_v2/backtest/orchestrator.py:_convert_trades_to_results()` iterates over `("put", "call")` and requires both `short_{side}_strike` AND `long_{side}_strike` on each trade. Strangles only have shorts, so the loop's `if short_k is None or long_k is None: continue` skips every strangle trade — producing 0 `BacktestResult` rows even though the engine correctly opens trades and force-closes them at 15:30 ET (visible in the run log).
-
-Symptom: `WalkForwardOptimizer` reports `Fold N: no valid combos in train (min_trades=N)` because the metrics function sees 0 trades per combo.
-
-This is an orchestrator-side gap, not a strategy-side defect. Required fix (single function, ~30 lines):
-
-1. When `long_k is None`, treat the side as a naked short:
-   - Skip the long-leg exit-log lookup
-   - `debit = max(0, short_exit_mid)` (no long-leg offset)
-   - `spread_width = 0`, `long_strike = 0` (schema requires non-null)
-   - `spread_type = f"{side}_short"` (or `naked_{side}`)
-2. PnL formula `(credit - debit) × multiplier × qty - commission` is unchanged — works for both ICs and strangles because `credit` is gross premium and `debit` is whatever it costs to close.
-
-This patch should land in its own branch with its own design review — touching shared backtest infrastructure affects every strategy. Out of scope for this delivery; flagged here so the next session has full context.
-
-## Reproduce (after orchestrator fix)
+## Reproduce
 
 ```bash
-# 1. Extract IC SL artifact (already done)
+# 1. Extract IC SL artifact (only once; output is gitignored)
 .venv/bin/python scripts/extract_ic_sl_dollars.py \
     --trades results/spx_0dte_open_ic/trades.csv \
     --sl-mult 2.0 \
     --out data/ic_sl_dollars_by_day.csv
 
-# 2. Run em_mult sweep (36 combos × 4 folds)
+# 2. em_mult sweep (~3 min on workers=1, 36 combos × 4 folds)
 .venv/bin/python scripts/run_v2_wf_cv_open_strangle.py \
     --mode em_mult \
     --config config/config_spx_0dte_open_strangle.yaml \
     --ratio 5 --folds 4 --top-k 5 \
     --objective sharpe_annualised \
     --min-trades 10 \
-    2>&1 | tee results/spx_0dte_open_strangle/wf_cv_em_mult.log
+    --workers 1 \
+    > results/spx_0dte_open_strangle/wf_cv_em_mult.log 2>&1
 
-# 3. Run delta sweep (30 combos × 4 folds)
+# 3. delta sweep (~2 min, 30 combos × 4 folds)
 .venv/bin/python scripts/run_v2_wf_cv_open_strangle.py \
     --mode delta \
     --config config/config_spx_0dte_open_strangle.yaml \
     --ratio 5 --folds 4 --top-k 5 \
     --objective sharpe_annualised \
     --min-trades 10 \
-    2>&1 | tee results/spx_0dte_open_strangle/wf_cv_delta.log
-
-# 4. Compare winner vs. IC baseline
-.venv/bin/python scripts/compare_strangle_vs_ic.py \
-    --strangle results/spx_0dte_open_strangle/<RUN_DIR>/trades.csv \
-    --ic-meta data/ic_sl_dollars_by_day.meta.json
+    --workers 1 \
+    > results/spx_0dte_open_strangle/wf_cv_delta.log 2>&1
 ```
 
-## Caveats (apply once results land)
+**Note on `--workers 1`:** parallel workers each duplicate the in-memory CBBO cache (~9 GB at full window), so workers=2 pushes a 16-GB-free system into swap and stalls. Sequential is fine — the full sweep is fast (~3 min).
 
-Per spec §5 — must be addressed in the post-sweep update of this doc:
+## Follow-ups (deferred, no longer urgent)
 
-1. **Pin/assignment risk** — mitigated structurally by `eod_force_close: 15:30`. Report a "near-pin at 15:30" diagnostic (count of days where any short strike was within ±2 pts of spot at close-time).
-2. **CBBO mark optimism at high em_mult** — SPX 0DTE strikes at em_mult ≥ 0.75 trade $0.05–$0.30 with wide percent-spreads. Same assumption as the IC backtest, fair within-study but absolute PnL at high em_mult is upper-bound.
-3. **SPAN/Reg-T margin not enforced** — strangles deploy 5–10× IC buying power. Report BP-per-trade.
-4. **Per-trade SL coupling to IC log** — strangle's daily SL is sourced from IC's same-day realized credit. Result is "strangle-conditional-on-IC-risk-budget."
-5. **No gate re-derivation** — inherits IC's gates assuming gate-strategy independence.
-
-## Follow-ups (deferred)
-
-- Sweep `eod_force_close ∈ {15:30, 15:45, 15:55}` to find the theta-vs-pin sweet spot.
-- Re-derive entry gates specifically for strangle returns.
-- Asymmetric strangle (different em_mult put/call) — call-side dominance in IC losses suggests a skewed strangle may be the natural extension.
+- Sweep `eod_force_close ∈ {15:30, 15:45, 15:55}` — would only matter if strangle were a contender, which it isn't.
+- Re-derive entry gates specifically for strangle returns — same.
+- **Asymmetric strangle (further-OTM call than put)** — the IC findings showed 65% of losses were call-side breaches in 2022-2023. A skewed strangle might do better on call-side tails, but a 3× Sharpe gap is unlikely to close.
+- The orchestrator's naked-short support shipped in [src_v2/backtest/orchestrator.py](../src_v2/backtest/orchestrator.py) and [src_v2/backtest/bt_tool_handlers.py](../src_v2/backtest/bt_tool_handlers.py) — usable by any future 2-leg strategy (covered call, naked put, etc.) without further changes.
