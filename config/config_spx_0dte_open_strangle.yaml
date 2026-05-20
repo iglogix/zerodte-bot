@@ -1,0 +1,105 @@
+bot:
+  name: "spx-0dte-open-strangle"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "SPX"
+  strategy: "open_strangle"
+
+# Time-window strangle: enter once at configured time near the open.
+strategy:
+  class: src_v2.strategies.open_strangle.OpenStrangleStrategy
+  market_open:     "09:30"
+  eod_force_close: "15:30"       # before assignment-risk window
+  skip_nfp_fridays: true
+  skip_fomc_days:   true
+  skip_cpi_days:    true
+  skip_fomc_next_day: true
+  skip_cpi_next_day:  false
+  skip_weekdays:      ["Fri"]
+
+entry:
+  entry_mode: "fixed_time"
+  entry_time: "09:35"
+  stability_check: true
+  stability_fraction: 0.20
+  single_candle_fraction: 0.15
+  fallback_stability_pts: 12.0
+
+  # Used only when entry_mode == "post_move"
+  post_move:
+    watch_start: "09:30"
+    watch_end:   "10:30"
+    trigger_em_ratio: 0.30        # cumulative range ≥ 0.30 × EM
+    trigger_pts: null              # optional absolute fallback (pts)
+
+  # Used only when entry_mode == "fixed_time"
+  opening_range_filter:
+    enabled: true
+    window_start: "09:30"
+    window_end:   "09:35"
+    max_open_range_pts:     null
+    max_open_range_em_ratio: 0.5
+
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  # strike_mode: "em_mult" (default, model-free) or "delta" (BS-based, unreliable for 0DTE)
+  strike_mode: "em_mult"
+  em_mult: 0.30                 # WF-CV will sweep delta and em_mult
+  target_short_delta: 0.20
+  min_credit_per_spread: 0.05      # lower than IC (no wing debit)
+  max_credit_imbalance: 1.50    # max abs(call_credit - put_credit)
+  # tp_pct_of_credit semantics: "exit when current strangle value <= tp_pct × credit".
+  #   0.75 = canonical tastytrade "25% TP" (exit having captured 25% of max profit)
+  #   0.25 = late TP — let value drop to 25% of credit (capture 75% of max profit)
+  tp_pct_of_credit: 0.25        # WF-CV sweep parameter
+  tp_pct_of_credit_end: null
+  tp_mode: "total"              # close whole strangle at tp_pct × TOTAL credit
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  quantity: 1
+  commission_per_contract_per_leg: 1.0
+  monitor_poll_seconds: 30
+  pricing_model: "bs"
+  sl_dollars_csv: data/ic_sl_dollars_by_day.csv
+  sl_dollars_fallback: 2400.0     # = IC SL p75 from data/ic_sl_dollars_by_day.meta.json
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+database:
+  trading_db: "spx_0dte_open_strangle.db"
+  cache_db: "data/spx_0dte_open_strangle_cache.db"
+
+logging:
+  level: "INFO"
+  log_dir: "logs_spx_0dte_open_strangle"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+# Optional regime filter (prior-day VIX9D close)
+regime:
+  enabled: false                # toggle via grid
+  vix_csv: "data/vix9d_daily.csv"
+  vix_min: null
+  vix_max: null
+
+backtest:
+  data_dir: "data"
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2022-05-11"
+  end_date: "2026-02-28"
+  results_dir: "results/spx_0dte_open_strangle"
