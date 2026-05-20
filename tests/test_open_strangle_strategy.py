@@ -103,3 +103,69 @@ def test_em_mult_strike_placement():
     assert setup.strikes["short_call"] == 5005.0
     assert "long_put" not in setup.strikes
     assert "long_call" not in setup.strikes
+
+
+def _write_sl_artifact(tmp_path, rows, p75):
+    """Write a temporary IC SL-by-day artifact + meta.json."""
+    import json
+
+    csv_path = tmp_path / "sl.csv"
+    with open(csv_path, "w") as f:
+        f.write("trade_date,ic_total_credit,sl_mult,ic_sl_dollars\n")
+        for d, sl in rows:
+            f.write(f"{d},{sl/2/100:.2f},2.0,{sl:.2f}\n")
+    meta_path = tmp_path / "sl.meta.json"
+    meta_path.write_text(json.dumps({"p75": p75, "median": 250, "mean": 280}))
+    return str(csv_path)
+
+
+def test_sl_lookup_uses_per_day_value(tmp_path):
+    csv = _write_sl_artifact(
+        tmp_path,
+        rows=[("2025-06-02", 240.0), ("2025-06-03", 280.0)],
+        p75=350.0,
+    )
+    s = _make_strategy(sl_dollars_csv=csv, sl_dollars_fallback=300.0)
+    when = datetime(2025, 6, 2, 9, 35, tzinfo=ET)
+    assert s._sl_dollars_for(when) == 240.0  # per-day < p75 → per-day
+
+
+def test_sl_lookup_caps_at_p75(tmp_path):
+    csv = _write_sl_artifact(
+        tmp_path,
+        rows=[("2025-06-02", 900.0)],  # per-day > p75
+        p75=350.0,
+    )
+    s = _make_strategy(sl_dollars_csv=csv, sl_dollars_fallback=300.0)
+    when = datetime(2025, 6, 2, 9, 35, tzinfo=ET)
+    assert s._sl_dollars_for(when) == 350.0  # capped at p75
+
+
+def test_sl_lookup_fallback_when_date_missing(tmp_path):
+    csv = _write_sl_artifact(
+        tmp_path,
+        rows=[("2025-06-02", 240.0)],
+        p75=350.0,
+    )
+    s = _make_strategy(sl_dollars_csv=csv, sl_dollars_fallback=300.0)
+    when = datetime(2025, 7, 15, 9, 35, tzinfo=ET)  # not in artifact
+    assert s._sl_dollars_for(when) == 350.0  # falls back to p75
+
+
+def test_sl_lookup_no_artifact_uses_fallback():
+    s = _make_strategy(sl_dollars_csv=None, sl_dollars_fallback=300.0)
+    when = datetime(2025, 6, 2, 9, 35, tzinfo=ET)
+    assert s._sl_dollars_for(when) == 300.0
+
+
+def test_setup_records_sl_dollars(tmp_path):
+    csv = _write_sl_artifact(
+        tmp_path,
+        rows=[("2025-06-02", 275.0)],
+        p75=350.0,
+    )
+    s = _make_strategy(sl_dollars_csv=csv, sl_dollars_fallback=300.0)
+    chain = _make_chain(spot=5000.0, atm_credit=10.0)
+    out = asyncio.run(s.search_candidates(chain, spot=5000.0))
+    setup = out["top_candidate"]
+    assert setup.extra["sl_dollars"] == 275.0
