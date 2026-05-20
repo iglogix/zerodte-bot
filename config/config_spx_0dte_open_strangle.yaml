@@ -67,7 +67,7 @@ options:
   monitor_poll_seconds: 30
   pricing_model: "bs"
   sl_dollars_csv: data/ic_sl_dollars_by_day.csv
-  sl_dollars_fallback: 300.0     # placeholder; runner overrides from meta.json p75
+  sl_dollars_fallback: 2400.0     # = IC SL p75 from data/ic_sl_dollars_by_day.meta.json
 
 risk:
   max_loss_per_trade_usd: 50000
