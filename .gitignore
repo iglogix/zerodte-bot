@@ -69,3 +69,7 @@ condition.json
 
 # Playwright MCP browser session state (large, ephemeral)
 .playwright-mcp/
+
+# IC SL-by-day artifact (regenerated from trade log)
+data/ic_sl_dollars_by_day.csv
+data/ic_sl_dollars_by_day.meta.json
