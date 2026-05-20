@@ -55,11 +55,6 @@ options:
   tp_pct_of_credit: 0.25        # WF-CV sweep parameter
   tp_pct_of_credit_end: null
   tp_mode: "total"              # close whole strangle at tp_pct × TOTAL credit
-  sl_scope: "per_side"          # "per_side" = asymmetric leg-out
-                                # "total"    = SL on combined mark
-  hold_put_breach: true         # no breach-based stop
-  hold_call_breach: true
-  spread_mode: "strangle"
   slippage_per_spread: 0.10
   contract_multiplier: 100
   quantity: 1
