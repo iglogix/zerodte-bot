@@ -278,3 +278,69 @@ class TestMeicStops:
             assert "stop_market" in o
             assert "stop_limit" not in o
             assert o["stop_market"]["trigger_price"] > 0
+
+
+class TestMeicScaleOut:
+    def _trade(self, entry="11:40", qty=4, cc=1.40, pc=1.40):
+        h, m = (int(x) for x in entry.split(":"))
+        return {
+            "trade_id": f"2026-05-20_{entry}",
+            "entry_time_et": datetime(2026, 5, 20, h, m, tzinfo=ET),
+            "short_call_symbol": "SC", "long_call_symbol": "LC",
+            "short_put_symbol": "SP", "long_put_symbol": "LP",
+            "call_credit": cc, "put_credit": pc,
+            "call_open_qty": qty, "put_open_qty": qty,
+            "short_call_stop_price": 99.0, "short_put_stop_price": 99.0,
+        }
+
+    def _quotes(self, sc_ask, sp_ask, lc_bid=0.50, lp_bid=0.50):
+        return {
+            "SC": {"bid": sc_ask - 0.05, "ask": sc_ask},
+            "SP": {"bid": sp_ask - 0.05, "ask": sp_ask},
+            "LC": {"bid": lc_bid, "ask": lc_bid + 0.05},
+            "LP": {"bid": lp_bid, "ask": lp_bid + 0.05},
+        }
+
+    def test_am_tier_fires_at_55pct(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="11:40", qty=4)  # AM
+        # call side: credit 1.40, ask 0.60 -> pnl 57% -> tier 0 (55%) fires
+        # put side: ask 1.40 -> pnl 0% -> nothing
+        action = s.check_exit(trade, self._quotes(sc_ask=0.60, sp_ask=1.40))
+        assert action.action == "take_profit"
+        # 25% of 4 = 1 contract of short call, plus paired long
+        assert action.leg_quantities.get("SC") == 1
+        assert action.leg_quantities.get("LC") == 1
+        assert "SP" not in action.leg_quantities
+
+    def test_am_tier_does_not_refire(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="11:40", qty=4)
+        q = self._quotes(sc_ask=0.60, sp_ask=1.40)
+        s.check_exit(trade, q)            # fires tier 0
+        action2 = s.check_exit(trade, q)  # same pnl -> no new tier
+        assert action2.action == "hold"
+
+    def test_am_multiple_tiers_one_bar(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="11:40", qty=4)
+        # call ask 0.20 -> pnl ~86% -> tiers 0,1,2,3 all fire
+        action = s.check_exit(trade, self._quotes(sc_ask=0.20, sp_ask=1.40))
+        assert action.action == "take_profit"
+        # 4 tiers x 25% of 4 = 4 contracts total
+        assert action.leg_quantities.get("SC") == 4
+
+    def test_pm_uses_pm_tiers(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="13:00", qty=4)  # PM
+        # call ask 0.49 -> pnl 65% -> PM tier 0 (65%) fires; 50% of 4 = 2
+        action = s.check_exit(trade, self._quotes(sc_ask=0.49, sp_ask=1.40))
+        assert action.action == "take_profit"
+        assert action.leg_quantities.get("SC") == 2
+
+    def test_hold_when_below_first_tier(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="11:40", qty=4)
+        # call ask 1.00 -> pnl ~29% -> below 55% tier
+        action = s.check_exit(trade, self._quotes(sc_ask=1.00, sp_ask=1.40))
+        assert action.action == "hold"

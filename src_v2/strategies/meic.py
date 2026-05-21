@@ -270,5 +270,89 @@ class MeicStrategy(LiveStrategy):
             },
         ]
 
-    def check_exit(self, trade, quotes):
-        raise NotImplementedError
+    def _tiers_for(self, trade: Dict[str, Any]):
+        entry = trade.get("entry_time_et")
+        is_am = entry is not None and entry.time() < self._am_pm_cutoff
+        if is_am:
+            return self._am_tiers, self._am_fractions
+        return self._pm_tiers, self._pm_fractions
+
+    def check_exit(
+        self, trade: Dict[str, Any], quotes: Dict[str, Dict[str, Any]],
+    ) -> ExitAction:
+        trade_id = trade.get("trade_id", "")
+        tiers, fractions = self._tiers_for(trade)
+
+        legs_to_close: List[str] = []
+        leg_qty: Dict[str, int] = {}
+        reasons: List[str] = []
+        stop_hit = False
+
+        sides = [
+            ("call", "short_call_symbol", "long_call_symbol",
+             "call_credit", "call_open_qty", "short_call_stop_price"),
+            ("put", "short_put_symbol", "long_put_symbol",
+             "put_credit", "put_open_qty", "short_put_stop_price"),
+        ]
+
+        for side, short_key, long_key, credit_key, qty_key, stop_key in sides:
+            short_sym = trade.get(short_key)
+            long_sym = trade.get(long_key)
+            if not short_sym:
+                continue
+            sq = quotes.get(short_sym)
+            if sq is None:
+                continue
+            short_ask = sq.get("ask") or sq.get("price") or 0.0
+            credit = trade.get(credit_key, 0.0)
+            open_qty = int(trade.get(qty_key, 0))
+            if credit <= 0 or open_qty <= 0:
+                continue
+
+            # --- Stop-loss check (short ask >= stop trigger) ---
+            stop_price = trade.get(stop_key)
+            if stop_price is not None and short_ask >= stop_price:
+                stop_hit = True
+                legs_to_close.append(short_sym)
+                leg_qty[short_sym] = open_qty
+                if long_sym:
+                    legs_to_close.append(long_sym)
+                    leg_qty[long_sym] = open_qty
+                reasons.append(f"{side}_stop@{short_ask:.2f}")
+                continue
+
+            # --- Scale-out tiers ---
+            pnl_pct = (credit - short_ask) / credit
+            fired = self._scaleout_state.setdefault((trade_id, side), set())
+            contracts = 0
+            for i, tier in enumerate(tiers):
+                if i in fired:
+                    continue
+                if pnl_pct >= tier:
+                    fired.add(i)
+                    contracts += int(math.floor(open_qty * fractions[i]))
+            if contracts <= 0:
+                continue
+            contracts = min(contracts, open_qty)
+
+            legs_to_close.append(short_sym)
+            leg_qty[short_sym] = contracts
+            reasons.append(f"{side}_scaleout x{contracts}")
+
+            # Leftover long: close paired long unless bidless
+            if long_sym:
+                lq = quotes.get(long_sym)
+                long_bid = lq.get("bid", 0.0) if lq else 0.0
+                if long_bid >= self._abandon_long_below:
+                    legs_to_close.append(long_sym)
+                    leg_qty[long_sym] = contracts
+
+        if not legs_to_close:
+            return ExitAction(action="hold")
+
+        return ExitAction(
+            action="stop_loss" if stop_hit else "take_profit",
+            legs_to_close=legs_to_close,
+            leg_quantities=leg_qty,
+            reason="; ".join(reasons),
+        )
