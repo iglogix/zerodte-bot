@@ -94,6 +94,10 @@ def _config():
             "contract_multiplier": 100, "quantity": 1,
             "strike_step_pts": 5, "option_root": "SPXW",
             "tp_pct_of_credit": 0.50,
+            # Pure-logic tests: zero execution costs so P&L assertions are exact.
+            "slippage_per_spread": 0.0,
+            "commission_per_contract_per_leg": 0.0,
+            "stop_slippage_per_spread": 0.0,
         },
         "backtest": {"cbbo_cache_dir": ""},
     }
@@ -193,3 +197,48 @@ def test_meic_backtest_partial_then_expiry(monkeypatch):
     # tier 0 closes 1 @ 0.60: (1.40-0.60)*100*1 = 80
     # remaining 3 expire worthless: 1.40*100*3 = 420  -> total 500
     assert call.realized_pnl_usd == pytest.approx(80 + 420, abs=1.0)
+
+
+def _config_costs():
+    """Config with non-zero execution costs to verify they are applied."""
+    cfg = _config()
+    cfg["options"]["slippage_per_spread"] = 0.10
+    cfg["options"]["commission_per_contract_per_leg"] = 1.0
+    cfg["options"]["stop_slippage_per_spread"] = 0.25
+    return cfg
+
+
+def test_meic_backtest_applies_costs_on_worthless_expiry(monkeypatch):
+    d = date(2026, 5, 20)
+    # Worthless-expiry path, qty 3, credit 1.40, with costs:
+    #   credit_eff = 1.40 - 0.10 (entry slippage) = 1.30
+    #   commission = 2 legs * 3 qty * 1.0 = 6.00 (paid upfront)
+    #   pnl = 1.30 * 100 * 3 - 6 = 390 - 6 = 384  (vs 420 cost-free)
+    # No closing fill on expiry -> no exit slippage.
+    engine = _make_engine(monkeypatch, _FakeCbbo(_meic_marks()), config=_config_costs())
+    days = [_Day(_bars_flat(d), d)]
+    results = engine.run(days)
+
+    closed = [r for r in results if r.status == "closed"]
+    assert len(closed) == 2
+    for r in closed:
+        assert r.realized_pnl_usd == pytest.approx(1.30 * 100 * 3 - 6.0, abs=0.5)
+
+
+def test_meic_backtest_applies_stop_slippage(monkeypatch):
+    d = date(2026, 5, 20)
+    # Stop path with costs: stop_amount 1.96 + stop_slippage 0.25 = 2.21 debit;
+    #   credit_eff = 1.40 - 0.10 = 1.30; commission = 2*3*1.0 = 6
+    #   pnl = (1.30 - 2.21) * 100 * 3 - 6 = -273 - 6 = -279  (vs -168 cost-free)
+    fake = _FakeCbbo(
+        _meic_marks(),
+        shift_minute="11:30",
+        shift_marks={(5950.0, True): (3.50, 3.60)},
+    )
+    engine = _make_engine(monkeypatch, fake, config=_config_costs())
+    days = [_Day(_bars_flat(d), d)]
+    results = engine.run(days)
+
+    call = next(r for r in results if r.spread_type == "call")
+    assert call.exit_reason == "short_stopped"
+    assert call.realized_pnl_usd == pytest.approx((1.30 - 2.21) * 100 * 3 - 6.0, abs=0.5)

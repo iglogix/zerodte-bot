@@ -19,7 +19,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.orchestrator import BacktestOrchestrator
 from src_v2.backtest.report import (
@@ -77,17 +77,25 @@ def main():
 
     # Load bars
     print(f"Loading bars from {data_file} (scale={price_scale})...")
-    loader = SpyLoader(data_file, price_scale=price_scale, symbol=symbol)
+    loader = BarLoader(data_file, price_scale=price_scale, symbol=symbol)
     days = list(loader.iter_days(start_date=start, end_date=end))
     print(f"  {len(days)} trading days")
 
     # Create orchestrator
-    strategy_class = _strategy_cls(config)
-    orchestrator = BacktestOrchestrator(config, strategy_class, cbbo)
-
-    # Run
+    # Run — MEIC uses the inline BacktestEngine (scheduled tranche path);
+    # other strategies use the real OrbEngine+PositionMonitor orchestrator.
+    strategy_name = config.get("bot", {}).get("strategy", "orb_em_ic")
     print(f"Running backtest {start} -> {end}...")
-    results = orchestrator.run(days)
+    if strategy_name == "meic":
+        from src_v2.backtest.engine import BacktestEngine
+        from src_v2.strategies.meic import MeicStrategy
+        engine = BacktestEngine(config, MeicStrategy())
+        engine._cbbo = cbbo  # use preloaded store instead of the lazy one
+        results = engine.run(days)
+    else:
+        strategy_class = _strategy_cls(config)
+        orchestrator = BacktestOrchestrator(config, strategy_class, cbbo)
+        results = orchestrator.run(days)
 
     # Report
     report = generate_report(results)

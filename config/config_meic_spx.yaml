@@ -1,6 +1,7 @@
 bot:
   strategy: meic
   mode: dry_run
+  symbol: SPX
 
 entry:
   schedule:
@@ -66,6 +67,7 @@ options:
   quantity: 1
   slippage_per_spread: 0.10
   commission_per_contract_per_leg: 1.0
+  stop_slippage_per_spread: 0.25
   strike_step_pts: 5
   option_root: "SPXW"
 
@@ -85,3 +87,11 @@ database:
 logging:
   log_dir: "logs"
   level: "INFO"
+
+backtest:
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2025-09-22"
+  end_date: "2026-03-20"

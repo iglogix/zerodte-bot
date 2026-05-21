@@ -163,6 +163,11 @@ class BacktestEngine:
         self._tp_pct = opt_cfg.get("tp_pct_of_credit", 0.50)
         self._multiplier = opt_cfg.get("contract_multiplier", 100)
         self._quantity = opt_cfg.get("quantity", 1)
+        # Execution costs (applied in the MEIC path).
+        self._slippage = opt_cfg.get("slippage_per_spread", 0.10)
+        self._commission_per_leg = opt_cfg.get("commission_per_contract_per_leg", 1.0)
+        # Stops slip past the trigger more than a normal limit fill.
+        self._stop_slippage = opt_cfg.get("stop_slippage_per_spread", 0.25)
 
         # CBBO store
         cbbo_dir = config.get("backtest", {}).get("cbbo_cache_dir", "")
@@ -475,8 +480,12 @@ class BacktestEngine:
             credit_received=credit, qty=qty, status="closed",
         )
 
-        realized = 0.0   # dollars
         mult = self._multiplier
+        # Execution costs: entry fill slippage (per contract), opening
+        # commission (2 legs/side, charged once — TT SPX $1 open / $0 close).
+        credit_eff = credit - self._slippage
+        commission = 2 * qty * self._commission_per_leg
+        realized = -commission   # dollars; commission paid upfront at entry
 
         for bar in monitoring_bars:
             bt = bar["ts_et"]
@@ -492,8 +501,9 @@ class BacktestEngine:
 
             if action.action == "stop_loss":
                 open_q = int(trade[qty_key])
-                debit = min(max(stop_info["stop_amount"], 0), width)
-                realized += (credit - debit) * mult * open_q
+                # Stop-market fills slip past the trigger.
+                debit = min(max(stop_info["stop_amount"], 0) + self._stop_slippage, width)
+                realized += (credit_eff - debit) * mult * open_q
                 trade[qty_key] = 0
                 base.exit_time = bt
                 base.underlying_at_exit = self._cbbo.derive_spot(minute, bar["close"]) or bar["close"]
@@ -511,8 +521,8 @@ class BacktestEngine:
                     # market has moved away from the short, so the long is typically
                     # near-worthless and abandoned by the strategy. This understates
                     # P&L slightly rather than overstating it.
-                    debit = sq.get("ask", 0.0)
-                    realized += (credit - debit) * mult * closed_q
+                    debit = sq.get("ask", 0.0) + self._slippage
+                    realized += (credit_eff - debit) * mult * closed_q
                     trade[qty_key] = int(trade[qty_key]) - closed_q
                 if int(trade[qty_key]) <= 0:
                     base.exit_time = bt
@@ -521,9 +531,10 @@ class BacktestEngine:
                     base.realized_pnl_usd = round(realized, 2)
                     return base
 
-        # EOD / no exit: remaining qty expires worthless (keep full credit)
+        # EOD / no exit: remaining qty expires worthless. No closing fill, so
+        # no exit slippage — but entry slippage + commission are already in.
         remaining = int(trade[qty_key])
-        realized += credit * mult * remaining
+        realized += credit_eff * mult * remaining
         base.exit_time = eod_dt
         base.debit_paid = 0.0
         base.exit_reason = "expired_worthless" if remaining == qty else "partial_then_expiry"
