@@ -94,3 +94,61 @@ class _FakeDeps:
     db = None
     mode = "dry_run"
     config = {"entry": {}}
+
+
+from src_v2.strategies.base import LiveTradeSetup
+
+
+def _at(s: MeicStrategy, hhmm: str):
+    """Pin the strategy clock to a fixed ET wall time on an arbitrary date."""
+    h, m = (int(x) for x in hhmm.split(":"))
+    s._now_fn = lambda: datetime(2026, 5, 20, h, m, tzinfo=ET)
+
+
+class TestMeicSearchCandidates:
+    @pytest.mark.asyncio
+    async def test_empty_chain_returns_zero(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        _at(s, "11:30")
+        result = await s.search_candidates([], spot=5850.0)
+        assert result["candidates_found"] == 0
+        assert result["top_candidate"] is None
+
+    @pytest.mark.asyncio
+    async def test_am_band_finds_candidate(self, meic_config, sample_meic_chain):
+        s = MeicStrategy(); s.configure(meic_config)
+        _at(s, "11:30")
+        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
+        assert result["candidates_found"] > 0
+        top = result["top_candidate"]
+        assert isinstance(top, LiveTradeSetup)
+        assert top.strategy_type == "meic"
+        # Credits must be in AM band
+        assert 1.25 <= top.extra["call_credit"] <= 1.65
+        assert 1.25 <= top.extra["put_credit"] <= 1.65
+
+    @pytest.mark.asyncio
+    async def test_pm_band_rejects_am_credits(self, meic_config, sample_meic_chain):
+        # At 13:00 the PM band is [0.80, 1.30]; the sample chain's ~1.39
+        # credits fall OUTSIDE PM band -> no candidates.
+        s = MeicStrategy(); s.configure(meic_config)
+        _at(s, "13:00")
+        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
+        assert result["candidates_found"] == 0
+
+    @pytest.mark.asyncio
+    async def test_stamps_tranche_qty(self, meic_config, sample_meic_chain):
+        s = MeicStrategy(); s.configure(meic_config)
+        _at(s, "11:40")  # tranche_sizing["11:40"] == 4
+        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
+        top = result["top_candidate"]
+        assert top.extra["qty"] == 4
+        assert all(leg.quantity == 4 for leg in top.legs)
+
+    @pytest.mark.asyncio
+    async def test_default_qty_when_slot_missing(self, meic_config, sample_meic_chain):
+        s = MeicStrategy(); s.configure(meic_config)
+        _at(s, "11:20")  # not in tranche_sizing -> default 3
+        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
+        top = result["top_candidate"]
+        assert top.extra["qty"] == 3

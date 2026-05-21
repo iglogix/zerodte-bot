@@ -90,8 +90,102 @@ class MeicStrategy(LiveStrategy):
     # Stubs filled by later tasks
     # ------------------------------------------------------------------
 
-    async def search_candidates(self, chain, spot):
-        raise NotImplementedError
+    def _active_band(self) -> Tuple[float, float]:
+        now_t = self._now_fn().time()
+        if now_t < self._am_pm_cutoff:
+            return self._am_min_credit, self._am_max_credit
+        return self._pm_min_credit, self._pm_max_credit
+
+    def _tranche_qty(self) -> int:
+        slot = self._now_fn().strftime("%H:%M")
+        return int(self._tranche_sizing.get(slot, self._default_tranche_qty))
+
+    async def search_candidates(
+        self, chain: List[Dict[str, Any]], spot: float,
+    ) -> Dict[str, Any]:
+        if not chain:
+            return {"candidates_found": 0, "top_candidate": None, "candidates": []}
+
+        min_cr, max_cr = self._active_band()
+        qty = self._tranche_qty()
+
+        chain_by_strike: Dict[Tuple[float, str], Dict] = {
+            (float(o.get("strike", 0)), o.get("option_type", "").lower()): o
+            for o in chain
+        }
+        calls = sorted(
+            [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")],
+            key=lambda o: o.get("strike", 0),
+        )
+        puts = sorted(
+            [o for o in chain if o.get("option_type", "").upper() in ("P", "PUT")],
+            key=lambda o: o.get("strike", 0), reverse=True,
+        )
+
+        candidates: List[LiveTradeSetup] = []
+        for sc in calls:
+            sc_mid = _mid(sc)
+            if sc_mid is None:
+                continue
+            sc_strike = float(sc.get("strike", 0))
+            for sp in puts:
+                sp_mid = _mid(sp)
+                if sp_mid is None:
+                    continue
+                sp_strike = float(sp.get("strike", 0))
+                for w in self._wing_widths:
+                    lc = chain_by_strike.get((sc_strike + w, "call"))
+                    lp = chain_by_strike.get((sp_strike - w, "put"))
+                    if lc is None or lp is None:
+                        continue
+                    lc_mid = _mid(lc)
+                    lp_mid = _mid(lp)
+                    if lc_mid is None or lp_mid is None:
+                        continue
+                    call_credit = round(sc_mid - lc_mid, 4)
+                    put_credit = round(sp_mid - lp_mid, 4)
+                    if not (min_cr <= call_credit <= max_cr):
+                        continue
+                    if not (min_cr <= put_credit <= max_cr):
+                        continue
+                    credit_diff = abs(call_credit - put_credit)
+                    if credit_diff > self._credit_equality_threshold:
+                        continue
+                    total_credit = round(call_credit + put_credit, 4)
+                    candidates.append(LiveTradeSetup(
+                        strategy_type="meic",
+                        legs=[
+                            OrderLeg("", sc_strike, "call", "sell", qty),
+                            OrderLeg("", sc_strike + w, "call", "buy", qty),
+                            OrderLeg("", sp_strike, "put", "sell", qty),
+                            OrderLeg("", sp_strike - w, "put", "buy", qty),
+                        ],
+                        total_credit=total_credit,
+                        strikes={
+                            "short_call": sc_strike,
+                            "long_call": sc_strike + w,
+                            "short_put": sp_strike,
+                            "long_put": sp_strike - w,
+                        },
+                        extra={
+                            "wing_width": w,
+                            "call_credit": call_credit,
+                            "put_credit": put_credit,
+                            "credit_diff": round(credit_diff, 4),
+                            "total_premium": total_credit,
+                            "short_call_mid": sc_mid,
+                            "short_put_mid": sp_mid,
+                            "qty": qty,
+                        },
+                    ))
+
+        candidates.sort(key=lambda c: c.extra["credit_diff"])
+        candidates = candidates[:5]
+        return {
+            "candidates_found": len(candidates),
+            "top_candidate": candidates[0] if candidates else None,
+            "candidates": candidates,
+        }
 
     async def validate(self, setup, chain):
         raise NotImplementedError
