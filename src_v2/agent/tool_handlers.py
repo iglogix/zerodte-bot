@@ -378,6 +378,42 @@ class ToolHandlers:
             "quantity": quantity,
         })
 
+    async def place_two_spread_ic(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Place a MEIC iron condor as two independent credit spreads.
+
+        Submits the put credit spread, then the call credit spread, each at
+        the tranche quantity. In dry_run/manual the fills are simulated.
+        """
+        qty = int(payload.get("quantity", 1))
+        put = payload["put_spread"]
+        call = payload["call_spread"]
+
+        if self._block_submission():
+            if self.dry_run:
+                ts = datetime.now().strftime('%Y%m%d%H%M%S')
+                logger.info("[DRY RUN] Simulated MEIC two-spread IC: %s", ts)
+                return {
+                    "order_id": f"DRY-MEIC-{ts}",
+                    "dry_run": True, "simulated": True,
+                    "quantity": qty,
+                    "put_spread": put,
+                    "call_spread": call,
+                }
+            return self._manual_order_result("place_two_spread_ic", payload)
+
+        put_result = await self.place_credit_spread(
+            "put", put["short_strike"], put["long_strike"], qty)
+        call_result = await self.place_credit_spread(
+            "call", call["short_strike"], call["long_strike"], qty)
+        return {
+            "order_type": "meic_two_spreads",
+            "quantity": qty,
+            "put_result": put_result,
+            "call_result": call_result,
+            "put_spread": put,
+            "call_spread": call,
+        }
+
     async def place_credit_spread(
         self,
         spread_type: str,
@@ -474,6 +510,8 @@ class ToolHandlers:
 
     async def place_order(self, order_payload: Dict[str, Any]) -> Dict[str, Any]:
         """Generic order placement — routes strategy-built payloads to the API."""
+        if order_payload.get("order_type") == "meic_two_spreads":
+            return await self.place_two_spread_ic(order_payload)
         if self._block_submission():
             if self.dry_run:
                 order_id = f"DRY-{order_payload.get('order_type', 'ORD').upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
