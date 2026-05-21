@@ -27,3 +27,19 @@ async def test_place_two_spread_ic_dry_run_simulates():
     # Both spread legs reported
     assert result["put_spread"]["short_strike"] == 5750
     assert result["call_spread"]["short_strike"] == 5950
+
+
+def test_main_routes_meic_strategy():
+    import yaml
+    from src_v2.main import BotOrchestrator
+    from src_v2.strategies.meic import MeicStrategy
+
+    with open("config/config_meic_spx.yaml") as f:
+        config = yaml.safe_load(f)
+
+    orch = BotOrchestrator(config=config, mode="dry_run")
+    strategy = orch._create_strategy("meic")
+    assert isinstance(strategy, MeicStrategy)
+    # configured from YAML
+    assert strategy._stop_pct == 0.70
+    assert strategy._wing_widths == [80, 90, 100]

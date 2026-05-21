@@ -232,6 +232,9 @@ class BotOrchestrator:
         elif strategy_name == "orb_em_ic":
             from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
             strategy = OrbEmIronCondorStrategy()
+        elif strategy_name == "meic":
+            from src_v2.strategies.meic import MeicStrategy
+            strategy = MeicStrategy()
         else:
             from src_v2.strategies.iron_condor import IronCondorStrategy
             strategy = IronCondorStrategy()
