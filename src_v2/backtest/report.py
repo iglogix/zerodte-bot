@@ -50,6 +50,19 @@ def generate_report(results: List[BacktestResult]) -> Dict[str, Any]:
     for r in closed:
         daily_pnl[str(r.session_date)] += r.realized_pnl_usd or 0
     daily_returns = list(daily_pnl.values())
+
+    # Order-robust drawdown on the per-day net-P&L equity curve, plus the worst
+    # single-day net loss — these surface correlated same-day risk (e.g. many
+    # short legs stopping on one big directional day).
+    d_equity = 0.0
+    d_peak = 0.0
+    max_dd_daily = 0.0
+    for _, day_pnl in sorted(daily_pnl.items()):
+        d_equity += day_pnl
+        d_peak = max(d_peak, d_equity)
+        max_dd_daily = max(max_dd_daily, d_peak - d_equity)
+    worst_day_pnl = min(daily_returns) if daily_returns else 0.0
+    best_day_pnl = max(daily_returns) if daily_returns else 0.0
     sharpe = 0.0
     if len(daily_returns) > 1:
         mean = sum(daily_returns) / len(daily_returns)
@@ -95,6 +108,9 @@ def generate_report(results: List[BacktestResult]) -> Dict[str, Any]:
         "gross_loss_usd": round(gross_loss, 2),
         "profit_factor": round(profit_factor, 3) if profit_factor != float("inf") else "inf",
         "max_drawdown_usd": round(max_dd, 2),
+        "max_drawdown_daily_usd": round(max_dd_daily, 2),
+        "worst_day_pnl_usd": round(worst_day_pnl, 2),
+        "best_day_pnl_usd": round(best_day_pnl, 2),
         "sharpe_annualised": round(sharpe, 2),
         "avg_credit_received": round(avg_credit, 3),
         "avg_short_delta": round(avg_delta, 4),
@@ -128,6 +144,10 @@ def print_report(report: Dict[str, Any], title: str = "src_v2 Backtest") -> None
     print(f"  Avg loser:         ${report['avg_loser_usd']:,.2f}")
     print(f"  Profit factor:     {report['profit_factor']}")
     print(f"  Max drawdown:      ${report['max_drawdown_usd']:,.2f}")
+    if "max_drawdown_daily_usd" in report:
+        print(f"  Max DD (daily eq): ${report['max_drawdown_daily_usd']:,.2f}")
+        print(f"  Worst day P&L:     ${report['worst_day_pnl_usd']:,.2f}")
+        print(f"  Best day P&L:      ${report['best_day_pnl_usd']:,.2f}")
     print(f"  Sharpe (ann.):     {report['sharpe_annualised']:.2f}")
     print(f"  Avg credit:        ${report['avg_credit_received']:.3f}")
     print(f"  Avg short delta:   {report['avg_short_delta']:.4f}")

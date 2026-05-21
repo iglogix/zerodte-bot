@@ -44,6 +44,29 @@ def test_basic_stats():
     assert report["profit_factor"] == pytest.approx(0.9)
     assert report["max_drawdown_usd"] == pytest.approx(200.0)
     assert report["by_exit_reason"]["tp_50pct"]["count"] == 1
+    # Daily correlated-day metrics: 2025-10-01 net +180, 2025-10-02 net -200.
+    assert report["worst_day_pnl_usd"] == pytest.approx(-200.0)
+    assert report["best_day_pnl_usd"] == pytest.approx(180.0)
+    assert report["max_drawdown_daily_usd"] == pytest.approx(200.0)
+
+
+def test_worst_day_aggregates_same_day_losses():
+    from src_v2.backtest.report import generate_report
+    # Three losing legs on ONE day should aggregate into the worst-day metric,
+    # even though no single trade is that large.
+    results = [
+        _make_result(trade_id="A", session_date=date(2025, 11, 7),
+                     realized_pnl_usd=-150.0, exit_reason="short_stopped"),
+        _make_result(trade_id="B", session_date=date(2025, 11, 7),
+                     realized_pnl_usd=-200.0, exit_reason="short_stopped"),
+        _make_result(trade_id="C", session_date=date(2025, 11, 7),
+                     realized_pnl_usd=-250.0, exit_reason="short_stopped"),
+        _make_result(trade_id="D", session_date=date(2025, 11, 10),
+                     realized_pnl_usd=400.0, exit_reason="expired_worthless"),
+    ]
+    report = generate_report(results)
+    assert report["worst_day_pnl_usd"] == pytest.approx(-600.0)   # 3 stops summed
+    assert report["max_drawdown_daily_usd"] == pytest.approx(600.0)
 
 
 def test_sharpe_calculation():
