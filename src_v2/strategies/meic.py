@@ -240,11 +240,35 @@ class MeicStrategy(LiveStrategy):
             },
         }
 
-    def compute_stop_loss(self, setup):
-        raise NotImplementedError
+    def compute_stop_loss(self, setup: LiveTradeSetup) -> Dict[str, Any]:
+        cc = setup.extra.get("call_credit", 0.0)
+        pc = setup.extra.get("put_credit", 0.0)
+        total_credit = round(cc + pc, 4)
+        stop_amount = round(self._stop_pct * total_credit, 4)
+        sc_mid = setup.extra.get("short_call_mid", 0.0)
+        sp_mid = setup.extra.get("short_put_mid", 0.0)
+        return {
+            "total_credit": total_credit,
+            "stop_pct": self._stop_pct,
+            "stop_amount": stop_amount,
+            "short_call_stop_price": round(sc_mid + stop_amount, 4),
+            "short_put_stop_price": round(sp_mid + stop_amount, 4),
+            "order_type": "stop_market",
+        }
 
-    def build_stop_orders(self, setup, stop_info):
-        raise NotImplementedError
+    def build_stop_orders(
+        self, setup: LiveTradeSetup, stop_info: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        return [
+            {
+                "side": "short_call",
+                "stop_market": {"trigger_price": stop_info["short_call_stop_price"]},
+            },
+            {
+                "side": "short_put",
+                "stop_market": {"trigger_price": stop_info["short_put_stop_price"]},
+            },
+        ]
 
     def check_exit(self, trade, quotes):
         raise NotImplementedError

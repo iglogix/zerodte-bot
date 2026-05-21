@@ -241,3 +241,40 @@ class TestMeicBuildOrder:
             "short_strike": 5950, "long_strike": 6040,
             "credit": 1.40, "quantity": 4,
         }
+
+
+class TestMeicStops:
+    def _setup(self, cc=1.40, pc=1.40, sc_mid=1.45, sp_mid=1.45):
+        from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+        return LiveTradeSetup(
+            strategy_type="meic",
+            legs=[OrderLeg("", 5950, "call", "sell", 3)],
+            total_credit=cc + pc,
+            strikes={"short_call": 5950, "long_call": 6040,
+                     "short_put": 5750, "long_put": 5660},
+            extra={"call_credit": cc, "put_credit": pc, "qty": 3,
+                   "short_call_mid": sc_mid, "short_put_mid": sp_mid},
+        )
+
+    def test_compute_stop_loss_math(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)  # stop_pct 0.70
+        info = s.compute_stop_loss(self._setup())
+        # total credit 2.80 -> stop amount 1.96
+        assert info["total_credit"] == 2.80
+        assert info["stop_amount"] == pytest.approx(1.96)
+        assert info["short_call_stop_price"] == pytest.approx(1.45 + 1.96)
+        assert info["short_put_stop_price"] == pytest.approx(1.45 + 1.96)
+        assert info["order_type"] == "stop_market"
+
+    def test_build_stop_orders_stop_market_on_shorts_only(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        setup = self._setup()
+        info = s.compute_stop_loss(setup)
+        orders = s.build_stop_orders(setup, info)
+        assert len(orders) == 2
+        sides = {o["side"] for o in orders}
+        assert sides == {"short_call", "short_put"}
+        for o in orders:
+            assert "stop_market" in o
+            assert "stop_limit" not in o
+            assert o["stop_market"]["trigger_price"] > 0
