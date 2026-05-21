@@ -48,12 +48,10 @@ class MeicStrategy(LiveStrategy):
     def configure(self, config: Dict[str, Any]) -> None:
         strat = config.get("strategy", {})
         self._am_pm_cutoff = _parse_hhmm(strat.get("am_pm_cutoff", "12:30"))
+        self._short_em_mult = strat.get("short_em_mult", 1.0)
+        self._wing_em_frac = strat.get("wing_em_frac", 0.5)
+        self._min_credit_width_ratio = strat.get("min_credit_width_ratio", 0.08)
         self._strike_step = strat.get("strike_step_pts", 5)
-        self._am_min_credit = strat.get("am_min_credit", 1.25)
-        self._am_max_credit = strat.get("am_max_credit", 1.65)
-        self._pm_min_credit = strat.get("pm_min_credit", 0.80)
-        self._pm_max_credit = strat.get("pm_max_credit", 1.30)
-        self._wing_widths = list(strat.get("wing_widths", [80, 90, 100]))
         self._stop_pct = strat.get("stop_pct_of_total_credit", 0.70)
         if not (0.65 <= self._stop_pct <= 0.90):
             raise ValueError(
@@ -93,12 +91,6 @@ class MeicStrategy(LiveStrategy):
     # Stubs filled by later tasks
     # ------------------------------------------------------------------
 
-    def _active_band(self) -> Tuple[float, float]:
-        now_t = self._now_fn().time()
-        if now_t < self._am_pm_cutoff:
-            return self._am_min_credit, self._am_max_credit
-        return self._pm_min_credit, self._pm_max_credit
-
     def _tranche_qty(self) -> int:
         slot = self._now_fn().strftime("%H:%M")
         return int(self._tranche_sizing.get(slot, self._default_tranche_qty))
@@ -133,89 +125,74 @@ class MeicStrategy(LiveStrategy):
     async def search_candidates(
         self, chain: List[Dict[str, Any]], spot: float,
     ) -> Dict[str, Any]:
+        empty = {"candidates_found": 0, "top_candidate": None, "candidates": []}
         if not chain:
-            return {"candidates_found": 0, "top_candidate": None, "candidates": []}
+            return empty
+        em = self._compute_em(chain, spot)
+        if em is None or em <= 0:
+            return empty
 
-        min_cr, max_cr = self._active_band()
+        step = self._strike_step
         qty = self._tranche_qty()
-
-        chain_by_strike: Dict[Tuple[float, str], Dict] = {
+        by = {
             (float(o.get("strike", 0)), o.get("option_type", "").lower()): o
             for o in chain
         }
-        calls = sorted(
-            [o for o in chain if o.get("option_type", "").upper() in ("C", "CALL")],
-            key=lambda o: o.get("strike", 0),
-        )
-        puts = sorted(
-            [o for o in chain if o.get("option_type", "").upper() in ("P", "PUT")],
-            key=lambda o: o.get("strike", 0), reverse=True,
-        )
 
-        candidates: List[LiveTradeSetup] = []
-        for sc in calls:
-            sc_mid = _mid(sc)
-            if sc_mid is None:
-                continue
-            sc_strike = float(sc.get("strike", 0))
-            for sp in puts:
-                sp_mid = _mid(sp)
-                if sp_mid is None:
-                    continue
-                sp_strike = float(sp.get("strike", 0))
-                for w in self._wing_widths:
-                    lc = chain_by_strike.get((sc_strike + w, "call"))
-                    lp = chain_by_strike.get((sp_strike - w, "put"))
-                    if lc is None or lp is None:
-                        continue
-                    lc_mid = _mid(lc)
-                    lp_mid = _mid(lp)
-                    if lc_mid is None or lp_mid is None:
-                        continue
-                    call_credit = round(sc_mid - lc_mid, 4)
-                    put_credit = round(sp_mid - lp_mid, 4)
-                    if not (min_cr <= call_credit <= max_cr):
-                        continue
-                    if not (min_cr <= put_credit <= max_cr):
-                        continue
-                    credit_diff = abs(call_credit - put_credit)
-                    if credit_diff > self._credit_equality_threshold:
-                        continue
-                    total_credit = round(call_credit + put_credit, 4)
-                    candidates.append(LiveTradeSetup(
-                        strategy_type="meic",
-                        legs=[
-                            OrderLeg("", sc_strike, "call", "sell", qty),
-                            OrderLeg("", sc_strike + w, "call", "buy", qty),
-                            OrderLeg("", sp_strike, "put", "sell", qty),
-                            OrderLeg("", sp_strike - w, "put", "buy", qty),
-                        ],
-                        total_credit=total_credit,
-                        strikes={
-                            "short_call": sc_strike,
-                            "long_call": sc_strike + w,
-                            "short_put": sp_strike,
-                            "long_put": sp_strike - w,
-                        },
-                        extra={
-                            "wing_width": w,
-                            "call_credit": call_credit,
-                            "put_credit": put_credit,
-                            "credit_diff": round(credit_diff, 4),
-                            "total_premium": total_credit,
-                            "short_call_mid": sc_mid,
-                            "short_put_mid": sp_mid,
-                            "qty": qty,
-                        },
-                    ))
+        short_call = math.ceil((spot + self._short_em_mult * em) / step) * step
+        short_put = math.floor((spot - self._short_em_mult * em) / step) * step
+        wing_pts = max(step, int(round(self._wing_em_frac * em / step)) * step)
+        long_call = short_call + wing_pts
+        long_put = short_put - wing_pts
 
-        candidates.sort(key=lambda c: c.extra["credit_diff"])
-        candidates = candidates[:5]
-        return {
-            "candidates_found": len(candidates),
-            "top_candidate": candidates[0] if candidates else None,
-            "candidates": candidates,
-        }
+        sc_mid = _mid(by.get((float(short_call), "call")))
+        lc_mid = _mid(by.get((float(long_call), "call")))
+        sp_mid = _mid(by.get((float(short_put), "put")))
+        lp_mid = _mid(by.get((float(long_put), "put")))
+        if sc_mid is None or lc_mid is None or sp_mid is None or lp_mid is None:
+            return empty
+
+        call_credit = round(sc_mid - lc_mid, 4)
+        put_credit = round(sp_mid - lp_mid, 4)
+        if call_credit <= 0 or put_credit <= 0:
+            return empty
+
+        call_cw = call_credit / wing_pts
+        put_cw = put_credit / wing_pts
+        if call_cw < self._min_credit_width_ratio or put_cw < self._min_credit_width_ratio:
+            return empty
+
+        total_credit = round(call_credit + put_credit, 4)
+        setup = LiveTradeSetup(
+            strategy_type="meic",
+            legs=[
+                OrderLeg("", float(short_call), "call", "sell", qty),
+                OrderLeg("", float(long_call), "call", "buy", qty),
+                OrderLeg("", float(short_put), "put", "sell", qty),
+                OrderLeg("", float(long_put), "put", "buy", qty),
+            ],
+            total_credit=total_credit,
+            strikes={
+                "short_call": float(short_call),
+                "long_call": float(long_call),
+                "short_put": float(short_put),
+                "long_put": float(long_put),
+            },
+            extra={
+                "em_pts": round(em, 2),
+                "wing_pts": wing_pts,
+                "call_credit": call_credit,
+                "put_credit": put_credit,
+                "credit_diff": round(abs(call_credit - put_credit), 4),
+                "total_premium": total_credit,
+                "short_call_mid": sc_mid,
+                "short_put_mid": sp_mid,
+                "call_credit_width": round(call_cw, 4),
+                "put_credit_width": round(put_cw, 4),
+                "qty": qty,
+            },
+        )
+        return {"candidates_found": 1, "top_candidate": setup, "candidates": [setup]}
 
     async def validate(
         self, setup: LiveTradeSetup, chain: List[Dict[str, Any]],
@@ -234,18 +211,14 @@ class MeicStrategy(LiveStrategy):
 
         record("strike_order_call", lc > sc)
         record("strike_order_put", sp > lp)
+        record("wing_symmetry", abs((lc - sc) - (sp - lp)) <= self._strike_step)
 
-        call_w = lc - sc
-        put_w = sp - lp
-        record("wing_symmetry", abs(call_w - put_w) <= 5)
-        record("wing_range", 80 <= call_w <= 100 and 80 <= put_w <= 100)
-
-        min_cr, max_cr = self._active_band()
-        cc = setup.extra.get("call_credit")
-        pc = setup.extra.get("put_credit")
-        record("call_credit_band", cc is not None and min_cr <= cc <= max_cr)
-        record("put_credit_band", pc is not None and min_cr <= pc <= max_cr)
-
+        ccw = setup.extra.get("call_credit_width")
+        pcw = setup.extra.get("put_credit_width")
+        record("credit_to_width_call",
+               ccw is not None and ccw >= self._min_credit_width_ratio)
+        record("credit_to_width_put",
+               pcw is not None and pcw >= self._min_credit_width_ratio)
         record("qty", setup.extra.get("qty", 0) >= 1)
 
         return {"passed": len(failures) == 0, "checks": checks, "failures": failures}

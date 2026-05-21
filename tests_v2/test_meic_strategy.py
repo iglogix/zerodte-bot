@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src_v2.strategies.base import ExitAction
+from src_v2.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction
 
 ET = ZoneInfo("America/New_York")
 
@@ -26,44 +26,8 @@ class TestExitActionWidening:
         assert a.quantity_fraction == 0.25
 
 
-from src_v2.strategies.base import LiveStrategy
 from src_v2.strategies.meic import MeicStrategy
 from src_v2.agent.scheduled_engine import ScheduledEngine
-
-
-class TestMeicConfigure:
-    def test_is_live_strategy(self):
-        assert issubclass(MeicStrategy, LiveStrategy)
-
-    def test_configure_reads_all_keys(self, meic_config):
-        s = MeicStrategy()
-        s.configure(meic_config)
-        assert s._am_min_credit == 1.25
-        assert s._am_max_credit == 1.65
-        assert s._pm_min_credit == 0.80
-        assert s._pm_max_credit == 1.30
-        assert s._wing_widths == [80, 90, 100]
-        assert s._stop_pct == 0.70
-        assert s._am_tiers == [0.55, 0.65, 0.75, 0.85]
-        assert s._am_fractions == [0.25, 0.25, 0.25, 0.25]
-        assert s._pm_tiers == [0.65, 0.85]
-        assert s._pm_fractions == [0.50, 0.50]
-        assert s._abandon_long_below == 0.05
-        assert s._default_tranche_qty == 3
-        assert s._tranche_sizing == {"11:00": 3, "11:40": 4, "12:00": 5, "13:00": 6}
-        assert s._am_pm_cutoff.hour == 12 and s._am_pm_cutoff.minute == 30
-
-    def test_configure_rejects_stop_pct_too_low(self, meic_config):
-        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.50
-        s = MeicStrategy()
-        with pytest.raises(ValueError):
-            s.configure(meic_config)
-
-    def test_configure_rejects_stop_pct_too_high(self, meic_config):
-        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.95
-        s = MeicStrategy()
-        with pytest.raises(ValueError):
-            s.configure(meic_config)
 
 
 class TestMeicSimpleMethods:
@@ -97,125 +61,156 @@ class _FakeDeps:
     clock = None
 
 
-from src_v2.strategies.base import LiveTradeSetup
-
-
 def _at(s: MeicStrategy, hhmm: str):
     """Pin the strategy clock to a fixed ET wall time on an arbitrary date."""
     h, m = (int(x) for x in hhmm.split(":"))
     s._now_fn = lambda: datetime(2026, 5, 20, h, m, tzinfo=ET)
 
 
+def _em_chain(spot, em, step=5, span=400, rate=0.10, floor=0.05):
+    """Synthetic chain: ATM straddle == em; premium decays linearly at `rate`
+    per point from peak em/2, floored at `floor`. spot must be a step multiple
+    so the ATM straddle equals em exactly. Far strikes hit the floor (bid 0 ->
+    treated as bidless by mid_price)."""
+    peak = em / 2.0
+    atm = round(spot / step) * step
+    chain = []
+    k = atm - span
+    while k <= atm + span:
+        dist = abs(k - spot)
+        mid = max(floor, peak - rate * dist)
+        bid = round(mid - 0.05, 2)
+        ask = round(mid + 0.05, 2)
+        for otype in ("put", "call"):
+            chain.append({"strike": float(k), "option_type": otype,
+                          "bid": bid, "ask": ask})
+        k += step
+    return chain
+
+
+class TestMeicConfigure:
+    def test_is_live_strategy(self):
+        assert issubclass(MeicStrategy, LiveStrategy)
+
+    def test_configure_reads_em_relative_keys(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._short_em_mult == 1.0
+        assert s._wing_em_frac == 0.5
+        assert s._min_credit_width_ratio == 0.08
+        assert s._strike_step == 5
+        assert s._stop_pct == 0.70
+        assert s._am_pm_cutoff.hour == 12 and s._am_pm_cutoff.minute == 30
+        assert s._tranche_sizing == {"11:00": 3, "11:40": 4, "12:00": 5, "13:00": 6}
+
+    def test_configure_rejects_stop_pct_too_low(self, meic_config):
+        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.50
+        with pytest.raises(ValueError):
+            MeicStrategy().configure(meic_config)
+
+    def test_configure_rejects_stop_pct_too_high(self, meic_config):
+        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.95
+        with pytest.raises(ValueError):
+            MeicStrategy().configure(meic_config)
+
+
 class TestMeicSearchCandidates:
     @pytest.mark.asyncio
     async def test_empty_chain_returns_zero(self, meic_config):
-        s = MeicStrategy(); s.configure(meic_config)
-        _at(s, "11:30")
-        result = await s.search_candidates([], spot=5850.0)
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        result = await s.search_candidates([], spot=6700.0)
         assert result["candidates_found"] == 0
         assert result["top_candidate"] is None
 
     @pytest.mark.asyncio
-    async def test_am_band_finds_candidate(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config)
-        _at(s, "11:30")
-        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
-        assert result["candidates_found"] > 0
+    async def test_high_vol_regime_candidate(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        result = await s.search_candidates(_em_chain(6700, 120.0), spot=6700.0)
+        assert result["candidates_found"] == 1
         top = result["top_candidate"]
-        assert isinstance(top, LiveTradeSetup)
         assert top.strategy_type == "meic"
-        # Credits must be in AM band
-        assert 1.25 <= top.extra["call_credit"] <= 1.65
-        assert 1.25 <= top.extra["put_credit"] <= 1.65
+        assert top.strikes["short_call"] == 6820.0
+        assert top.strikes["short_put"] == 6580.0
+        assert top.extra["wing_pts"] == 60
+        assert top.extra["em_pts"] == pytest.approx(120.0)
+        assert top.extra["call_credit"] == pytest.approx(6.0, abs=0.05)
 
     @pytest.mark.asyncio
-    async def test_pm_band_rejects_am_credits(self, meic_config, sample_meic_chain):
-        # At 13:00 the PM band is [0.80, 1.30]; the sample chain's ~1.39
-        # credits fall OUTSIDE PM band -> no candidates.
-        s = MeicStrategy(); s.configure(meic_config)
-        _at(s, "13:00")
-        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
-        assert result["candidates_found"] == 0
-
-    @pytest.mark.asyncio
-    async def test_stamps_tranche_qty(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config)
-        _at(s, "11:40")  # tranche_sizing["11:40"] == 4
-        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
+    async def test_low_vol_regime_candidate_scales_down(self, meic_config):
+        # SAME config; spot 4285, EM 24 -> short_call 4310, short_put 4260, wing 10.
+        # This is the regime the absolute-band version produced 0 trades for.
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        result = await s.search_candidates(_em_chain(4285, 24.0), spot=4285.0)
+        assert result["candidates_found"] == 1
         top = result["top_candidate"]
+        assert top.strikes["short_call"] == 4310.0
+        assert top.strikes["short_put"] == 4260.0
+        assert top.extra["wing_pts"] == 10
+        assert top.extra["call_credit"] == pytest.approx(1.0, abs=0.05)
+
+    @pytest.mark.asyncio
+    async def test_stamps_tranche_qty(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:40")  # qty 4
+        top = (await s.search_candidates(_em_chain(6700, 120.0), 6700.0))["top_candidate"]
         assert top.extra["qty"] == 4
         assert all(leg.quantity == 4 for leg in top.legs)
 
     @pytest.mark.asyncio
-    async def test_default_qty_when_slot_missing(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config)
-        _at(s, "11:20")  # not in tranche_sizing -> default 3
-        result = await s.search_candidates(sample_meic_chain, spot=5850.0)
-        top = result["top_candidate"]
-        assert top.extra["qty"] == 3
+    async def test_credit_to_width_gate_rejects_thin_credit(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        result = await s.search_candidates(_em_chain(6700, 120.0, rate=0.05), 6700.0)
+        assert result["candidates_found"] == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_when_wing_leg_bidless(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        chain = [o for o in _em_chain(6700, 120.0)
+                 if not (o["strike"] == 6880.0 and o["option_type"] == "call")]
+        result = await s.search_candidates(chain, 6700.0)
+        assert result["candidates_found"] == 0
 
 
 class TestMeicValidate:
-    def _setup(self, qty=3, cc=1.40, pc=1.40,
-               sc=5950.0, lc=6040.0, sp=5750.0, lp=5660.0):
-        from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+    def _setup(self, sc=6820.0, lc=6880.0, sp=6580.0, lp=6520.0,
+               ccw=0.10, pcw=0.10, qty=3):
         return LiveTradeSetup(
             strategy_type="meic",
             legs=[OrderLeg("", sc, "call", "sell", qty)],
-            total_credit=cc + pc,
+            total_credit=12.0,
             strikes={"short_call": sc, "long_call": lc,
                      "short_put": sp, "long_put": lp},
-            extra={"call_credit": cc, "put_credit": pc, "qty": qty},
+            extra={"call_credit": 6.0, "put_credit": 6.0, "qty": qty,
+                   "call_credit_width": ccw, "put_credit_width": pcw,
+                   "wing_pts": int(lc - sc)},
         )
 
     @pytest.mark.asyncio
-    async def test_valid_setup_passes(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        setup = self._setup()
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is True
-        assert res["failures"] == []
+    async def test_valid_setup_passes(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        res = await s.validate(self._setup(), [])
+        assert res["passed"] is True and res["failures"] == []
 
     @pytest.mark.asyncio
-    async def test_bad_call_strike_order_fails(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        setup = self._setup(lc=5940.0)  # long_call < short_call
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is False
+    async def test_bad_call_strike_order_fails(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        res = await s.validate(self._setup(lc=6810.0), [])
         assert "strike_order_call" in res["failures"]
 
     @pytest.mark.asyncio
-    async def test_asymmetric_wings_fail(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        # call wing 90 (5950->6040), put wing 60 (5750->5690): diff 30 > 5
-        setup = self._setup(lp=5690.0)
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is False
+    async def test_asymmetric_wings_fail(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        res = await s.validate(self._setup(lp=6540.0), [])  # put wing 40 vs call 60
         assert "wing_symmetry" in res["failures"]
 
     @pytest.mark.asyncio
-    async def test_wing_out_of_range_fails(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        # both wings 50pt -> below 80 minimum
-        setup = self._setup(lc=6000.0, lp=5700.0)
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is False
-        assert "wing_range" in res["failures"]
+    async def test_credit_to_width_below_gate_fails(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        res = await s.validate(self._setup(ccw=0.05), [])
+        assert "credit_to_width_call" in res["failures"]
 
     @pytest.mark.asyncio
-    async def test_credit_out_of_band_fails(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        setup = self._setup(cc=2.50)  # above AM band max 1.65
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is False
-        assert "call_credit_band" in res["failures"]
-
-    @pytest.mark.asyncio
-    async def test_zero_qty_fails(self, meic_config, sample_meic_chain):
-        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:30")
-        setup = self._setup(qty=0)
-        res = await s.validate(setup, sample_meic_chain)
-        assert res["passed"] is False
+    async def test_zero_qty_fails(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        res = await s.validate(self._setup(qty=0), [])
         assert "qty" in res["failures"]
 
 
