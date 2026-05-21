@@ -150,3 +150,54 @@ def sample_orb_chain() -> List[Dict[str, Any]]:
 @pytest.fixture
 def orb_levels() -> Dict[str, Any]:
     return {"high": 5860.0, "low": 5840.0, "midline": 5850.0, "range_pts": 20.0}
+
+
+@pytest.fixture
+def meic_config() -> Dict[str, Any]:
+    """Config dict for MeicStrategy."""
+    return {
+        "bot": {"strategy": "meic"},
+        "entry": {
+            "schedule": ["11:00", "11:20", "11:40", "12:00", "12:40",
+                         "13:00", "13:20", "14:00", "14:40", "15:00"],
+        },
+        "strategy": {
+            "am_pm_cutoff": "12:30",
+            "am_min_credit": 1.25,
+            "am_max_credit": 1.65,
+            "pm_min_credit": 0.80,
+            "pm_max_credit": 1.30,
+            "wing_widths": [80, 90, 100],
+            "stop_pct_of_total_credit": 0.70,
+            "am_scale_out_tiers": [0.55, 0.65, 0.75, 0.85],
+            "am_scale_out_fractions": [0.25, 0.25, 0.25, 0.25],
+            "pm_scale_out_tiers": [0.65, 0.85],
+            "pm_scale_out_fractions": [0.50, 0.50],
+            "abandon_long_below": 0.05,
+            "credit_equality_threshold": 0.30,
+            "default_tranche_qty": 3,
+            "tranche_sizing": {"11:00": 3, "11:40": 4, "12:00": 5, "13:00": 6},
+        },
+    }
+
+
+@pytest.fixture
+def sample_meic_chain() -> List[Dict[str, Any]]:
+    """Chain supporting 80-100pt MEIC wings around spot 5850.
+
+    Short call 5950 mid ~1.45; long calls at 6030/6040/6050.
+    Short put 5750 mid ~1.45; long puts at 5670/5660/5650.
+    Credits land in the AM band [1.25, 1.65].
+    """
+    return [
+        # Short call + its three possible long-call wings (80/90/100)
+        _make_opt(5950.0, "call", 0.10, 1.40, 1.50),
+        _make_opt(6030.0, "call", 0.03, 0.02, 0.10),   # wing 80 -> credit ~1.39
+        _make_opt(6040.0, "call", 0.025, 0.01, 0.09),  # wing 90
+        _make_opt(6050.0, "call", 0.02, 0.01, 0.07),   # wing 100
+        # Short put + its three possible long-put wings
+        _make_opt(5750.0, "put", 0.10, 1.40, 1.50),
+        _make_opt(5670.0, "put", 0.03, 0.02, 0.10),    # wing 80 -> credit ~1.39
+        _make_opt(5660.0, "put", 0.025, 0.01, 0.09),   # wing 90
+        _make_opt(5650.0, "put", 0.02, 0.01, 0.07),    # wing 100
+    ]
