@@ -19,7 +19,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
 
@@ -39,6 +39,13 @@ PARAM_GRID = {
 }
 # Combos = 2*3*4*2*2*2 = 192
 
+# MEIC grid — sweeps the highest-impact knobs: stop tightness and wing width.
+# Combos = 4 * 2 = 8
+MEIC_PARAM_GRID = {
+    "strategy.stop_pct_of_total_credit": [0.65, 0.70, 0.75, 0.80],
+    "strategy.wing_widths":              [[80, 90, 100], [60, 70, 80]],
+}
+
 
 def _strategy_cls(config):
     name = config.get("bot", {}).get("strategy", "orb_em_ic")
@@ -48,7 +55,17 @@ def _strategy_cls(config):
     if name == "orb_em_directional":
         from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
         return OrbEmDirectionalStrategy
+    if name == "meic":
+        from src_v2.strategies.meic import MeicStrategy
+        return MeicStrategy
     raise ValueError(f"Unsupported strategy: {name}")
+
+
+def _param_grid(config):
+    """Select the param grid for the configured strategy."""
+    if config.get("bot", {}).get("strategy", "") == "meic":
+        return MEIC_PARAM_GRID
+    return PARAM_GRID
 
 
 def _format_params(params):
@@ -103,12 +120,13 @@ def main():
     cbbo = CbboStore(cbbo_dir, preloaded=mem)
 
     print(f"Loading bars from {data_file}...")
-    loader = SpyLoader(data_file, price_scale=price_scale, symbol=symbol)
+    loader = BarLoader(data_file, price_scale=price_scale, symbol=symbol)
     days = list(loader.iter_days(start_date=start, end_date=end))
     print(f"  {len(days)} trading days ({start} to {end})")
 
+    param_grid = _param_grid(config)
     n_combos = 1
-    for vs in PARAM_GRID.values():
+    for vs in param_grid.values():
         n_combos *= len(vs)
     print(f"Grid: {n_combos} combos, WF-CV: ratio={args.ratio}:1, folds={args.folds}, top-k={args.top_k}, workers={args.workers}\n")
 
@@ -118,7 +136,7 @@ def main():
         strategy_cls=strategy_class,
         cbbo_store=cbbo,
         days=days,
-        param_grid=PARAM_GRID,
+        param_grid=param_grid,
         ratio=args.ratio,
         n_folds=args.folds,
         top_k=args.top_k,

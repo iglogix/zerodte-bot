@@ -86,6 +86,20 @@ def _suggest_workers(requested: int,
     return min(requested, max_safe)
 
 
+def _run_backtest(cfg, strategy_cls, cbbo_store, days):
+    """Run one backtest with the engine appropriate for the strategy.
+
+    MEIC uses the inline BacktestEngine (scheduled tranche path); all other
+    strategies use the real OrbEngine+PositionMonitor orchestrator.
+    """
+    if cfg.get("bot", {}).get("strategy", "") == "meic":
+        from src_v2.backtest.engine import BacktestEngine
+        engine = BacktestEngine(cfg, strategy_cls())
+        engine._cbbo = cbbo_store
+        return engine.run(days)
+    return BacktestOrchestrator(cfg, strategy_cls, cbbo_store).run(days)
+
+
 def _init_worker(base_config, strategy_cls, cbbo_store, days):
     """Pool initializer — runs once per worker process."""
     _WORKER_STATE["base_config"] = base_config
@@ -104,10 +118,10 @@ def _run_one_combo(combo: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any
     cfg = WalkForwardOptimizer._apply_combo(
         copy.deepcopy(_WORKER_STATE["base_config"]), combo
     )
-    orchestrator = BacktestOrchestrator(
-        cfg, _WORKER_STATE["strategy_cls"], _WORKER_STATE["cbbo_store"]
+    bt_results = _run_backtest(
+        cfg, _WORKER_STATE["strategy_cls"], _WORKER_STATE["cbbo_store"],
+        _WORKER_STATE["days"],
     )
-    bt_results = orchestrator.run(_WORKER_STATE["days"])
     report = generate_report(bt_results)
     metrics = WalkForwardOptimizer._extract(report)
     return combo, metrics
@@ -302,8 +316,7 @@ class WalkForwardOptimizer:
             results = []
             for combo in combos:
                 cfg = self._apply_combo(copy.deepcopy(self._base), combo)
-                orchestrator = BacktestOrchestrator(cfg, self._strategy_cls, self._cbbo)
-                bt_results = orchestrator.run(days)
+                bt_results = _run_backtest(cfg, self._strategy_cls, self._cbbo, days)
                 report = generate_report(bt_results)
                 results.append((combo, self._extract(report)))
             return results
