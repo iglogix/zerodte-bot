@@ -198,13 +198,17 @@ class PositionMonitor:
             if exit_action.action == "take_profit":
                 logger.info("[TAKE-PROFIT] %s: %s", trade_id, exit_action.reason)
                 for sym in exit_action.legs_to_close:
-                    await self._close_leg(trade_id, sym, "take_profit_leg", reason="take_profit")
+                    qty = exit_action.leg_quantities.get(sym, 1)
+                    await self._close_leg(trade_id, sym, "take_profit_leg",
+                                          reason="take_profit", quantity=qty)
                 return
 
             if exit_action.action == "stop_loss":
                 logger.warning("[STOP-LOSS] %s: %s", trade_id, exit_action.reason)
                 for sym in exit_action.legs_to_close:
-                    await self._close_leg(trade_id, sym, "stop_loss_leg", reason="stop_loss")
+                    qty = exit_action.leg_quantities.get(sym, 1)
+                    await self._close_leg(trade_id, sym, "stop_loss_leg",
+                                          reason="stop_loss", quantity=qty)
                 # Mark trade fully closed only if ALL legs are now closed.
                 # Otherwise leave it open so the remaining side keeps being monitored
                 # (intraday breaches / TP / trailing logic still apply).
@@ -401,13 +405,14 @@ class PositionMonitor:
         symbol: str,
         leg_name: str,
         reason: str,
+        quantity: int = 1,
     ):
         """Close a single option leg at market."""
         try:
             result = await self.tool_handlers.close_position(
                 symbol=symbol,
                 order_type="market",
-                quantity=1,
+                quantity=quantity,
                 reason=reason,
             )
             logger.info(
