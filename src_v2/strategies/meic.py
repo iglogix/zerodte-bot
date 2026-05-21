@@ -187,8 +187,38 @@ class MeicStrategy(LiveStrategy):
             "candidates": candidates,
         }
 
-    async def validate(self, setup, chain):
-        raise NotImplementedError
+    async def validate(
+        self, setup: LiveTradeSetup, chain: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        checks: List[Dict[str, Any]] = []
+        failures: List[str] = []
+
+        def record(name: str, ok: bool):
+            checks.append({"check": name, "passed": ok})
+            if not ok:
+                failures.append(name)
+
+        st = setup.strikes
+        sc, lc = st["short_call"], st["long_call"]
+        sp, lp = st["short_put"], st["long_put"]
+
+        record("strike_order_call", lc > sc)
+        record("strike_order_put", sp > lp)
+
+        call_w = lc - sc
+        put_w = sp - lp
+        record("wing_symmetry", abs(call_w - put_w) <= 5)
+        record("wing_range", 80 <= call_w <= 100 and 80 <= put_w <= 100)
+
+        min_cr, max_cr = self._active_band()
+        cc = setup.extra.get("call_credit")
+        pc = setup.extra.get("put_credit")
+        record("call_credit_band", cc is not None and min_cr <= cc <= max_cr)
+        record("put_credit_band", pc is not None and min_cr <= pc <= max_cr)
+
+        record("qty", setup.extra.get("qty", 0) >= 1)
+
+        return {"passed": len(failures) == 0, "checks": checks, "failures": failures}
 
     def build_order(self, setup):
         raise NotImplementedError
