@@ -178,25 +178,3 @@ def meic_config() -> Dict[str, Any]:
             "tranche_sizing": {"11:00": 3, "11:40": 4, "12:00": 5, "13:00": 6},
         },
     }
-
-
-@pytest.fixture
-def sample_meic_chain() -> List[Dict[str, Any]]:
-    """Chain supporting 80-100pt MEIC wings around spot 5850.
-
-    Short call 5950 mid ~1.45; long calls at 6030/6040/6050.
-    Short put 5750 mid ~1.45; long puts at 5670/5660/5650.
-    Credits land in the AM band [1.25, 1.65].
-    """
-    return [
-        # Short call + its three possible long-call wings (80/90/100)
-        _make_opt(5950.0, "call", 0.10, 1.40, 1.50),
-        _make_opt(6030.0, "call", 0.03, 0.02, 0.10),   # wing 80 -> credit ~1.39
-        _make_opt(6040.0, "call", 0.025, 0.01, 0.09),  # wing 90
-        _make_opt(6050.0, "call", 0.02, 0.01, 0.07),   # wing 100
-        # Short put + its three possible long-put wings
-        _make_opt(5750.0, "put", 0.10, 1.40, 1.50),
-        _make_opt(5670.0, "put", 0.03, 0.02, 0.10),    # wing 80 -> credit ~1.39
-        _make_opt(5660.0, "put", 0.025, 0.01, 0.09),   # wing 90
-        _make_opt(5650.0, "put", 0.02, 0.01, 0.07),    # wing 100
-    ]

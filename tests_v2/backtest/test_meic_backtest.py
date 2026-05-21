@@ -203,3 +203,18 @@ def test_build_chain_covers_wide_span():
     strikes = [o["strike"] for o in chain]
     assert max(strikes) >= 7050
     assert min(strikes) <= 6350
+
+
+def test_meic_backtest_low_vol_regime_trades(monkeypatch):
+    # Low-vol regime: spot 4285, EM 24 -> short_call 4310, short_put 4260,
+    # wing 10, each-side credit 1.0 (cw 0.10 >= gate). The absolute-band
+    # version produced ZERO trades here; EM-relative must produce trades.
+    d = date(2026, 1, 5)
+    engine = _make_engine(monkeypatch, _LinearCbbo(4285, 24.0))
+    results = engine.run([_Day(_bars_flat(d, price=4285.0), d)])
+    closed = [r for r in results if r.status == "closed"]
+    assert len(closed) == 2  # one per side, both entered
+    for r in closed:
+        # flat low-vol day -> expires worthless for full credit (qty 3)
+        assert r.exit_reason == "expired_worthless"
+        assert r.realized_pnl_usd == pytest.approx(1.0 * 100 * 3, abs=1.0)
