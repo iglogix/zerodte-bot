@@ -84,6 +84,8 @@ class MeicStrategy(LiveStrategy):
 
     def create_engine(self, deps: "EngineDeps") -> "BaseEngine":
         from src_v2.agent.scheduled_engine import ScheduledEngine
+        if deps.clock is not None:
+            self._now_fn = lambda: deps.clock.now(ET)
         return ScheduledEngine(deps, self)
 
     # ------------------------------------------------------------------
@@ -306,7 +308,7 @@ class MeicStrategy(LiveStrategy):
             short_ask = sq.get("ask") or sq.get("price") or 0.0
             credit = trade.get(credit_key, 0.0)
             open_qty = int(trade.get(qty_key, 0))
-            if credit <= 0 or open_qty <= 0:
+            if short_ask <= 0 or credit <= 0 or open_qty <= 0:
                 continue
 
             # --- Stop-loss check (short ask >= stop trigger) ---

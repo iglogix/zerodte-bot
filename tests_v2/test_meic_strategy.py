@@ -94,6 +94,7 @@ class _FakeDeps:
     db = None
     mode = "dry_run"
     config = {"entry": {}}
+    clock = None
 
 
 from src_v2.strategies.base import LiveTradeSetup
@@ -343,6 +344,19 @@ class TestMeicScaleOut:
         trade = self._trade(entry="11:40", qty=4)
         # call ask 1.00 -> pnl ~29% -> below 55% tier
         action = s.check_exit(trade, self._quotes(sc_ask=1.00, sp_ask=1.40))
+        assert action.action == "hold"
+
+    def test_missing_ask_quote_holds(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade(entry="11:40", qty=4)
+        # Short call quote present but has no usable ask -> must NOT fire any tier.
+        quotes = {
+            "SC": {"bid": 0.10},   # no "ask"/"price"
+            "SP": {"bid": 1.35, "ask": 1.40},
+            "LC": {"bid": 0.50, "ask": 0.55},
+            "LP": {"bid": 0.50, "ask": 0.55},
+        }
+        action = s.check_exit(trade, quotes)
         assert action.action == "hold"
 
 
