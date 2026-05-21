@@ -388,3 +388,4 @@ class TestMeicStopAndAbandon:
         assert action.action == "take_profit"
         assert action.leg_quantities.get("SC") == 1
         assert "LC" not in action.leg_quantities   # long abandoned
+        assert "call_abandon_long" in action.reason

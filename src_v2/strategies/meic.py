@@ -346,6 +346,8 @@ class MeicStrategy(LiveStrategy):
                 if long_bid >= self._abandon_long_below:
                     legs_to_close.append(long_sym)
                     leg_qty[long_sym] = contracts
+                else:
+                    reasons.append(f"{side}_abandon_long")
 
         if not legs_to_close:
             return ExitAction(action="hold")
