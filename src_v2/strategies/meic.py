@@ -2,7 +2,9 @@
 MeicStrategy — SPX 0DTE Multiple-Entries Iron Condor.
 
 Implements LiveStrategy for tranche-based IC entries with:
-  - AM/PM premium-band candidate search across 80-100pt wings
+  - expected-move-relative strike selection: EM = ATM straddle (delta-free);
+    shorts at short_em_mult x EM OTM, wings at wing_em_frac x EM, snapped to
+    the strike step; a credit-to-width ratio gate replaces absolute bands
   - per-tranche contract sizing from a config map
   - two-spread routing (independent put/call credit spreads)
   - stop-market on short legs at % of total credit
