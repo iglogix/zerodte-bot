@@ -42,4 +42,4 @@ def test_main_routes_meic_strategy():
     assert isinstance(strategy, MeicStrategy)
     # configured from YAML
     assert strategy._stop_pct == 0.70
-    assert strategy._wing_widths == [80, 90, 100]
+    assert strategy._wing_em_frac == 0.5

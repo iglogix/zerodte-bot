@@ -39,11 +39,11 @@ PARAM_GRID = {
 }
 # Combos = 2*3*4*2*2*2 = 192
 
-# MEIC grid — sweeps the highest-impact knobs: stop tightness and wing width.
-# Combos = 4 * 2 = 8
+# MEIC grid — EM-relative knobs. Combos = 3*3*3 = 27
 MEIC_PARAM_GRID = {
-    "strategy.stop_pct_of_total_credit": [0.65, 0.70, 0.75, 0.80],
-    "strategy.wing_widths":              [[80, 90, 100], [60, 70, 80]],
+    "strategy.short_em_mult":            [0.8, 1.0, 1.2],
+    "strategy.wing_em_frac":             [0.4, 0.5, 0.6],
+    "strategy.stop_pct_of_total_credit": [0.65, 0.70, 0.75],
 }
 
 
