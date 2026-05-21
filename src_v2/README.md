@@ -14,6 +14,9 @@ python -m src_v2.main --config config/config_orb_em_ic_spx.yaml
 # Iron Fly
 python -m src_v2.main --config config/config_iron_fly_spx.yaml
 
+# MEIC — multiple-entry iron condor (tranche windows 11:00–15:00 ET)
+python -m src_v2.main --config config/config_meic_spx.yaml
+
 # Manual mode (live data, orders NOT submitted)
 python -m src_v2.main --manual --config config/config_orb_em_ic_spx.yaml
 
@@ -30,7 +33,7 @@ Set in config YAML:
 
 ```yaml
 bot:
-  strategy: "iron_condor"   # or "iron_fly" or "orb_em_ic"
+  strategy: "iron_condor"   # or "iron_fly", "orb_em_ic", or "meic"
 ```
 
 ## Architecture
@@ -43,7 +46,8 @@ BotOrchestrator
         │                                    │
         ├── IronCondorStrategy  →  ScheduledEngine  (time-window loop)
         ├── IronFlyStrategy     →  ScheduledEngine  (time-window loop)
-        └── OrbEmIronCondorStrategy → OrbEngine   (3-phase ORB loop)
+        ├── OrbEmIronCondorStrategy → OrbEngine   (3-phase ORB loop)
+        └── MeicStrategy        →  ScheduledEngine  (tranche-window loop)
 ```
 
 ```
@@ -54,6 +58,7 @@ src_v2/
 │   ├── iron_condor.py               # IronCondorStrategy
 │   ├── iron_fly.py                  # IronFlyStrategy
 │   ├── orb_em_ic.py                 # OrbEmIronCondorStrategy
+│   ├── meic.py                      # MeicStrategy (multiple-entry iron condor)
 │   └── utils.py                     # Shared helpers (mid_price, derive_spot_from_chain)
 ├── agent/
 │   ├── base_engine.py               # BaseEngine ABC + EngineDeps dataclass
@@ -80,7 +85,7 @@ The strategy owns its engine via `create_engine(deps) -> BaseEngine`:
 
 | Engine | Entry Pattern | Used By |
 |--------|--------------|---------|
-| `ScheduledEngine` | Fixed time windows (09:45, 10:15, ...) | IronCondor, IronFly |
+| `ScheduledEngine` | Fixed time windows (09:45, 10:15, ...) | IronCondor, IronFly, MEIC |
 | `OrbEngine` | Event-driven: ORB setup → breakout → midline retest | OrbEmIC |
 
 Both implement `BaseEngine.run()`. The orchestrator calls `engine.run()` without knowing which type it is.
@@ -116,15 +121,15 @@ Every strategy implements these methods:
 
 ## Strategy Comparison
 
-| Aspect | IronCondor | IronFly | OrbEmIC |
-|--------|-----------|---------|---------|
-| Engine | Scheduled | Scheduled | OrbEngine |
-| Entry signal | Time window + stability | Time window + EM | ORB breakout + midline retest |
-| Short strikes | Delta-based (balanced) | ATM (same strike) | EM-scaled (bias-adaptive) |
-| Wings | Fixed width (30pt) | EM x 0.5 | With-trend: 5pt, Against: 10pt |
-| TP | Per-leg at $0.05 | Fixed $ per contract | 50% of credit per spread |
-| SL | Credit-based OCO | Wing breach | Breach (hold puts optional) |
-| Backtest | — | — | 93.1% WR, Sharpe 14.44 |
+| Aspect | IronCondor | IronFly | OrbEmIC | MEIC |
+|--------|-----------|---------|---------|------|
+| Engine | Scheduled | Scheduled | OrbEngine | Scheduled |
+| Entry signal | Time window + stability | Time window + EM | ORB breakout + midline retest | Tranche windows 11:00–15:00 ET (every 15–20 min) |
+| Short strikes | Delta-based (balanced) | ATM (same strike) | EM-scaled (bias-adaptive) | Credit-band (AM/PM premium targets) |
+| Wings | Fixed width (30pt) | EM x 0.5 | With-trend: 5pt, Against: 10pt | 80–100pt |
+| TP | Per-leg at $0.05 | Fixed $ per contract | 50% of credit per spread | AM 55/65/75/85%, PM 65/85% scale-out |
+| SL | Credit-based OCO | Wing breach | Breach (hold puts optional) | Stop-market on shorts at % of total credit |
+| Backtest | — | — | 93.1% WR, Sharpe 14.44 | — |
 
 ## Adding a New Strategy
 
