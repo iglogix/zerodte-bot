@@ -168,6 +168,7 @@ class BacktestEngine:
         self._commission_per_leg = opt_cfg.get("commission_per_contract_per_leg", 1.0)
         # Stops slip past the trigger more than a normal limit fill.
         self._stop_slippage = opt_cfg.get("stop_slippage_per_spread", 0.25)
+        self._chain_half_span_pts = opt_cfg.get("chain_half_span_pts", 400)
 
         # CBBO store
         cbbo_dir = config.get("backtest", {}).get("cbbo_cache_dir", "")
@@ -671,8 +672,9 @@ class BacktestEngine:
         """Build option chain from CBBO data at a given minute."""
         chain = []
         step = self._strike_step
-        low_k = int((spot - 200) / step) * step
-        high_k = int((spot + 200) / step) * step
+        half = getattr(self, "_chain_half_span_pts", 400)
+        low_k = int((spot - half) / step) * step
+        high_k = int((spot + half) / step) * step
 
         for k in range(low_k, high_k + step, step):
             strike = float(k)

@@ -10,31 +10,35 @@ from src_v2.backtest.engine import BacktestEngine
 ET = ZoneInfo("America/New_York")
 
 
-class _FakeCbbo:
-    """Minimal CbboStore stand-in with optional time-shifted marks.
-
-    Before `shift_minute` (or always, if None) returns `marks`. From
-    `shift_minute` onward, any key present in `shift_marks` overrides.
-    This lets a trade enter with a valid in-band credit, then have a
-    leg's mark move (breach or decay) later in the session.
-    """
-    def __init__(self, marks, shift_minute=None, shift_marks=None):
-        self._marks = marks                       # {(strike, is_call): (bid, ask)}
-        self._shift_minute = shift_minute         # "HH:MM" or None
-        self._shift_marks = shift_marks or {}
+class _LinearCbbo:
+    """Synthetic CBBO: ATM straddle == em; premium decays linearly at `rate`/pt
+    from peak em/2, floored at `floor`. Optional time-shifted per-(strike,is_call)
+    overrides from `shift_minute` onward (to drive stops / scale-outs)."""
+    def __init__(self, spot, em, rate=0.10, floor=0.05, step=5, span=400,
+                 shift_minute=None, shift_overrides=None):
+        self._spot = spot
+        self._peak = em / 2.0
+        self._rate = rate
+        self._floor = floor
+        self._span = span
+        self._shift_minute = shift_minute
+        self._shift = shift_overrides or {}
 
     def load_day(self, d):
-        return len(self._marks)
+        return 1
 
     def derive_spot(self, minute, ref):
-        return 5850.0
+        return self._spot
 
     def lookup(self, minute, strike, is_call):
         key = (float(strike), is_call)
-        if self._shift_minute and minute >= self._shift_minute:
-            if key in self._shift_marks:
-                return self._shift_marks[key]
-        return self._marks.get(key)
+        if self._shift_minute and minute >= self._shift_minute and key in self._shift:
+            return self._shift[key]
+        dist = abs(strike - self._spot)
+        if dist > self._span:
+            return None
+        mid = max(self._floor, self._peak - self._rate * dist)
+        return (round(mid - 0.05, 2), round(mid + 0.05, 2))
 
 
 class _Day:
@@ -59,25 +63,16 @@ def _bars_flat(d, start="11:00", end="15:50", price=5850.0):
     return out
 
 
-def _meic_marks():
-    """Marks giving call & put credits ~1.40 in AM band; longs cheap."""
-    return {
-        (5950.0, True): (1.40, 1.50),   # short call
-        (6040.0, True): (0.01, 0.09),   # long call (wing 90)
-        (5750.0, False): (1.40, 1.50),  # short put
-        (5660.0, False): (0.01, 0.09),  # long put (wing 90)
-    }
-
-
-def _config():
+def _config(tranche=None):
     return {
         "bot": {"strategy": "meic"},
         "entry": {"schedule": ["11:00"]},
         "strategy": {
             "am_pm_cutoff": "12:30",
-            "am_min_credit": 1.25, "am_max_credit": 1.65,
-            "pm_min_credit": 0.80, "pm_max_credit": 1.30,
-            "wing_widths": [90],
+            "short_em_mult": 1.0,
+            "wing_em_frac": 0.5,
+            "min_credit_width_ratio": 0.08,
+            "strike_step_pts": 5,
             "stop_pct_of_total_credit": 0.70,
             "am_scale_out_tiers": [0.55, 0.65, 0.75, 0.85],
             "am_scale_out_fractions": [0.25, 0.25, 0.25, 0.25],
@@ -85,8 +80,8 @@ def _config():
             "pm_scale_out_fractions": [0.50, 0.50],
             "abandon_long_below": 0.05,
             "credit_equality_threshold": 0.30,
-            "default_tranche_qty": 3,
-            "tranche_sizing": {"11:00": 3},
+            "default_tranche_qty": (tranche or 3),
+            "tranche_sizing": {"11:00": (tranche or 3)},
             "eod_force_close": "15:50",
             "market_open": "09:30",
         },
@@ -94,10 +89,10 @@ def _config():
             "contract_multiplier": 100, "quantity": 1,
             "strike_step_pts": 5, "option_root": "SPXW",
             "tp_pct_of_credit": 0.50,
-            # Pure-logic tests: zero execution costs so P&L assertions are exact.
             "slippage_per_spread": 0.0,
             "commission_per_contract_per_leg": 0.0,
             "stop_slippage_per_spread": 0.0,
+            "chain_half_span_pts": 400,
         },
         "backtest": {"cbbo_cache_dir": ""},
     }
@@ -112,96 +107,60 @@ def _make_engine(monkeypatch, fake_cbbo, config=None):
 
 
 def test_meic_backtest_worthless_expiry(monkeypatch):
-    d = date(2026, 5, 20)
-    engine = _make_engine(monkeypatch, _FakeCbbo(_meic_marks()))
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    d = date(2026, 1, 5)
+    engine = _make_engine(monkeypatch, _LinearCbbo(6700, 120.0))
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     closed = [r for r in results if r.status == "closed"]
-    assert len(closed) == 2          # one per side
+    assert len(closed) == 2
     for r in closed:
-        # qty 3, credit ~1.40 -> 1.40 * 100 * 3 = 420
-        assert r.realized_pnl_usd == pytest.approx(1.40 * 100 * 3, abs=1.0)
+        assert r.realized_pnl_usd == pytest.approx(6.0 * 100 * 3, abs=1.0)
         assert r.exit_reason == "expired_worthless"
         assert r.qty == 3
 
 
 def test_meic_backtest_stop_loss(monkeypatch):
-    d = date(2026, 5, 20)
-    # Enter at 11:00 with valid 1.40 credit; from 11:30 the call short ask
-    # jumps to 3.60 (>= stop trigger 1.45 + 0.70*2.80 = 3.41) -> stop fills.
-    fake = _FakeCbbo(
-        _meic_marks(),
-        shift_minute="11:30",
-        shift_marks={(5950.0, True): (3.50, 3.60)},
-    )
+    d = date(2026, 1, 5)
+    fake = _LinearCbbo(6700, 120.0, shift_minute="11:30",
+                       shift_overrides={(6820.0, True): (56.5, 57.0)})
     engine = _make_engine(monkeypatch, fake)
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     call = next(r for r in results if r.spread_type == "call")
-    # stop fills at stop_amount 1.96 -> pnl per contract (1.40-1.96)*100 = -56, x3 = -168
     assert call.exit_reason == "short_stopped"
-    assert call.realized_pnl_usd == pytest.approx((1.40 - 1.96) * 100 * 3, abs=1.0)
-    # Put side never moved -> expires worthless for full credit.
+    assert call.realized_pnl_usd == pytest.approx((6.0 - 8.4) * 100 * 3, abs=1.0)
     put = next(r for r in results if r.spread_type == "put")
     assert put.exit_reason == "expired_worthless"
 
 
-def _config_qty4():
-    """Config with tranche qty 4 so 25% AM tiers close 1 contract each."""
-    cfg = _config()
-    cfg["strategy"]["tranche_sizing"] = {"11:00": 4}
-    cfg["strategy"]["default_tranche_qty"] = 4
-    return cfg
-
-
 def test_meic_backtest_scale_out_full_exit(monkeypatch):
-    d = date(2026, 5, 20)
-    # qty=4: floor(4*0.25)=1 per AM tier. Enter at 11:00 (credit 1.40);
-    # from 11:30 the call short collapses to ask 0.20 -> pnl ~86% -> all
-    # four AM tiers fire in one bar -> 4 contracts closed -> full exit.
-    fake = _FakeCbbo(
-        _meic_marks(),
-        shift_minute="11:30",
-        shift_marks={(5950.0, True): (0.15, 0.20)},
-    )
-    engine = _make_engine(monkeypatch, fake, config=_config_qty4())
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    d = date(2026, 1, 5)
+    fake = _LinearCbbo(6700, 120.0, shift_minute="11:30",
+                       shift_overrides={(6820.0, True): (0.85, 0.90)})
+    engine = _make_engine(monkeypatch, fake, config=_config(tranche=4))
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     call = next(r for r in results if r.spread_type == "call")
     assert call.exit_reason == "scaled_out"
     assert call.qty == 4
-    # Each of 4 contracts bought back at ask 0.20: (1.40-0.20)*100*4 = 480
-    assert call.realized_pnl_usd == pytest.approx((1.40 - 0.20) * 100 * 4, abs=1.0)
+    assert call.realized_pnl_usd == pytest.approx((6.0 - 0.90) * 100 * 4, abs=1.0)
 
 
 def test_meic_backtest_partial_then_expiry(monkeypatch):
-    d = date(2026, 5, 20)
-    # qty=4. Enter at 11:00 (credit 1.40). From 11:30 the call short sits at
-    # ask 0.60 -> pnl ~57% -> only AM tier 0 (55%) fires, closing floor(4*0.25)=1
-    # contract; tier 1 (65%) is NOT crossed. The remaining 3 contracts ride to
-    # EOD and expire worthless.
-    fake = _FakeCbbo(
-        _meic_marks(),
-        shift_minute="11:30",
-        shift_marks={(5950.0, True): (0.55, 0.60)},
-    )
-    engine = _make_engine(monkeypatch, fake, config=_config_qty4())
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    d = date(2026, 1, 5)
+    # short ask 2.69 -> pnl_pct (6.0-2.69)/6.0 = 0.5517: fires AM tier 0 (0.55)
+    # only, not tier 1 (0.65). 2.70 lands exactly on the 0.55 boundary and
+    # floats to just under, so use 2.69 to fire tier 0 cleanly.
+    fake = _LinearCbbo(6700, 120.0, shift_minute="11:30",
+                       shift_overrides={(6820.0, True): (2.64, 2.69)})
+    engine = _make_engine(monkeypatch, fake, config=_config(tranche=4))
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     call = next(r for r in results if r.spread_type == "call")
     assert call.exit_reason == "partial_then_expiry"
-    # tier 0 closes 1 @ 0.60: (1.40-0.60)*100*1 = 80
-    # remaining 3 expire worthless: 1.40*100*3 = 420  -> total 500
-    assert call.realized_pnl_usd == pytest.approx(80 + 420, abs=1.0)
+    # tier 0 closes 1 @ 2.69: (6.0-2.69)*100*1 = 331
+    # remaining 3 expire worthless: 6.0*100*3 = 1800  -> total 2131
+    assert call.realized_pnl_usd == pytest.approx(331 + 1800, abs=1.0)
 
 
-def _config_costs():
-    """Config with non-zero execution costs to verify they are applied."""
-    cfg = _config()
+def _config_costs(tranche=3):
+    cfg = _config(tranche=tranche)
     cfg["options"]["slippage_per_spread"] = 0.10
     cfg["options"]["commission_per_contract_per_leg"] = 1.0
     cfg["options"]["stop_slippage_per_spread"] = 0.25
@@ -209,36 +168,38 @@ def _config_costs():
 
 
 def test_meic_backtest_applies_costs_on_worthless_expiry(monkeypatch):
-    d = date(2026, 5, 20)
-    # Worthless-expiry path, qty 3, credit 1.40, with costs:
-    #   credit_eff = 1.40 - 0.10 (entry slippage) = 1.30
-    #   commission = 2 legs * 3 qty * 1.0 = 6.00 (paid upfront)
-    #   pnl = 1.30 * 100 * 3 - 6 = 390 - 6 = 384  (vs 420 cost-free)
-    # No closing fill on expiry -> no exit slippage.
-    engine = _make_engine(monkeypatch, _FakeCbbo(_meic_marks()), config=_config_costs())
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    d = date(2026, 1, 5)
+    engine = _make_engine(monkeypatch, _LinearCbbo(6700, 120.0), config=_config_costs())
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     closed = [r for r in results if r.status == "closed"]
     assert len(closed) == 2
     for r in closed:
-        assert r.realized_pnl_usd == pytest.approx(1.30 * 100 * 3 - 6.0, abs=0.5)
+        assert r.realized_pnl_usd == pytest.approx(5.90 * 100 * 3 - 6.0, abs=0.5)
 
 
 def test_meic_backtest_applies_stop_slippage(monkeypatch):
-    d = date(2026, 5, 20)
-    # Stop path with costs: stop_amount 1.96 + stop_slippage 0.25 = 2.21 debit;
-    #   credit_eff = 1.40 - 0.10 = 1.30; commission = 2*3*1.0 = 6
-    #   pnl = (1.30 - 2.21) * 100 * 3 - 6 = -273 - 6 = -279  (vs -168 cost-free)
-    fake = _FakeCbbo(
-        _meic_marks(),
-        shift_minute="11:30",
-        shift_marks={(5950.0, True): (3.50, 3.60)},
-    )
+    d = date(2026, 1, 5)
+    fake = _LinearCbbo(6700, 120.0, shift_minute="11:30",
+                       shift_overrides={(6820.0, True): (56.5, 57.0)})
     engine = _make_engine(monkeypatch, fake, config=_config_costs())
-    days = [_Day(_bars_flat(d), d)]
-    results = engine.run(days)
-
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
     call = next(r for r in results if r.spread_type == "call")
     assert call.exit_reason == "short_stopped"
-    assert call.realized_pnl_usd == pytest.approx((1.30 - 2.21) * 100 * 3 - 6.0, abs=0.5)
+    assert call.realized_pnl_usd == pytest.approx((5.90 - 8.65) * 100 * 3 - 6.0, abs=0.5)
+
+
+def test_build_chain_covers_wide_span():
+    import yaml
+    cfg = yaml.safe_load(open("config/config_meic_spx.yaml"))
+
+    class _AllStrikes:
+        def load_day(self, d): return 1
+        def derive_spot(self, m, ref): return 6700.0
+        def lookup(self, m, k, is_call): return (1.0, 1.1)
+
+    e = BacktestEngine(cfg, MeicStrategy())
+    e._cbbo = _AllStrikes()
+    chain = e._build_chain("11:00", 6700.0, date(2026, 1, 5))
+    strikes = [o["strike"] for o in chain]
+    assert max(strikes) >= 7050
+    assert min(strikes) <= 6350
