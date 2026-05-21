@@ -48,6 +48,7 @@ class MeicStrategy(LiveStrategy):
     def configure(self, config: Dict[str, Any]) -> None:
         strat = config.get("strategy", {})
         self._am_pm_cutoff = _parse_hhmm(strat.get("am_pm_cutoff", "12:30"))
+        self._strike_step = strat.get("strike_step_pts", 5)
         self._am_min_credit = strat.get("am_min_credit", 1.25)
         self._am_max_credit = strat.get("am_max_credit", 1.65)
         self._pm_min_credit = strat.get("pm_min_credit", 0.80)
@@ -101,6 +102,33 @@ class MeicStrategy(LiveStrategy):
     def _tranche_qty(self) -> int:
         slot = self._now_fn().strftime("%H:%M")
         return int(self._tranche_sizing.get(slot, self._default_tranche_qty))
+
+    def _compute_em(
+        self, chain: List[Dict[str, Any]], spot: float,
+    ) -> Optional[float]:
+        """Expected move = ATM straddle (call_mid + put_mid at nearest strike)."""
+        if not chain:
+            return None
+        step = self._strike_step
+        by = {
+            (float(o.get("strike", 0)), o.get("option_type", "").lower()): o
+            for o in chain
+        }
+        strikes = [float(o.get("strike", 0)) for o in chain]
+        atm_k = round(spot / step) * step
+        cp = by.get((float(atm_k), "call"))
+        pp = by.get((float(atm_k), "put"))
+        if not cp or not pp:
+            atm_k = min(set(strikes), key=lambda k: abs(k - spot))
+            cp = by.get((float(atm_k), "call"))
+            pp = by.get((float(atm_k), "put"))
+        if not cp or not pp:
+            return None
+        cm = _mid(cp)
+        pm = _mid(pp)
+        if cm is None or pm is None:
+            return None
+        return round(cm + pm, 4)
 
     async def search_candidates(
         self, chain: List[Dict[str, Any]], spot: float,

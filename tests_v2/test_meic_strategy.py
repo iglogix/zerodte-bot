@@ -403,3 +403,33 @@ class TestMeicStopAndAbandon:
         assert action.leg_quantities.get("SC") == 1
         assert "LC" not in action.leg_quantities   # long abandoned
         assert "call_abandon_long" in action.reason
+
+
+class TestMeicComputeEm:
+    def _chain(self, spot, em, step=5):
+        # ATM straddle (call_mid + put_mid at the strike nearest spot) == em.
+        atm = round(spot / step) * step
+        half = em / 2.0
+        bid, ask = round(half - 0.05, 2), round(half + 0.05, 2)
+        return [
+            {"strike": float(atm), "option_type": "call", "bid": bid, "ask": ask},
+            {"strike": float(atm), "option_type": "put", "bid": bid, "ask": ask},
+        ]
+
+    def test_em_is_atm_straddle(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._compute_em(self._chain(6700, 120.0), 6700.0) == pytest.approx(120.0)
+
+    def test_em_uses_nearest_strike_to_spot(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        # spot 6702 -> nearest listed strike 6700; straddle still 120
+        assert s._compute_em(self._chain(6700, 120.0), 6702.0) == pytest.approx(120.0)
+
+    def test_em_none_when_atm_legs_missing(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        calls_only = [{"strike": 6700.0, "option_type": "call", "bid": 59.95, "ask": 60.05}]
+        assert s._compute_em(calls_only, 6700.0) is None
+
+    def test_em_none_for_empty_chain(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._compute_em([], 6700.0) is None
