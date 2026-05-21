@@ -344,3 +344,47 @@ class TestMeicScaleOut:
         # call ask 1.00 -> pnl ~29% -> below 55% tier
         action = s.check_exit(trade, self._quotes(sc_ask=1.00, sp_ask=1.40))
         assert action.action == "hold"
+
+
+class TestMeicStopAndAbandon:
+    def _trade(self, entry="11:40", qty=4):
+        h, m = (int(x) for x in entry.split(":"))
+        return {
+            "trade_id": f"2026-05-20_{entry}_stop",
+            "entry_time_et": datetime(2026, 5, 20, h, m, tzinfo=ET),
+            "short_call_symbol": "SC", "long_call_symbol": "LC",
+            "short_put_symbol": "SP", "long_put_symbol": "LP",
+            "call_credit": 1.40, "put_credit": 1.40,
+            "call_open_qty": qty, "put_open_qty": qty,
+            "short_call_stop_price": 3.41, "short_put_stop_price": 3.41,
+        }
+
+    def test_stop_loss_triggers_on_call_breach(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade()
+        quotes = {
+            "SC": {"bid": 3.40, "ask": 3.50},   # ask >= 3.41 stop
+            "SP": {"bid": 1.35, "ask": 1.40},
+            "LC": {"bid": 0.80, "ask": 0.90},
+            "LP": {"bid": 0.50, "ask": 0.60},
+        }
+        action = s.check_exit(trade, quotes)
+        assert action.action == "stop_loss"
+        assert action.leg_quantities.get("SC") == 4   # all contracts
+        assert action.leg_quantities.get("LC") == 4   # paired long
+        assert "SP" not in action.leg_quantities
+
+    def test_abandon_long_when_bidless(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = self._trade()
+        # call side hits 55% tier (ask 0.60); long call bid 0.03 < 0.05 -> abandon
+        quotes = {
+            "SC": {"bid": 0.55, "ask": 0.60},
+            "SP": {"bid": 1.35, "ask": 1.40},
+            "LC": {"bid": 0.03, "ask": 0.08},
+            "LP": {"bid": 0.50, "ask": 0.60},
+        }
+        action = s.check_exit(trade, quotes)
+        assert action.action == "take_profit"
+        assert action.leg_quantities.get("SC") == 1
+        assert "LC" not in action.leg_quantities   # long abandoned
