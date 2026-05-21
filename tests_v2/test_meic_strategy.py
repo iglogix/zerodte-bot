@@ -24,3 +24,73 @@ class TestExitActionWidening:
         )
         assert a.leg_quantities == {"SPXW_C": 2}
         assert a.quantity_fraction == 0.25
+
+
+from src_v2.strategies.base import LiveStrategy
+from src_v2.strategies.meic import MeicStrategy
+from src_v2.agent.scheduled_engine import ScheduledEngine
+
+
+class TestMeicConfigure:
+    def test_is_live_strategy(self):
+        assert issubclass(MeicStrategy, LiveStrategy)
+
+    def test_configure_reads_all_keys(self, meic_config):
+        s = MeicStrategy()
+        s.configure(meic_config)
+        assert s._am_min_credit == 1.25
+        assert s._am_max_credit == 1.65
+        assert s._pm_min_credit == 0.80
+        assert s._pm_max_credit == 1.30
+        assert s._wing_widths == [80, 90, 100]
+        assert s._stop_pct == 0.70
+        assert s._am_tiers == [0.55, 0.65, 0.75, 0.85]
+        assert s._am_fractions == [0.25, 0.25, 0.25, 0.25]
+        assert s._pm_tiers == [0.65, 0.85]
+        assert s._pm_fractions == [0.50, 0.50]
+        assert s._abandon_long_below == 0.05
+        assert s._default_tranche_qty == 3
+        assert s._tranche_sizing == {"11:00": 3, "11:40": 4, "12:00": 5, "13:00": 6}
+        assert s._am_pm_cutoff.hour == 12 and s._am_pm_cutoff.minute == 30
+
+    def test_configure_rejects_stop_pct_too_low(self, meic_config):
+        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.50
+        s = MeicStrategy()
+        with pytest.raises(ValueError):
+            s.configure(meic_config)
+
+    def test_configure_rejects_stop_pct_too_high(self, meic_config):
+        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.95
+        s = MeicStrategy()
+        with pytest.raises(ValueError):
+            s.configure(meic_config)
+
+
+class TestMeicSimpleMethods:
+    def test_leg_pairs(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s.leg_pairs() == [
+            ("short_call_symbol", "long_call_symbol", "call"),
+            ("short_put_symbol", "long_put_symbol", "put"),
+        ]
+
+    def test_compute_trailing_stop_returns_none(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s.compute_trailing_stop({}, {}) is None
+
+    def test_create_engine_returns_scheduled_engine(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        engine = s.create_engine(_FakeDeps())
+        assert isinstance(engine, ScheduledEngine)
+
+
+class _FakeDeps:
+    """Minimal EngineDeps stand-in for create_engine."""
+    tool_handlers = None
+    risk_manager = None
+    anomaly_detector = None
+    regime_classifier = None
+    decision_file_logger = None
+    db = None
+    mode = "dry_run"
+    config = {"entry": {}}
