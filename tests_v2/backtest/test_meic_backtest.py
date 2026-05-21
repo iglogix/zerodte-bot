@@ -171,3 +171,25 @@ def test_meic_backtest_scale_out_full_exit(monkeypatch):
     assert call.qty == 4
     # Each of 4 contracts bought back at ask 0.20: (1.40-0.20)*100*4 = 480
     assert call.realized_pnl_usd == pytest.approx((1.40 - 0.20) * 100 * 4, abs=1.0)
+
+
+def test_meic_backtest_partial_then_expiry(monkeypatch):
+    d = date(2026, 5, 20)
+    # qty=4. Enter at 11:00 (credit 1.40). From 11:30 the call short sits at
+    # ask 0.60 -> pnl ~57% -> only AM tier 0 (55%) fires, closing floor(4*0.25)=1
+    # contract; tier 1 (65%) is NOT crossed. The remaining 3 contracts ride to
+    # EOD and expire worthless.
+    fake = _FakeCbbo(
+        _meic_marks(),
+        shift_minute="11:30",
+        shift_marks={(5950.0, True): (0.55, 0.60)},
+    )
+    engine = _make_engine(monkeypatch, fake, config=_config_qty4())
+    days = [_Day(_bars_flat(d), d)]
+    results = engine.run(days)
+
+    call = next(r for r in results if r.spread_type == "call")
+    assert call.exit_reason == "partial_then_expiry"
+    # tier 0 closes 1 @ 0.60: (1.40-0.60)*100*1 = 80
+    # remaining 3 expire worthless: 1.40*100*3 = 420  -> total 500
+    assert call.realized_pnl_usd == pytest.approx(80 + 420, abs=1.0)

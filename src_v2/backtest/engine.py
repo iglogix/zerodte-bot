@@ -506,6 +506,11 @@ class BacktestEngine:
                 closed_q = action.leg_quantities.get(short_sym, 0)
                 if closed_q > 0:
                     sq = quotes.get(short_sym, {})
+                    # Conservative: model buyback as the short ask only. The paired
+                    # long's residual value is not credited here — on a scale-out the
+                    # market has moved away from the short, so the long is typically
+                    # near-worthless and abandoned by the strategy. This understates
+                    # P&L slightly rather than overstating it.
                     debit = sq.get("ask", 0.0)
                     realized += (credit - debit) * mult * closed_q
                     trade[qty_key] = int(trade[qty_key]) - closed_q
