@@ -54,11 +54,15 @@ class ExitAction:
     legs_to_close: list of leg symbols to close (empty for "hold")
     reason: human-readable explanation
     new_stop_price: for trailing stop updates
+    leg_quantities: per-symbol contract count to close (defaults to full leg)
+    quantity_fraction: whole-trade close fraction (default 1.0 = all)
     """
     action: str
     legs_to_close: List[str] = field(default_factory=list)
     reason: str = ""
     new_stop_price: Optional[float] = None
+    leg_quantities: Dict[str, int] = field(default_factory=dict)
+    quantity_fraction: float = 1.0
 
 
 class LiveStrategy(ABC):
