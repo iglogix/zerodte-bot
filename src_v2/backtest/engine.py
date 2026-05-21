@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
+from src_v2.backtest.cbbo_store import CbboStore
+
 
 @dataclass
 class BacktestResult:
@@ -135,8 +137,6 @@ class BacktestEngine:
     """Runs a LiveStrategy against historical 1-min bars + CBBO option data."""
 
     def __init__(self, config: dict, strategy):
-        from src_v2.backtest.cbbo_store import CbboStore
-
         strat_cfg = config.get("strategy", {})
         opt_cfg = config.get("options", {})
 
@@ -172,6 +172,8 @@ class BacktestEngine:
         self._strategy = strategy
         strategy.configure(config)
 
+        self._strategy_kind = config.get("bot", {}).get("strategy", "orb_em_ic")
+
         self._config = config
 
     # ------------------------------------------------------------------
@@ -194,8 +196,11 @@ class BacktestEngine:
                 all_results.append(self._skip_result(d, day.symbol, "cpi_day"))
                 continue
 
-            results = self._process_day(day)
-            all_results.extend(results)
+            if self._strategy_kind == "meic":
+                all_results.extend(self._process_day_meic(day))
+            else:
+                results = self._process_day(day)
+                all_results.extend(results)
         return all_results
 
     # ------------------------------------------------------------------
@@ -361,6 +366,164 @@ class BacktestEngine:
             fill_time, spot, orb_high, orb_low, orb_midline, orb_range, eod_dt,
         )
         return [put_result, call_result]
+
+    # ------------------------------------------------------------------
+    # MEIC day processing
+    # ------------------------------------------------------------------
+
+    def _process_day_meic(self, day) -> list[BacktestResult]:
+        from zoneinfo import ZoneInfo
+        ET = ZoneInfo("America/New_York")
+
+        d = day.session_date
+        symbol = day.symbol
+        bars = day.bars
+
+        schedule = self._config.get("entry", {}).get("schedule", [])
+        eod = self._parse_time(
+            self._config.get("strategy", {}).get("eod_force_close", "15:50"))
+        eod_dt = datetime(d.year, d.month, d.day, eod[0], eod[1], tzinfo=ET)
+
+        bars_by_minute = {b["ts_et"].strftime("%H:%M"): b for b in bars}
+
+        if self._cbbo.load_day(d) == 0:
+            return [self._skip_result(d, symbol, "no_cbbo_data")]
+
+        results: list[BacktestResult] = []
+        for slot in schedule:
+            slot_bar = bars_by_minute.get(slot)
+            if slot_bar is None:
+                continue
+            spot = self._cbbo.derive_spot(slot, slot_bar["close"]) or slot_bar["close"]
+            chain = self._build_chain(slot, spot, d)
+            if not chain:
+                continue
+
+            # Pin strategy clock to this slot for AM/PM band + sizing
+            h, m = (int(x) for x in slot.split(":"))
+            self._strategy._now_fn = lambda h=h, m=m: datetime(
+                d.year, d.month, d.day, h, m, tzinfo=ET)
+
+            search = _run_async(self._strategy.search_candidates(chain, spot))
+            setup = search.get("top_candidate")
+            if setup is None:
+                continue
+            val = _run_async(self._strategy.validate(setup, chain))
+            if not val.get("passed", False):
+                continue
+
+            for leg in setup.legs:
+                leg.symbol = self._make_symbol(d, leg.strike, leg.option_type)
+
+            stop_info = self._strategy.compute_stop_loss(setup)
+            slot_dt = datetime(d.year, d.month, d.day, h, m, tzinfo=ET)
+            monitoring_bars = [b for b in bars if b["ts_et"] > slot_dt]
+
+            for side in ("put", "call"):
+                results.append(self._simulate_meic_side(
+                    side, setup, stop_info, monitoring_bars,
+                    d, symbol, slot_dt, spot, eod_dt))
+        if not results:
+            return [self._skip_result(d, symbol, "no_meic_trades")]
+        return results
+
+    def _simulate_meic_side(
+        self, side: str, setup, stop_info: dict, monitoring_bars: list,
+        d: date, symbol: str, entry_dt: datetime, spot: float,
+        eod_dt: datetime,
+    ) -> BacktestResult:
+        if side == "put":
+            credit = setup.extra["put_credit"]
+            short_strike = setup.strikes["short_put"]
+            long_strike = setup.strikes["long_put"]
+            width = short_strike - long_strike
+            short_sym = setup.legs[2].symbol
+            long_sym = setup.legs[3].symbol
+            stop_price = stop_info["short_put_stop_price"]
+        else:
+            credit = setup.extra["call_credit"]
+            short_strike = setup.strikes["short_call"]
+            long_strike = setup.strikes["long_call"]
+            width = long_strike - short_strike
+            short_sym = setup.legs[0].symbol
+            long_sym = setup.legs[1].symbol
+            stop_price = stop_info["short_call_stop_price"]
+
+        qty = int(setup.extra.get("qty", 1))
+        trade = {
+            "trade_id": f"{d.isoformat()}_{entry_dt.strftime('%H%M')}_{side}",
+            "entry_time_et": entry_dt,
+            "short_call_symbol": short_sym if side == "call" else None,
+            "long_call_symbol": long_sym if side == "call" else None,
+            "short_put_symbol": short_sym if side == "put" else None,
+            "long_put_symbol": long_sym if side == "put" else None,
+            "call_credit": credit if side == "call" else 0.0,
+            "put_credit": credit if side == "put" else 0.0,
+            "call_open_qty": qty if side == "call" else 0,
+            "put_open_qty": qty if side == "put" else 0,
+            "short_call_stop_price": stop_price if side == "call" else None,
+            "short_put_stop_price": stop_price if side == "put" else None,
+        }
+        qty_key = "call_open_qty" if side == "call" else "put_open_qty"
+
+        base = BacktestResult(
+            trade_id=trade["trade_id"], session_date=d, symbol=symbol,
+            orb_high=0, orb_low=0, orb_midline=0, orb_range_pts=0,
+            spread_type=side, short_strike=short_strike,
+            long_strike=long_strike, spread_width=width,
+            entry_time=entry_dt, underlying_at_entry=spot,
+            credit_received=credit, qty=qty, status="closed",
+        )
+
+        realized = 0.0   # dollars
+        mult = self._multiplier
+
+        for bar in monitoring_bars:
+            bt = bar["ts_et"]
+            if bt >= eod_dt:
+                break
+            minute = bt.strftime("%H:%M")
+
+            quotes = self._build_quotes(minute, trade)
+            if not quotes:
+                continue
+
+            action = self._strategy.check_exit(trade, quotes)
+
+            if action.action == "stop_loss":
+                open_q = int(trade[qty_key])
+                debit = min(max(stop_info["stop_amount"], 0), width)
+                realized += (credit - debit) * mult * open_q
+                trade[qty_key] = 0
+                base.exit_time = bt
+                base.underlying_at_exit = self._cbbo.derive_spot(minute, bar["close"]) or bar["close"]
+                base.debit_paid = round(debit, 2)
+                base.exit_reason = "short_stopped"
+                base.realized_pnl_usd = round(realized, 2)
+                return base
+
+            if action.action == "take_profit":
+                closed_q = action.leg_quantities.get(short_sym, 0)
+                if closed_q > 0:
+                    sq = quotes.get(short_sym, {})
+                    debit = sq.get("ask", 0.0)
+                    realized += (credit - debit) * mult * closed_q
+                    trade[qty_key] = int(trade[qty_key]) - closed_q
+                if int(trade[qty_key]) <= 0:
+                    base.exit_time = bt
+                    base.underlying_at_exit = self._cbbo.derive_spot(minute, bar["close"]) or bar["close"]
+                    base.exit_reason = "scaled_out"
+                    base.realized_pnl_usd = round(realized, 2)
+                    return base
+
+        # EOD / no exit: remaining qty expires worthless (keep full credit)
+        remaining = int(trade[qty_key])
+        realized += credit * mult * remaining
+        base.exit_time = eod_dt
+        base.debit_paid = 0.0
+        base.exit_reason = "expired_worthless" if remaining == qty else "partial_then_expiry"
+        base.realized_pnl_usd = round(realized, 2)
+        return base
 
     # ------------------------------------------------------------------
     # Exit simulation
