@@ -220,8 +220,25 @@ class MeicStrategy(LiveStrategy):
 
         return {"passed": len(failures) == 0, "checks": checks, "failures": failures}
 
-    def build_order(self, setup):
-        raise NotImplementedError
+    def build_order(self, setup: LiveTradeSetup) -> Dict[str, Any]:
+        qty = int(setup.extra.get("qty", 1))
+        st = setup.strikes
+        return {
+            "order_type": "meic_two_spreads",
+            "quantity": qty,
+            "put_spread": {
+                "short_strike": st["short_put"],
+                "long_strike": st["long_put"],
+                "credit": setup.extra.get("put_credit"),
+                "quantity": qty,
+            },
+            "call_spread": {
+                "short_strike": st["short_call"],
+                "long_strike": st["long_call"],
+                "credit": setup.extra.get("call_credit"),
+                "quantity": qty,
+            },
+        }
 
     def compute_stop_loss(self, setup):
         raise NotImplementedError

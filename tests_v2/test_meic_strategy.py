@@ -216,3 +216,28 @@ class TestMeicValidate:
         res = await s.validate(setup, sample_meic_chain)
         assert res["passed"] is False
         assert "qty" in res["failures"]
+
+
+class TestMeicBuildOrder:
+    def test_two_spread_payload(self, meic_config):
+        from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+        s = MeicStrategy(); s.configure(meic_config)
+        setup = LiveTradeSetup(
+            strategy_type="meic",
+            legs=[OrderLeg("", 5950, "call", "sell", 4)],
+            total_credit=2.80,
+            strikes={"short_call": 5950, "long_call": 6040,
+                     "short_put": 5750, "long_put": 5660},
+            extra={"call_credit": 1.40, "put_credit": 1.40, "qty": 4},
+        )
+        order = s.build_order(setup)
+        assert order["order_type"] == "meic_two_spreads"
+        assert order["quantity"] == 4
+        assert order["put_spread"] == {
+            "short_strike": 5750, "long_strike": 5660,
+            "credit": 1.40, "quantity": 4,
+        }
+        assert order["call_spread"] == {
+            "short_strike": 5950, "long_strike": 6040,
+            "credit": 1.40, "quantity": 4,
+        }
