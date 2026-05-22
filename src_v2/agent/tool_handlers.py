@@ -25,7 +25,9 @@ class ToolHandlers:
         db=None,
         mode: Optional[str] = None,
         dry_run: Optional[bool] = None,
+        execution_log=None,
     ):
+        self._execution_log = execution_log
         if mode is not None:
             self.mode = mode
         elif dry_run is not None:
@@ -411,11 +413,11 @@ class ToolHandlers:
                 }
             return self._manual_order_result("place_two_spread_ic", payload)
 
-        # 1. Submit the two credit spreads.
+        # 1. Submit the two credit spreads at their net-credit limit prices.
         put_result = await self.place_credit_spread(
-            "put", put["short_strike"], put["long_strike"], qty)
+            "put", put["short_strike"], put["long_strike"], qty, credit=put.get("credit"))
         call_result = await self.place_credit_spread(
-            "call", call["short_strike"], call["long_strike"], qty)
+            "call", call["short_strike"], call["long_strike"], qty, credit=call.get("credit"))
 
         # 2. Rest a stop-market on each short leg (MEIC: stops on shorts only).
         put_stop_result = None
@@ -432,6 +434,16 @@ class ToolHandlers:
                     call_short_sym, call["stop_trigger"], qty)
             except Exception:
                 logger.exception("Call short stop submission failed (spread is unprotected)")
+
+        # Record the assumed entry credits + stop triggers for later comparison
+        # against the actual TT fills captured by the OrderFillListener.
+        if self._execution_log is not None:
+            trade_id = (put_result or {}).get("order_id") or datetime.now().strftime("meic-%H%M%S")
+            try:
+                self._execution_log.log_assumed_entry(
+                    trade_id, payload, put_short_sym, call_short_sym)
+            except Exception:
+                logger.exception("Failed to log assumed entry for execution comparison")
 
         return {
             "order_type": "meic_two_spreads",
@@ -450,10 +462,11 @@ class ToolHandlers:
         short_strike: float,
         long_strike: float,
         quantity: int = 1,
+        credit: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Place a single credit spread (call or put side)."""
+        """Place a single credit spread (call or put side) at a net-credit limit."""
         if self._block_submission():
-            details = {"spread_type": spread_type, "short_strike": short_strike, "long_strike": long_strike, "quantity": quantity}
+            details = {"spread_type": spread_type, "short_strike": short_strike, "long_strike": long_strike, "quantity": quantity, "credit": credit}
             if self.dry_run:
                 return {"order_id": f"DRY-CS-{datetime.now().strftime('%Y%m%d%H%M%S')}", "dry_run": True, "simulated": True}
             return self._manual_order_result("place_credit_spread", details)
@@ -463,6 +476,7 @@ class ToolHandlers:
             "short_strike": short_strike,
             "long_strike": long_strike,
             "quantity": quantity,
+            "credit": credit,
         })
 
     async def place_stop_order(

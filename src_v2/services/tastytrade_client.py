@@ -1064,11 +1064,13 @@ class TastyTradeClient:
             self._build_leg(long_sym, "Buy to Open", qty, instrument_type=inst_type),
         ]
 
-        credit = order.get("credit", 0)
+        credit = order.get("credit", 0) or 0
+        # Round the net-credit limit to the 0.05 option tick.
+        price = round(round(float(credit) / 0.05) * 0.05, 2) if credit else None
         payload = {
             "time-in-force": "Day",
             "order-type": "Limit",
-            "price": str(credit) if credit else None,
+            "price": str(price) if price else None,
             "price-effect": "Credit",
             "legs": legs,
         }

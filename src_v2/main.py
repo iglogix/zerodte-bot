@@ -141,11 +141,15 @@ class BotOrchestrator:
         await api_client.connect()
         self._cache.api_client = api_client
 
+        from src_v2.services.execution_log import ExecutionLog
+        self._execution_log = ExecutionLog(base_dir=log_cfg.get("log_dir", "logs"))
+
         self._tool_handlers = ToolHandlers(
             cache=self._cache,
             api_client=api_client,
             db=self._db,
             mode=self.mode,
+            execution_log=self._execution_log,
         )
 
         self._risk_manager = RiskManager(
@@ -163,10 +167,15 @@ class BotOrchestrator:
         self._api_client = api_client
         self._fill_queue = asyncio.Queue()
 
+        async def _log_fill(ev):
+            self._execution_log.log_fill(
+                ev.symbol, ev.fill_price, ev.order_type, ev.is_stop_fill, ev.quantity)
+
         self._fill_listener = OrderFillListener(
             api_client=api_client,
             fill_queue=self._fill_queue,
             mode=self.mode,
+            on_fill=_log_fill,
         )
 
         eod_str = monitor_cfg.get("eod_close_time", "15:55")
