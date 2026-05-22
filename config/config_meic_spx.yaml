@@ -72,8 +72,8 @@ options:
   chain_half_span_pts: 400
 
 llm:
-  advisor_model: "anthropic/claude-haiku-4-5"
-  debrief_model: "anthropic/claude-sonnet-4-5"
+  advisor_model: "openai/gpt-4.1-mini"
+  debrief_model: "openai/gpt-4.1"
 
 cache:
   option_chain_ttl: 60
