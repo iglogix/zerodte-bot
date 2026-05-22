@@ -982,6 +982,32 @@ class TastyTradeClient:
         else:
             raise ValueError(f"Unknown order_type: {order_type}")
 
+    async def place_stop_market(
+        self, symbol: str, trigger_price: float, quantity: int = 1,
+    ) -> Dict[str, Any]:
+        """Submit a resting single-leg stop-market (Buy to Close) on a short option."""
+        payload = {
+            "time-in-force": "GTC",
+            "order-type": "Stop",
+            "stop-trigger": str(round(float(trigger_price), 2)),
+            "legs": [self._build_leg(symbol, "Buy to Close", quantity)],
+        }
+        async with self._http.post(
+            f"{self.base_url}/accounts/{self.account_number}/orders",
+            headers=self._headers(),
+            json=payload,
+        ) as resp:
+            if resp.status >= 400:
+                body = await resp.text()
+                logger.error("Stop-market order rejected (%s): %s", resp.status, body)
+            resp.raise_for_status()
+            data = await resp.json()
+            order_id = str(data["data"]["order"]["id"])
+            logger.info("Stop-market placed: %s trigger=%s order_id=%s",
+                        symbol, trigger_price, order_id)
+            return {"order_id": order_id, "symbol": symbol,
+                    "trigger_price": float(trigger_price)}
+
     async def _place_iron_condor(self, order: Dict[str, Any]) -> Dict[str, Any]:
         """Build and submit a 4-leg iron condor order."""
         exp = date.today()

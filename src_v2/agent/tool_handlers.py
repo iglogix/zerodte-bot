@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 
+from src_v2.backtest.osi_symbol import format_osi
+
 logger = logging.getLogger(__name__)
 
 
@@ -388,28 +390,56 @@ class ToolHandlers:
         put = payload["put_spread"]
         call = payload["call_spread"]
 
+        exp = date.today()
+        put_short_sym = format_osi(exp, put["short_strike"], is_call=False)
+        call_short_sym = format_osi(exp, call["short_strike"], is_call=True)
+
         if self._block_submission():
             if self.dry_run:
                 ts = datetime.now().strftime('%Y%m%d%H%M%S')
-                logger.info("[DRY RUN] Simulated MEIC two-spread IC: %s", ts)
+                logger.info("[DRY RUN] Simulated MEIC two-spread IC + stops: %s", ts)
                 return {
                     "order_id": f"DRY-MEIC-{ts}",
                     "dry_run": True, "simulated": True,
                     "quantity": qty,
                     "put_spread": put,
                     "call_spread": call,
+                    "put_stop_result": {"order_id": f"DRY-STOP-P-{ts}", "symbol": put_short_sym,
+                                        "trigger_price": put.get("stop_trigger")},
+                    "call_stop_result": {"order_id": f"DRY-STOP-C-{ts}", "symbol": call_short_sym,
+                                         "trigger_price": call.get("stop_trigger")},
                 }
             return self._manual_order_result("place_two_spread_ic", payload)
 
+        # 1. Submit the two credit spreads.
         put_result = await self.place_credit_spread(
             "put", put["short_strike"], put["long_strike"], qty)
         call_result = await self.place_credit_spread(
             "call", call["short_strike"], call["long_strike"], qty)
+
+        # 2. Rest a stop-market on each short leg (MEIC: stops on shorts only).
+        put_stop_result = None
+        call_stop_result = None
+        if put.get("stop_trigger") is not None:
+            try:
+                put_stop_result = await self.api_client.place_stop_market(
+                    put_short_sym, put["stop_trigger"], qty)
+            except Exception:
+                logger.exception("Put short stop submission failed (spread is unprotected)")
+        if call.get("stop_trigger") is not None:
+            try:
+                call_stop_result = await self.api_client.place_stop_market(
+                    call_short_sym, call["stop_trigger"], qty)
+            except Exception:
+                logger.exception("Call short stop submission failed (spread is unprotected)")
+
         return {
             "order_type": "meic_two_spreads",
             "quantity": qty,
             "put_result": put_result,
             "call_result": call_result,
+            "put_stop_result": put_stop_result,
+            "call_stop_result": call_stop_result,
             "put_spread": put,
             "call_spread": call,
         }

@@ -224,19 +224,21 @@ class TestMeicBuildOrder:
             total_credit=2.80,
             strikes={"short_call": 5950, "long_call": 6040,
                      "short_put": 5750, "long_put": 5660},
-            extra={"call_credit": 1.40, "put_credit": 1.40, "qty": 4},
+            extra={"call_credit": 1.40, "put_credit": 1.40, "qty": 4,
+                   "short_call_mid": 1.45, "short_put_mid": 1.45},
         )
         order = s.build_order(setup)
         assert order["order_type"] == "meic_two_spreads"
         assert order["quantity"] == 4
-        assert order["put_spread"] == {
-            "short_strike": 5750, "long_strike": 5660,
-            "credit": 1.40, "quantity": 4,
-        }
-        assert order["call_spread"] == {
-            "short_strike": 5950, "long_strike": 6040,
-            "credit": 1.40, "quantity": 4,
-        }
+        # stop_amount = 0.70 * total_credit 2.80 = 1.96; trigger = short_mid + 1.96
+        assert order["stop_amount"] == pytest.approx(1.96)
+        assert order["put_spread"]["short_strike"] == 5750
+        assert order["put_spread"]["long_strike"] == 5660
+        assert order["put_spread"]["credit"] == 1.40
+        assert order["put_spread"]["quantity"] == 4
+        assert order["put_spread"]["stop_trigger"] == pytest.approx(1.45 + 1.96)
+        assert order["call_spread"]["short_strike"] == 5950
+        assert order["call_spread"]["stop_trigger"] == pytest.approx(1.45 + 1.96)
 
 
 class TestMeicStops:

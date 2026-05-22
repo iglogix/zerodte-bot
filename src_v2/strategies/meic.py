@@ -228,19 +228,26 @@ class MeicStrategy(LiveStrategy):
     def build_order(self, setup: LiveTradeSetup) -> Dict[str, Any]:
         qty = int(setup.extra.get("qty", 1))
         st = setup.strikes
+        stop = self.compute_stop_loss(setup)
         return {
             "order_type": "meic_two_spreads",
             "quantity": qty,
+            "total_credit": setup.total_credit,
+            "stop_amount": stop["stop_amount"],
             "put_spread": {
                 "short_strike": st["short_put"],
                 "long_strike": st["long_put"],
                 "credit": setup.extra.get("put_credit"),
+                "short_mid": setup.extra.get("short_put_mid"),
+                "stop_trigger": stop["short_put_stop_price"],
                 "quantity": qty,
             },
             "call_spread": {
                 "short_strike": st["short_call"],
                 "long_strike": st["long_call"],
                 "credit": setup.extra.get("call_credit"),
+                "short_mid": setup.extra.get("short_call_mid"),
+                "stop_trigger": stop["short_call_stop_price"],
                 "quantity": qty,
             },
         }
