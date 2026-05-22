@@ -49,3 +49,25 @@ async def test_poll_skips_when_chain_empty():
     qc.register("T1", _payload(), "P", "C")
     await qc._poll_once()
     assert log.log_quote.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_poll_skips_invalid_zero_quotes():
+    # Chain enrichment failure returns 0.0 bid/ask — must not be logged as a quote.
+    chain = [
+        {"strike": 5750.0, "option_type": "P", "bid": 0.0, "ask": 0.0},
+        {"strike": 5950.0, "option_type": "C", "bid": 0.70, "ask": 0.75},
+    ]
+    log = MagicMock()
+    th = MagicMock()
+    th.get_option_chain = AsyncMock(return_value=chain)
+    qc = QuoteComparator(tool_handlers=th, execution_log=log)
+    qc.register("T1", _payload(), "SPXW  260522P05750000", "SPXW  260522C05950000")
+
+    await qc._poll_once()
+
+    # Only the valid call leg is logged; the zero-priced put leg is skipped.
+    assert log.log_quote.call_count == 1
+    _, leg, bid, ask = log.log_quote.call_args_list[0].args
+    assert leg["role"] == "short_call"
+    assert (bid, ask) == (0.70, 0.75)

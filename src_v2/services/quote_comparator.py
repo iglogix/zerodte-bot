@@ -86,8 +86,14 @@ class QuoteComparator:
                 opt = by.get((leg["strike"], bool(leg["is_call"])))
                 if not opt:
                     continue
+                bid = opt.get("bid")
+                ask = opt.get("ask")
+                # Skip invalid/unpriced quotes (e.g. chain enrichment failure
+                # returns 0.0) so we never log garbage zeros.
+                if not bid or not ask or bid <= 0 or ask <= 0:
+                    continue
                 if self._log is not None:
-                    self._log.log_quote(trade_id, leg, opt.get("bid"), opt.get("ask"))
+                    self._log.log_quote(trade_id, leg, bid, ask)
 
     async def _chain_by_strike(self) -> Dict[tuple, Dict[str, Any]]:
         """Fetch the 0DTE chain and key it by (strike, is_call)."""
