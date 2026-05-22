@@ -20,6 +20,8 @@ import os
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
+from src_v2.backtest.osi_symbol import format_osi
+
 import aiohttp
 import httpx
 
@@ -982,14 +984,14 @@ class TastyTradeClient:
 
     async def _place_iron_condor(self, order: Dict[str, Any]) -> Dict[str, Any]:
         """Build and submit a 4-leg iron condor order."""
-        today = date.today().strftime("%y%m%d")
+        exp = date.today()
         qty = order.get("quantity", 1)
 
         legs = [
-            self._build_leg(f"SPXW{today}C{int(order['short_call_strike'])}", "Sell to Open", qty),
-            self._build_leg(f"SPXW{today}C{int(order['long_call_strike'])}", "Buy to Open", qty),
-            self._build_leg(f"SPXW{today}P{int(order['short_put_strike'])}", "Sell to Open", qty),
-            self._build_leg(f"SPXW{today}P{int(order['long_put_strike'])}", "Buy to Open", qty),
+            self._build_leg(format_osi(exp, order['short_call_strike'], is_call=True), "Sell to Open", qty),
+            self._build_leg(format_osi(exp, order['long_call_strike'], is_call=True), "Buy to Open", qty),
+            self._build_leg(format_osi(exp, order['short_put_strike'], is_call=False), "Sell to Open", qty),
+            self._build_leg(format_osi(exp, order['long_put_strike'], is_call=False), "Buy to Open", qty),
         ]
 
         credit = order.get("credit", 0)
@@ -1025,10 +1027,10 @@ class TastyTradeClient:
             long_sym = order["long_symbol"]
             inst_type = order.get("instrument_type", "Future Option")
         else:
-            today = date.today().strftime("%y%m%d")
-            side = "C" if "call" in order["order_type"] else "P"
-            short_sym = f"SPXW{today}{side}{int(order['short_strike'])}"
-            long_sym = f"SPXW{today}{side}{int(order['long_strike'])}"
+            exp = date.today()
+            is_call = "call" in order["order_type"]
+            short_sym = format_osi(exp, order['short_strike'], is_call=is_call)
+            long_sym = format_osi(exp, order['long_strike'], is_call=is_call)
             inst_type = "Equity Option"
 
         legs = [
