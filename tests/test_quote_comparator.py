@@ -1,4 +1,4 @@
-"""Tests for the manual-mode QuoteComparator."""
+"""Tests for the manual-mode QuoteComparator (chain-based quote source)."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,27 +12,40 @@ def _payload():
     }
 
 
+def _chain():
+    return [
+        {"strike": 5750.0, "option_type": "P", "bid": 0.55, "ask": 0.60},
+        {"strike": 5950.0, "option_type": "C", "bid": 0.70, "ask": 0.75},
+        {"strike": 5800.0, "option_type": "P", "bid": 1.0, "ask": 1.1},  # unrelated
+    ]
+
+
 @pytest.mark.asyncio
-async def test_register_then_poll_logs_both_short_legs():
+async def test_poll_logs_both_shorts_from_chain():
     log = MagicMock()
-    cache = MagicMock()
-    cache.get_cached_quote = AsyncMock(return_value={"bid": 0.55, "ask": 0.60})
-    qc = QuoteComparator(cache=cache, execution_log=log)
+    th = MagicMock()
+    th.get_option_chain = AsyncMock(return_value=_chain())
+    qc = QuoteComparator(tool_handlers=th, execution_log=log)
     qc.register("T1", _payload(), "SPXW  260522P05750000", "SPXW  260522C05950000")
 
     await qc._poll_once()
 
-    assert log.log_quote.call_count == 2  # short put + short call
-    roles = {c.args[1]["role"] for c in log.log_quote.call_args_list}
-    assert roles == {"short_put", "short_call"}
+    assert log.log_quote.call_count == 2
+    by_role = {c.args[1]["role"]: c.args for c in log.log_quote.call_args_list}
+    assert set(by_role) == {"short_put", "short_call"}
+    # short_put got the 5750P bid/ask
+    _, leg, bid, ask = by_role["short_put"]
+    assert (bid, ask) == (0.55, 0.60)
+    _, leg, bid, ask = by_role["short_call"]
+    assert (bid, ask) == (0.70, 0.75)
 
 
 @pytest.mark.asyncio
-async def test_poll_skips_when_no_quote():
+async def test_poll_skips_when_chain_empty():
     log = MagicMock()
-    cache = MagicMock()
-    cache.get_cached_quote = AsyncMock(return_value=None)
-    qc = QuoteComparator(cache=cache, api_client=None, execution_log=log)
+    th = MagicMock()
+    th.get_option_chain = AsyncMock(return_value=[])
+    qc = QuoteComparator(tool_handlers=th, execution_log=log)
     qc.register("T1", _payload(), "P", "C")
     await qc._poll_once()
     assert log.log_quote.call_count == 0

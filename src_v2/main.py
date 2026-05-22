@@ -146,8 +146,6 @@ class BotOrchestrator:
         from src_v2.services.quote_comparator import QuoteComparator
         self._execution_log = ExecutionLog(base_dir=log_cfg.get("log_dir", "logs"))
         self._quote_comparator = QuoteComparator(
-            cache=self._cache,
-            api_client=api_client,
             execution_log=self._execution_log,
             poll_interval_seconds=monitor_cfg.get("poll_interval_seconds", 15),
         )
@@ -160,6 +158,8 @@ class BotOrchestrator:
             execution_log=self._execution_log,
             on_entry=self._quote_comparator.register,
         )
+        # Comparator reads the same chain source the strategy uses.
+        self._quote_comparator._th = self._tool_handlers
 
         self._risk_manager = RiskManager(
             db=self._db,

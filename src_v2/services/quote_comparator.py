@@ -22,15 +22,16 @@ _EOD = dt_time(15, 55)
 class QuoteComparator:
     def __init__(
         self,
-        cache=None,
-        api_client=None,
+        tool_handlers=None,
         execution_log=None,
         poll_interval_seconds: int = 15,
         eod_time: dt_time = _EOD,
         clock=None,
     ):
-        self._cache = cache
-        self._api = api_client
+        # tool_handlers gives the same option-chain source the strategy uses to
+        # build orders — reliable bid/ask by strike, unlike per-symbol quote
+        # lookups which break on OCC-vs-DXLink symbology.
+        self._th = tool_handlers
         self._log = execution_log
         self._interval = poll_interval_seconds
         self._eod = eod_time
@@ -45,10 +46,12 @@ class QuoteComparator:
         put = payload.get("put_spread", {})
         call = payload.get("call_spread", {})
         self._active[trade_id] = [
-            {"symbol": put_short_sym, "role": "short_put",
+            {"symbol": put_short_sym, "role": "short_put", "is_call": False,
+             "strike": float(put.get("short_strike")),
              "trigger": put.get("stop_trigger"), "credit": put.get("credit"),
              "short_mid": put.get("short_mid")},
-            {"symbol": call_short_sym, "role": "short_call",
+            {"symbol": call_short_sym, "role": "short_call", "is_call": True,
+             "strike": float(call.get("short_strike")),
              "trigger": call.get("stop_trigger"), "credit": call.get("credit"),
              "short_mid": call.get("short_mid")},
         ]
@@ -73,25 +76,29 @@ class QuoteComparator:
         self._running = False
 
     async def _poll_once(self):
+        if not self._active or self._th is None:
+            return
+        by = await self._chain_by_strike()
+        if not by:
+            return
         for trade_id, legs in list(self._active.items()):
             for leg in legs:
-                q = await self._get_quote(leg["symbol"])
-                if not q:
+                opt = by.get((leg["strike"], bool(leg["is_call"])))
+                if not opt:
                     continue
                 if self._log is not None:
-                    self._log.log_quote(trade_id, leg, q.get("bid"), q.get("ask"))
+                    self._log.log_quote(trade_id, leg, opt.get("bid"), opt.get("ask"))
 
-    async def _get_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
-        if self._cache is not None:
-            try:
-                q = await self._cache.get_cached_quote(symbol, max_age_seconds=30)
-                if q:
-                    return q
-            except Exception:
-                pass
-        if self._api is not None:
-            try:
-                return await self._api.get_quote(symbol)
-            except Exception:
-                logger.debug("QuoteComparator: no quote for %s", symbol)
-        return None
+    async def _chain_by_strike(self) -> Dict[tuple, Dict[str, Any]]:
+        """Fetch the 0DTE chain and key it by (strike, is_call)."""
+        try:
+            chain = await self._th.get_option_chain(expiration="0DTE")
+        except Exception:
+            logger.debug("QuoteComparator: option chain fetch failed")
+            return {}
+        out: Dict[tuple, Dict[str, Any]] = {}
+        for o in chain or []:
+            ot = str(o.get("option_type", "")).upper()
+            is_call = ot in ("C", "CALL")
+            out[(float(o.get("strike", 0)), is_call)] = o
+        return out
