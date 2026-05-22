@@ -74,3 +74,41 @@ async def test_place_two_spread_ic_live_submits_short_stops():
     assert format_osi(exp, 5950, is_call=True) in stop_syms    # short call OCC
     assert result["put_stop_result"]["order_id"] == "STOP"
     assert result["call_stop_result"]["order_id"] == "STOP"
+
+
+@pytest.mark.asyncio
+async def test_place_two_spread_ic_manual_logs_assumed_and_registers():
+    """Manual mode: no orders submitted, but assumed entry is logged and the
+    trade is registered with the quote comparator (on_entry)."""
+    from datetime import date
+    from src_v2.backtest.osi_symbol import format_osi
+
+    exec_log = MagicMock()
+    registered = []
+    def _on_entry(trade_id, payload, p_sym, c_sym):
+        registered.append((trade_id, p_sym, c_sym))
+
+    api = MagicMock()
+    api.place_order = AsyncMock()          # must NOT be called in manual mode
+    api.place_stop_market = AsyncMock()
+    th = ToolHandlers(cache=MagicMock(), api_client=api, db=MagicMock(),
+                      mode="manual", execution_log=exec_log, on_entry=_on_entry)
+
+    payload = {
+        "order_type": "meic_two_spreads", "quantity": 3,
+        "put_spread": {"short_strike": 5750, "long_strike": 5660,
+                       "credit": 1.40, "stop_trigger": 3.41, "quantity": 3},
+        "call_spread": {"short_strike": 5950, "long_strike": 6040,
+                        "credit": 1.40, "stop_trigger": 3.41, "quantity": 3},
+    }
+    result = await th.place_two_spread_ic(payload)
+
+    api.place_order.assert_not_awaited()       # manual: nothing submitted
+    api.place_stop_market.assert_not_awaited()
+    assert exec_log.log_assumed_entry.call_count == 1
+    assert len(registered) == 1
+    exp = date.today()
+    _, p_sym, c_sym = registered[0]
+    assert p_sym == format_osi(exp, 5750, is_call=False)
+    assert c_sym == format_osi(exp, 5950, is_call=True)
+    assert "trade_id" in result
