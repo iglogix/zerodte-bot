@@ -92,6 +92,6 @@ backtest:
   data_file: "data/spy_1m.csv"
   data_source: "spy"
   price_scale: 10.0
-  cbbo_cache_dir: "data/cbbo_cache"
-  start_date: "2025-09-22"
-  end_date: "2026-03-20"
+  cbbo_cache_dir: "data/cbbo_cache_meic"
+  start_date: "2022-05-11"
+  end_date: "2026-02-27"

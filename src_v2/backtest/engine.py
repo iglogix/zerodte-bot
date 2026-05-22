@@ -169,6 +169,15 @@ class BacktestEngine:
         # Stops slip past the trigger more than a normal limit fill.
         self._stop_slippage = opt_cfg.get("stop_slippage_per_spread", 0.25)
         self._chain_half_span_pts = opt_cfg.get("chain_half_span_pts", 400)
+        # MEIC stop execution model:
+        #   "trigger"    — fill the spread at the credit-relative trigger
+        #                  (stop_amount); optimistic. Default; preserves tests.
+        #   "combo"      — close BOTH legs as a spread at the breach minute
+        #                  (short_ask - long_bid), capped at width.
+        #   "short_only" — buy back only the short at its breach-minute ask;
+        #                  hold the long to EOD and value it there (faithful to
+        #                  the spec: stop-market on the short, long retained).
+        self._stop_execution = opt_cfg.get("stop_execution", "trigger")
 
         # CBBO store
         cbbo_dir = config.get("backtest", {}).get("cbbo_cache_dir", "")
@@ -502,8 +511,33 @@ class BacktestEngine:
 
             if action.action == "stop_loss":
                 open_q = int(trade[qty_key])
-                # Stop-market fills slip past the trigger.
-                debit = min(max(stop_info["stop_amount"], 0) + self._stop_slippage, width)
+                if self._stop_execution == "short_trigger":
+                    # Exchange stop-market on the short fills ~at the trigger
+                    # price; sell the long leg-by-leg at its breach-minute bid.
+                    # Best-case honest fill (tests the "exchange, not broker
+                    # combo" hypothesis).
+                    stop_price = stop_info[
+                        "short_call_stop_price" if side == "call"
+                        else "short_put_stop_price"]
+                    l_bid = quotes.get(long_sym, {}).get("bid", 0.0)
+                    debit = min(max(stop_price + self._stop_slippage - l_bid, 0.0), width)
+                elif self._stop_execution == "short_only":
+                    # Buy back only the short at its breach-minute ask (+slip);
+                    # hold the long to EOD and value it at its bid then. Net
+                    # debit can exceed width (you closed the short at market,
+                    # not at expiry), which is the real risk of a short stop.
+                    s_ask = quotes.get(short_sym, {}).get("ask", 0.0) + self._stop_slippage
+                    eod_min = eod_dt.strftime("%H:%M")
+                    lq = self._cbbo.lookup(eod_min, long_strike, side == "call")
+                    long_eod_bid = lq[0] if lq else 0.0
+                    debit = max(s_ask - long_eod_bid, 0.0)
+                elif self._stop_execution == "combo":
+                    # Close both legs as a spread at the breach minute.
+                    s_ask = quotes.get(short_sym, {}).get("ask", 0.0)
+                    l_bid = quotes.get(long_sym, {}).get("bid", 0.0)
+                    debit = min(max(s_ask - l_bid, 0.0) + self._stop_slippage, width)
+                else:  # "trigger" — optimistic, fill at the credit-relative stop
+                    debit = min(max(stop_info["stop_amount"], 0) + self._stop_slippage, width)
                 realized += (credit_eff - debit) * mult * open_q
                 trade[qty_key] = 0
                 base.exit_time = bt
