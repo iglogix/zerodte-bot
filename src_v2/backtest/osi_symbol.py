@@ -19,6 +19,18 @@ def format_osi(expiry: date, strike: float, is_call: bool, root: str = "SPXW") -
     return f"{root_padded}{expiry_str}{cp}{strike_str}"
 
 
+def parse_osi(symbol: str) -> tuple[float, bool]:
+    """Parse a 21-char OSI raw_symbol into (strike, is_call).
+
+    Inverse of `format_osi`: positions 12 = C/P, 13:21 = strike*1000.
+    """
+    if len(symbol) != 21:
+        raise ValueError(f"not a 21-char OSI symbol: {symbol!r}")
+    is_call = symbol[12] == "C"
+    strike = int(symbol[13:21]) / 1000.0
+    return strike, is_call
+
+
 def build_strike_window(
     expiry: date,
     atm_strike: float,

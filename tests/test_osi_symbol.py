@@ -1,6 +1,8 @@
 from datetime import date
 
-from src_v2.backtest.osi_symbol import format_osi, build_strike_window
+import pytest
+
+from src_v2.backtest.osi_symbol import format_osi, build_strike_window, parse_osi
 
 
 def test_format_osi_put_integer_strike():
@@ -32,3 +34,26 @@ def test_build_strike_window_strikes_are_step_aligned():
     syms = build_strike_window(date(2025, 9, 22), atm_strike=6443.0, half_width_pts=10, step_pts=5)
     parsed_strikes = sorted({int(s[-8:]) // 1000 for s in syms})
     assert parsed_strikes == [6435, 6440, 6445, 6450, 6455]
+
+
+def test_parse_osi_put():
+    strike, is_call = parse_osi("SPXW  260522P07465000")
+    assert strike == 7465.0
+    assert is_call is False
+
+
+def test_parse_osi_call_half_point():
+    strike, is_call = parse_osi("SPXW  250922C06442500")
+    assert strike == 6442.5
+    assert is_call is True
+
+
+def test_parse_osi_round_trips_format_osi():
+    sym = format_osi(date(2026, 1, 15), 4750.0, is_call=False)
+    strike, is_call = parse_osi(sym)
+    assert strike == 4750.0 and is_call is False
+
+
+def test_parse_osi_rejects_bad_length():
+    with pytest.raises(ValueError):
+        parse_osi("SPXW260522P7465")

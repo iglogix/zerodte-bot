@@ -74,6 +74,28 @@ def test_log_round_trip(tmp_path):
     assert rows[0]["slippage"] == 0.09
 
 
+def test_read_today_assumed_round_trip(tmp_path):
+    el = ExecutionLog(base_dir=str(tmp_path))
+    payload = {
+        "quantity": 3, "total_credit": 2.80, "stop_amount": 1.96,
+        "put_spread": {"credit": 1.40, "short_mid": 1.45, "stop_trigger": 3.41},
+        "call_spread": {"credit": 1.40, "short_mid": 1.45, "stop_trigger": 3.41},
+    }
+    el.log_assumed_entry("T1", payload, "SPXW  260522P05750000", "SPXW  260522C05950000")
+    el.log_fill("SPXW  260522C05950000", 3.50, "Stop", True, 3)  # non-assumed noise
+    el.log_assumed_entry("T2", payload, "SPXW  260522P05700000", "SPXW  260522C06000000")
+
+    rows = el.read_today_assumed()
+    assert [r["trade_id"] for r in rows] == ["T1", "T2"]
+    assert rows[0]["legs"]["short_put"]["symbol"] == "SPXW  260522P05750000"
+    assert rows[0]["legs"]["short_call"]["stop_trigger"] == 3.41
+
+
+def test_read_today_assumed_empty_when_no_file(tmp_path):
+    el = ExecutionLog(base_dir=str(tmp_path))
+    assert el.read_today_assumed() == []
+
+
 def _quote(trade_id, role, symbol, ask, trigger, ts):
     return {"type": "quote", "trade_id": trade_id, "role": role, "symbol": symbol,
             "real_bid": ask - 0.05, "real_ask": ask, "trigger": trigger,

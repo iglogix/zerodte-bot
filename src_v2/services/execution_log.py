@@ -69,6 +69,27 @@ class ExecutionLog:
             "quantity": int(quantity),
         })
 
+    def read_today_assumed(self) -> List[Dict[str, Any]]:
+        """Return today's logged "assumed" entry records (for restart rehydration).
+
+        Reading back our own log lets the QuoteComparator rebuild its in-memory
+        tracking after a restart instead of losing open tranches.
+        """
+        path = self._dir / f"{date.today().isoformat()}.jsonl"
+        if not path.exists():
+            return []
+        out: List[Dict[str, Any]] = []
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("type") == "assumed":
+                out.append(rec)
+        return out
+
     def log_quote(self, trade_id: str, leg: Dict[str, Any],
                   bid: float, ask: float) -> None:
         """Record a short leg's real bid/ask vs its stop trigger (manual mode).

@@ -58,8 +58,53 @@ class QuoteComparator:
         logger.info("QuoteComparator tracking %s (%s, %s)",
                     trade_id, put_short_sym, call_short_sym)
 
+    def rehydrate(self) -> int:
+        """Rebuild in-memory tracking from today's logged entries (restart-safe).
+
+        `_active` is RAM-only, so a restart would otherwise drop every tranche
+        opened before it. We replay today's "assumed" entry records — which
+        already carry each short leg's trigger/credit/mid — and recover the
+        short strike from the OCC symbol. Returns the count rehydrated.
+        """
+        if self._log is None:
+            return 0
+        from src_v2.backtest.osi_symbol import parse_osi
+        n = 0
+        for rec in self._log.read_today_assumed():
+            trade_id = rec.get("trade_id")
+            if not trade_id or trade_id in self._active:
+                continue
+            legs = rec.get("legs", {})
+            put = legs.get("short_put", {})
+            call = legs.get("short_call", {})
+            put_sym = put.get("symbol")
+            call_sym = call.get("symbol")
+            if not put_sym or not call_sym:
+                continue
+            try:
+                put_k, _ = parse_osi(put_sym)
+                call_k, _ = parse_osi(call_sym)
+            except (ValueError, TypeError):
+                continue
+            payload = {
+                "put_spread": {"short_strike": put_k,
+                               "stop_trigger": put.get("stop_trigger"),
+                               "credit": put.get("assumed_credit"),
+                               "short_mid": put.get("short_mid")},
+                "call_spread": {"short_strike": call_k,
+                                "stop_trigger": call.get("stop_trigger"),
+                                "credit": call.get("assumed_credit"),
+                                "short_mid": call.get("short_mid")},
+            }
+            self.register(trade_id, payload, put_sym, call_sym)
+            n += 1
+        if n:
+            logger.info("QuoteComparator rehydrated %d tranche(s) from today's log", n)
+        return n
+
     async def start(self):
         self._running = True
+        self.rehydrate()
         logger.info("QuoteComparator started — poll %ds", self._interval)
         while self._running:
             try:
