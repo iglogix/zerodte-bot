@@ -4,7 +4,7 @@ as download_spy_data.py (MarketData.app) and yields DayBars objects.
 
 Columns expected: ts_event, symbol, open, high, low, close, volume
 
-Unlike SpyLoader, no price scaling is applied (equities trade at their own price).
+Unlike BarLoader, no price scaling is applied (equities trade at their own price).
 """
 
 from __future__ import annotations

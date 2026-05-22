@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 
 
 def _atm_straddle_mid(quotes: Dict, target_minute: str, spot: float) -> Optional[float]:
@@ -89,7 +89,7 @@ def _max_consec_losses(seq: List[bool]) -> int:
 def main():
     cbbo_dir = Path("data/cbbo_cache")
     print("Loading bars + CBBO straddles...")
-    loader = SpyLoader("data/spy_1m.csv", price_scale=10.0, symbol="SPX")
+    loader = BarLoader("data/spy_1m.csv", price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days(start_date=date(2022, 4, 18), end_date=date(2026, 2, 28)))
 
     # Pre-compute (spot_open, spot_close, day_low, em) for each day with valid data

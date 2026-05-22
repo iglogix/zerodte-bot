@@ -1,0 +1,868 @@
+"""
+METF (Multiple Entry Trend Following) Strategy
+
+A mechanical 0DTE SPX options strategy that:
+- Uses 20/40 EMA crossover on 1-min chart for trend direction
+- Sells credit spreads aligned with trend at scheduled entry times
+- Holds to expiration with 1x stop loss
+
+Based on Dan Yaklin's METF strategy.
+
+Author: METF Strategy v1.0
+"""
+
+from __future__ import annotations
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta
+from enum import Enum
+from typing import Optional, List, Tuple, Protocol
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Enums and Types
+# =============================================================================
+
+class TrendDirection(Enum):
+    """Market trend based on EMA relationship"""
+    BULLISH = "BULLISH"   # 20 EMA > 40 EMA -> Sell Put Credit Spread
+    BEARISH = "BEARISH"   # 20 EMA < 40 EMA -> Sell Call Credit Spread
+    NEUTRAL = "NEUTRAL"   # EMAs crossed or too close
+
+
+class SpreadType(Enum):
+    """Type of credit spread"""
+    PUT_CREDIT_SPREAD = "PUT_CREDIT_SPREAD"   # Bullish: sell put, buy lower put
+    CALL_CREDIT_SPREAD = "CALL_CREDIT_SPREAD"  # Bearish: sell call, buy higher call
+
+
+class ExitReason(Enum):
+    """Reason for position exit"""
+    EXPIRATION = "EXPIRATION"       # Held to expiration (win or loss)
+    STOP_LOSS = "STOP_LOSS"         # Hit 1x stop loss
+    MANUAL = "MANUAL"               # Manual exit
+    LONG_LEG_WORTHLESS = "LONG_LEG_WORTHLESS"  # Long leg expired worthless, stop on short only
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+@dataclass
+class METFConfig:
+    """Configuration for METF strategy"""
+    # Symbol settings
+    symbol: str = "SPX"
+    option_root: str = "SPXW"  # Weekly SPX options
+    
+    # Timezone
+    timezone: str = "America/New_York"
+    
+    # EMA settings
+    ema_fast_period: int = 20
+    ema_slow_period: int = 40
+    ema_min_separation_pct: float = 0.001  # Min 0.1% separation to confirm trend
+    
+    # Entry times (Eastern Time)
+    entry_times: List[str] = field(default_factory=lambda: [
+        "12:30", "13:00", "13:30", "14:00", "14:30", "14:45"
+    ])
+    
+    # Spread structure
+    spread_widths: List[int] = field(default_factory=lambda: [20, 30, 35])
+    min_credit: float = 1.25
+    max_credit: float = 2.50
+    target_credit: float = 2.50  # Aim for this, but accept >= min_credit
+    
+    # Risk management
+    stop_loss_multiplier: float = 1.0  # 1x credit = stop at 2x credit received
+    
+    # Filters
+    skip_fomc_rate_days: bool = True
+    skip_fomc_minutes_days: bool = True
+    
+    # Market hours
+    market_open: str = "09:30"
+    market_close: str = "16:00"
+    
+    # Order settings
+    order_type: str = "limit"
+    improve_after_sec: int = 30
+    improve_step: float = 0.05
+    
+    @property
+    def tz(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+    
+    def get_entry_times(self) -> List[time]:
+        """Parse entry times to time objects"""
+        times = []
+        for t in self.entry_times:
+            h, m = map(int, t.split(":"))
+            times.append(time(h, m))
+        return times
+
+
+# =============================================================================
+# Data Classes
+# =============================================================================
+
+@dataclass
+class EMAState:
+    """Current EMA values and trend"""
+    ema_fast: float
+    ema_slow: float
+    trend: TrendDirection
+    separation_pct: float  # (fast - slow) / slow * 100
+    timestamp: datetime
+
+
+@dataclass
+class CreditSpread:
+    """Represents a credit spread structure"""
+    spread_type: SpreadType
+    short_strike: float
+    long_strike: float
+    width: int
+    credit: float
+    expiration: str
+    underlying_price: float
+    
+    @property
+    def max_loss(self) -> float:
+        """Maximum loss = width - credit"""
+        return self.width - self.credit
+    
+    @property
+    def stop_price(self) -> float:
+        """Stop loss price (1x stop = 2x credit)"""
+        return self.credit * 2
+
+
+@dataclass
+class METFPosition:
+    """An open METF position"""
+    entry_time: datetime
+    spread: CreditSpread
+    trend_at_entry: TrendDirection
+    ema_fast_at_entry: float
+    ema_slow_at_entry: float
+    entry_number: int  # Which entry of the day (1-6)
+    
+    # Exit tracking
+    exit_time: Optional[datetime] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[ExitReason] = None
+    pnl: Optional[float] = None
+    
+    @property
+    def is_open(self) -> bool:
+        return self.exit_time is None
+
+
+@dataclass
+class METFSignal:
+    """Signal generated by the strategy"""
+    timestamp: datetime
+    trend: TrendDirection
+    spread_type: Optional[SpreadType]
+    should_enter: bool
+    entry_number: int
+    reason: str
+    ema_fast: float
+    ema_slow: float
+    underlying_price: float
+    suggested_spread: Optional[CreditSpread] = None
+
+
+# =============================================================================
+# Strategy Protocol (for bot integration)
+# =============================================================================
+
+class TradingBotProtocol(Protocol):
+    """Protocol that trading bots must implement to use METF strategy"""
+    
+    async def get_underlying_price(self, symbol: str) -> float:
+        """Get current underlying price"""
+        ...
+    
+    async def get_option_chain(self, symbol: str, expiration: str) -> List[dict]:
+        """Get option chain for symbol and expiration"""
+        ...
+    
+    async def submit_spread_order(self, spread: CreditSpread, quantity: int) -> dict:
+        """Submit a credit spread order"""
+        ...
+    
+    async def close_position(self, position: METFPosition) -> dict:
+        """Close an open position"""
+        ...
+
+
+# =============================================================================
+# Core Strategy Class
+# =============================================================================
+
+class METFStrategy:
+    """
+    METF (Multiple Entry Trend Following) Strategy
+    
+    Pluggable strategy class that can be used standalone or integrated with a trading bot.
+    """
+    
+    def __init__(self, config: Optional[METFConfig] = None):
+        self.config = config or METFConfig()
+        self.logger = logging.getLogger(__name__)
+        
+        # State
+        self._bar_history: pd.DataFrame = pd.DataFrame()
+        self._ema_fast: Optional[float] = None
+        self._ema_slow: Optional[float] = None
+        self._last_ema_update: Optional[datetime] = None
+        
+        # Position tracking
+        self._open_positions: List[METFPosition] = []
+        self._closed_positions: List[METFPosition] = []
+        self._entries_today: int = 0
+        self._last_trade_date: Optional[str] = None
+    
+    # -------------------------------------------------------------------------
+    # EMA Calculations
+    # -------------------------------------------------------------------------
+    
+    def calculate_ema(self, prices: pd.Series, period: int) -> pd.Series:
+        """Calculate Exponential Moving Average"""
+        return prices.ewm(span=period, adjust=False).mean()
+    
+    def update_emas(self, bar: pd.Series) -> EMAState:
+        """
+        Update EMAs with new bar data
+        
+        Args:
+            bar: Series with 'close', 'timestamp' (or use index as timestamp)
+            
+        Returns:
+            Current EMA state
+        """
+        timestamp = bar.get('timestamp', bar.name)
+        close = bar['close']
+        
+        # Add to history
+        new_row = pd.DataFrame([{'close': close, 'timestamp': timestamp}])
+        self._bar_history = pd.concat([self._bar_history, new_row], ignore_index=True)
+        
+        # Keep only what we need for EMA calculation (2x slow period should be enough)
+        max_bars = self.config.ema_slow_period * 3
+        if len(self._bar_history) > max_bars:
+            self._bar_history = self._bar_history.tail(max_bars).reset_index(drop=True)
+        
+        # Calculate EMAs
+        closes = self._bar_history['close']
+        
+        if len(closes) >= self.config.ema_slow_period:
+            ema_fast_series = self.calculate_ema(closes, self.config.ema_fast_period)
+            ema_slow_series = self.calculate_ema(closes, self.config.ema_slow_period)
+            
+            self._ema_fast = ema_fast_series.iloc[-1]
+            self._ema_slow = ema_slow_series.iloc[-1]
+        elif len(closes) >= self.config.ema_fast_period:
+            ema_fast_series = self.calculate_ema(closes, self.config.ema_fast_period)
+            self._ema_fast = ema_fast_series.iloc[-1]
+            self._ema_slow = closes.mean()  # Use SMA as fallback
+        else:
+            self._ema_fast = close
+            self._ema_slow = close
+        
+        self._last_ema_update = timestamp
+        
+        return self.get_ema_state(timestamp)
+    
+    def get_ema_state(self, timestamp: Optional[datetime] = None) -> EMAState:
+        """Get current EMA state and trend direction"""
+        if self._ema_fast is None or self._ema_slow is None:
+            return EMAState(
+                ema_fast=0.0,
+                ema_slow=0.0,
+                trend=TrendDirection.NEUTRAL,
+                separation_pct=0.0,
+                timestamp=timestamp or datetime.now()
+            )
+        
+        # Calculate separation percentage
+        separation_pct = (self._ema_fast - self._ema_slow) / self._ema_slow * 100
+        
+        # Determine trend
+        min_sep = self.config.ema_min_separation_pct * 100
+        if separation_pct > min_sep:
+            trend = TrendDirection.BULLISH
+        elif separation_pct < -min_sep:
+            trend = TrendDirection.BEARISH
+        else:
+            trend = TrendDirection.NEUTRAL
+        
+        return EMAState(
+            ema_fast=self._ema_fast,
+            ema_slow=self._ema_slow,
+            trend=trend,
+            separation_pct=separation_pct,
+            timestamp=timestamp or self._last_ema_update or datetime.now()
+        )
+    
+    # -------------------------------------------------------------------------
+    # Entry Logic
+    # -------------------------------------------------------------------------
+    
+    def is_entry_time(self, current_time: datetime) -> Tuple[bool, int]:
+        """
+        Check if current time matches an entry time
+        
+        Returns:
+            Tuple of (is_entry_time, entry_number)
+        """
+        current_time_et = current_time.astimezone(self.config.tz)
+        current_hm = current_time_et.time().replace(second=0, microsecond=0)
+        
+        entry_times = self.config.get_entry_times()
+        for i, entry_time in enumerate(entry_times, 1):
+            if current_hm == entry_time:
+                return True, i
+        
+        return False, 0
+    
+    def get_next_entry_time(self, current_time: datetime) -> Optional[time]:
+        """Get the next scheduled entry time"""
+        current_time_et = current_time.astimezone(self.config.tz)
+        current_hm = current_time_et.time()
+        
+        entry_times = self.config.get_entry_times()
+        for entry_time in entry_times:
+            if entry_time > current_hm:
+                return entry_time
+        
+        return None  # No more entries today
+    
+    def reset_daily_state(self, trade_date: str):
+        """Reset state for a new trading day"""
+        if self._last_trade_date != trade_date:
+            self._entries_today = 0
+            self._last_trade_date = trade_date
+            self.logger.info(f"Reset daily state for {trade_date}")
+    
+    def evaluate_entry(
+        self,
+        current_time: datetime,
+        underlying_price: float,
+        is_fomc_rate_day: bool = False,
+        is_fomc_minutes_day: bool = False
+    ) -> METFSignal:
+        """
+        Evaluate whether to enter a trade
+        
+        Args:
+            current_time: Current timestamp
+            underlying_price: Current SPX price
+            is_fomc_rate_day: True if FOMC rate announcement day
+            is_fomc_minutes_day: True if FOMC minutes release day
+            
+        Returns:
+            METFSignal with entry decision
+        """
+        # Get current EMA state
+        ema_state = self.get_ema_state(current_time)
+        
+        # Check entry time
+        is_entry, entry_num = self.is_entry_time(current_time)
+        
+        # Build base signal
+        signal = METFSignal(
+            timestamp=current_time,
+            trend=ema_state.trend,
+            spread_type=None,
+            should_enter=False,
+            entry_number=entry_num,
+            reason="",
+            ema_fast=ema_state.ema_fast,
+            ema_slow=ema_state.ema_slow,
+            underlying_price=underlying_price
+        )
+        
+        # Check filters
+        if self.config.skip_fomc_rate_days and is_fomc_rate_day:
+            signal.reason = "FOMC rate announcement day - no trading"
+            return signal
+        
+        if self.config.skip_fomc_minutes_days and is_fomc_minutes_day:
+            signal.reason = "FOMC minutes release day - no trading"
+            return signal
+        
+        if not is_entry:
+            next_entry = self.get_next_entry_time(current_time)
+            if next_entry:
+                signal.reason = f"Not an entry time. Next entry: {next_entry}"
+            else:
+                signal.reason = "No more entries scheduled today"
+            return signal
+        
+        # Check trend
+        if ema_state.trend == TrendDirection.NEUTRAL:
+            signal.reason = f"Trend neutral (EMA separation: {ema_state.separation_pct:.3f}%)"
+            return signal
+        
+        # Determine spread type based on trend
+        if ema_state.trend == TrendDirection.BULLISH:
+            signal.spread_type = SpreadType.PUT_CREDIT_SPREAD
+        else:
+            signal.spread_type = SpreadType.CALL_CREDIT_SPREAD
+        
+        signal.should_enter = True
+        signal.reason = f"Entry #{entry_num}: {ema_state.trend.value} trend confirmed"
+        
+        return signal
+    
+    # -------------------------------------------------------------------------
+    # Spread Selection
+    # -------------------------------------------------------------------------
+    
+    def select_spread(
+        self,
+        spread_type: SpreadType,
+        underlying_price: float,
+        option_chain: List[dict],
+        expiration: str
+    ) -> Optional[CreditSpread]:
+        """
+        Select optimal credit spread from option chain
+        
+        Args:
+            spread_type: PUT_CREDIT_SPREAD or CALL_CREDIT_SPREAD
+            underlying_price: Current SPX price
+            option_chain: List of option quotes with strike, bid, ask, type
+            expiration: Expiration date string
+            
+        Returns:
+            Best CreditSpread meeting criteria, or None
+        """
+        best_spread: Optional[CreditSpread] = None
+        best_credit = 0.0
+        
+        # Filter options by type
+        if spread_type == SpreadType.PUT_CREDIT_SPREAD:
+            options = [o for o in option_chain if o.get('option_type', '').upper() == 'PUT']
+            # For put credit spread: sell higher strike, buy lower strike
+            # Short strike should be OTM (below current price)
+        else:
+            options = [o for o in option_chain if o.get('option_type', '').upper() == 'CALL']
+            # For call credit spread: sell lower strike, buy higher strike
+            # Short strike should be OTM (above current price)
+        
+        if not options:
+            self.logger.warning(f"No {spread_type.value} options found in chain")
+            return None
+        
+        # Sort by strike
+        options = sorted(options, key=lambda x: x['strike'])
+        
+        # Try each width
+        for width in self.config.spread_widths:
+            for i, short_opt in enumerate(options):
+                short_strike = short_opt['strike']
+                short_bid = short_opt.get('bid', 0) or 0
+                
+                # Find long leg
+                if spread_type == SpreadType.PUT_CREDIT_SPREAD:
+                    # Short strike should be OTM (below price)
+                    if short_strike >= underlying_price:
+                        continue
+                    long_strike = short_strike - width
+                else:
+                    # Short strike should be OTM (above price)
+                    if short_strike <= underlying_price:
+                        continue
+                    long_strike = short_strike + width
+                
+                # Find long option
+                long_opt = next((o for o in options if o['strike'] == long_strike), None)
+                if not long_opt:
+                    continue
+                
+                long_ask = long_opt.get('ask', 0) or 0
+                
+                # Calculate credit
+                credit = short_bid - long_ask
+                
+                # Check credit constraints
+                if credit < self.config.min_credit:
+                    continue
+                if credit > self.config.max_credit:
+                    continue
+                
+                # Prefer higher credit (closer to target)
+                if credit > best_credit:
+                    best_credit = credit
+                    best_spread = CreditSpread(
+                        spread_type=spread_type,
+                        short_strike=short_strike,
+                        long_strike=long_strike,
+                        width=width,
+                        credit=credit,
+                        expiration=expiration,
+                        underlying_price=underlying_price
+                    )
+        
+        if best_spread:
+            self.logger.info(
+                f"Selected {spread_type.value}: {best_spread.short_strike}/{best_spread.long_strike} "
+                f"for ${best_spread.credit:.2f} credit"
+            )
+        else:
+            self.logger.warning(
+                f"No valid {spread_type.value} found meeting credit criteria "
+                f"(${self.config.min_credit}-${self.config.max_credit})"
+            )
+        
+        return best_spread
+    
+    # -------------------------------------------------------------------------
+    # Exit Logic
+    # -------------------------------------------------------------------------
+    
+    def check_stop_loss(self, position: METFPosition, current_mark: float) -> bool:
+        """
+        Check if position should be stopped out
+        
+        Args:
+            position: Open position
+            current_mark: Current mark price of the spread
+            
+        Returns:
+            True if stop loss triggered
+        """
+        stop_price = position.spread.credit * (1 + self.config.stop_loss_multiplier)
+        return current_mark >= stop_price
+    
+    def check_exit(
+        self,
+        position: METFPosition,
+        current_time: datetime,
+        current_mark: float,
+        long_leg_worthless: bool = False
+    ) -> Tuple[bool, ExitReason, str]:
+        """
+        Check if position should be exited
+        
+        Args:
+            position: Open position
+            current_time: Current timestamp
+            current_mark: Current mark price of the spread
+            long_leg_worthless: True if long leg has no bid
+            
+        Returns:
+            Tuple of (should_exit, exit_reason, description)
+        """
+        # Check stop loss
+        if self.check_stop_loss(position, current_mark):
+            return True, ExitReason.STOP_LOSS, f"Stop loss hit at ${current_mark:.2f}"
+        
+        # Check if long leg worthless (late in day)
+        if long_leg_worthless:
+            # In this case, monitor short leg only
+            # This is handled by the bot, not the strategy
+            pass
+        
+        # Check expiration (market close)
+        current_time_et = current_time.astimezone(self.config.tz)
+        market_close = time(*map(int, self.config.market_close.split(":")))
+        
+        if current_time_et.time() >= market_close:
+            return True, ExitReason.EXPIRATION, "Market closed - position expired"
+        
+        return False, ExitReason.EXPIRATION, ""
+    
+    # -------------------------------------------------------------------------
+    # Position Management
+    # -------------------------------------------------------------------------
+    
+    def open_position(
+        self,
+        signal: METFSignal,
+        spread: CreditSpread
+    ) -> METFPosition:
+        """Create and track a new position"""
+        position = METFPosition(
+            entry_time=signal.timestamp,
+            spread=spread,
+            trend_at_entry=signal.trend,
+            ema_fast_at_entry=signal.ema_fast,
+            ema_slow_at_entry=signal.ema_slow,
+            entry_number=signal.entry_number
+        )
+        
+        self._open_positions.append(position)
+        self._entries_today += 1
+        
+        self.logger.info(
+            f"Opened position #{signal.entry_number}: {spread.spread_type.value} "
+            f"{spread.short_strike}/{spread.long_strike} @ ${spread.credit:.2f}"
+        )
+        
+        return position
+    
+    def close_position(
+        self,
+        position: METFPosition,
+        exit_time: datetime,
+        exit_price: float,
+        exit_reason: ExitReason
+    ):
+        """Close and record a position"""
+        position.exit_time = exit_time
+        position.exit_price = exit_price
+        position.exit_reason = exit_reason
+        
+        # Calculate P&L (credit received - debit to close)
+        # If exit_price is the cost to close, P&L = credit - exit_price
+        position.pnl = (position.spread.credit - exit_price) * 100  # Per contract
+        
+        self._open_positions.remove(position)
+        self._closed_positions.append(position)
+        
+        self.logger.info(
+            f"Closed position: {exit_reason.value} @ ${exit_price:.2f}, "
+            f"P&L: ${position.pnl:.2f}"
+        )
+    
+    @property
+    def open_positions(self) -> List[METFPosition]:
+        return self._open_positions.copy()
+    
+    @property
+    def closed_positions(self) -> List[METFPosition]:
+        return self._closed_positions.copy()
+    
+    @property
+    def entries_today(self) -> int:
+        return self._entries_today
+    
+    # -------------------------------------------------------------------------
+    # State Management
+    # -------------------------------------------------------------------------
+    
+    def reset(self):
+        """Reset all strategy state"""
+        self._bar_history = pd.DataFrame()
+        self._ema_fast = None
+        self._ema_slow = None
+        self._last_ema_update = None
+        self._open_positions = []
+        self._closed_positions = []
+        self._entries_today = 0
+        self._last_trade_date = None
+        self.logger.info("Strategy state reset")
+    
+    def get_status(self) -> dict:
+        """Get current strategy status"""
+        ema_state = self.get_ema_state()
+        return {
+            "ema_fast": ema_state.ema_fast,
+            "ema_slow": ema_state.ema_slow,
+            "trend": ema_state.trend.value,
+            "separation_pct": ema_state.separation_pct,
+            "entries_today": self._entries_today,
+            "open_positions": len(self._open_positions),
+            "closed_positions": len(self._closed_positions),
+            "bars_in_history": len(self._bar_history)
+        }
+
+
+# =============================================================================
+# Journal Exporter
+# =============================================================================
+
+class METFJournalExporter:
+    """Export METF analysis results to journal files"""
+    
+    def __init__(self, output_dir: Optional[str] = None):
+        self.output_dir = output_dir or "outputs/metf_journal"
+    
+    def export(
+        self,
+        signal: METFSignal,
+        config: METFConfig,
+        positions: List[METFPosition],
+        notes: Optional[str] = None
+    ) -> dict:
+        """
+        Export analysis to MD and JSON files
+        
+        Returns:
+            Dict with 'md' and 'json' file paths and 'version'
+        """
+        import json
+        from pathlib import Path
+        
+        # Create output directory
+        output_path = Path(self.output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename
+        date_str = signal.timestamp.strftime("%Y-%m-%d")
+        base_name = f"METF_{date_str}"
+        
+        # Find next version
+        version = 1
+        while (output_path / f"{base_name}_v{version}.md").exists():
+            version += 1
+        
+        md_path = output_path / f"{base_name}_v{version}.md"
+        json_path = output_path / f"{base_name}_v{version}.json"
+        
+        # Build markdown content
+        md_content = self._build_markdown(signal, config, positions, notes, version)
+        
+        # Build JSON content
+        json_content = self._build_json(signal, config, positions, notes, version)
+        
+        # Write files
+        md_path.write_text(md_content)
+        json_path.write_text(json.dumps(json_content, indent=2, default=str))
+        
+        return {
+            "md": str(md_path),
+            "json": str(json_path),
+            "version": version
+        }
+    
+    def _build_markdown(
+        self,
+        signal: METFSignal,
+        config: METFConfig,
+        positions: List[METFPosition],
+        notes: Optional[str],
+        version: int
+    ) -> str:
+        """Build markdown journal content"""
+        lines = [
+            f"# METF Analysis - {signal.timestamp.strftime('%Y-%m-%d %H:%M')} ET",
+            f"**Version:** v{version}",
+            "",
+            "## Market Conditions",
+            f"- **Underlying:** {config.symbol} @ ${signal.underlying_price:,.2f}",
+            f"- **20 EMA:** ${signal.ema_fast:,.2f}",
+            f"- **40 EMA:** ${signal.ema_slow:,.2f}",
+            f"- **Trend:** {signal.trend.value}",
+            "",
+            "## Signal",
+            f"- **Entry Number:** {signal.entry_number}",
+            f"- **Should Enter:** {'Yes' if signal.should_enter else 'No'}",
+            f"- **Spread Type:** {signal.spread_type.value if signal.spread_type else 'N/A'}",
+            f"- **Reason:** {signal.reason}",
+            "",
+        ]
+        
+        if signal.suggested_spread:
+            spread = signal.suggested_spread
+            lines.extend([
+                "## Suggested Spread",
+                f"- **Type:** {spread.spread_type.value}",
+                f"- **Short Strike:** ${spread.short_strike:,.0f}",
+                f"- **Long Strike:** ${spread.long_strike:,.0f}",
+                f"- **Width:** {spread.width} pts",
+                f"- **Credit:** ${spread.credit:.2f}",
+                f"- **Max Loss:** ${spread.max_loss:.2f}",
+                f"- **Stop Price:** ${spread.stop_price:.2f}",
+                "",
+            ])
+        
+        if positions:
+            lines.extend([
+                "## Open Positions",
+                "| Entry | Type | Strikes | Credit | Status |",
+                "|-------|------|---------|--------|--------|",
+            ])
+            for pos in positions:
+                lines.append(
+                    f"| {pos.entry_time.strftime('%H:%M')} | "
+                    f"{pos.spread.spread_type.value} | "
+                    f"{pos.spread.short_strike}/{pos.spread.long_strike} | "
+                    f"${pos.spread.credit:.2f} | "
+                    f"{'Open' if pos.is_open else pos.exit_reason.value} |"
+                )
+            lines.append("")
+        
+        if notes:
+            lines.extend([
+                "## Notes",
+                notes,
+                "",
+            ])
+        
+        lines.extend([
+            "---",
+            f"*Generated by METF Strategy v1.0*",
+        ])
+        
+        return "\n".join(lines)
+    
+    def _build_json(
+        self,
+        signal: METFSignal,
+        config: METFConfig,
+        positions: List[METFPosition],
+        notes: Optional[str],
+        version: int
+    ) -> dict:
+        """Build JSON journal content"""
+        return {
+            "version": version,
+            "timestamp": signal.timestamp.isoformat(),
+            "symbol": config.symbol,
+            "market_data": {
+                "underlying_price": signal.underlying_price,
+                "ema_fast": signal.ema_fast,
+                "ema_slow": signal.ema_slow,
+                "trend": signal.trend.value
+            },
+            "signal": {
+                "entry_number": signal.entry_number,
+                "should_enter": signal.should_enter,
+                "spread_type": signal.spread_type.value if signal.spread_type else None,
+                "reason": signal.reason
+            },
+            "suggested_spread": {
+                "type": signal.suggested_spread.spread_type.value,
+                "short_strike": signal.suggested_spread.short_strike,
+                "long_strike": signal.suggested_spread.long_strike,
+                "width": signal.suggested_spread.width,
+                "credit": signal.suggested_spread.credit,
+                "max_loss": signal.suggested_spread.max_loss,
+                "stop_price": signal.suggested_spread.stop_price
+            } if signal.suggested_spread else None,
+            "positions": [
+                {
+                    "entry_time": pos.entry_time.isoformat(),
+                    "spread_type": pos.spread.spread_type.value,
+                    "short_strike": pos.spread.short_strike,
+                    "long_strike": pos.spread.long_strike,
+                    "credit": pos.spread.credit,
+                    "is_open": pos.is_open,
+                    "exit_reason": pos.exit_reason.value if pos.exit_reason else None,
+                    "pnl": pos.pnl
+                }
+                for pos in positions
+            ],
+            "notes": notes,
+            "config": {
+                "ema_fast_period": config.ema_fast_period,
+                "ema_slow_period": config.ema_slow_period,
+                "entry_times": config.entry_times,
+                "spread_widths": config.spread_widths,
+                "min_credit": config.min_credit,
+                "max_credit": config.max_credit
+            }
+        }

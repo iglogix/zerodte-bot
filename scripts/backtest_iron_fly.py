@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src_8am.backtest.cbbo_store import CbboStore
 from src_8am.backtest.iron_fly_engine import IronFlyEngine, IronFlyResult
 from src_8am.backtest.market_data import MarketDataLoader
-from src_8am.backtest.spy_loader import SpyLoader
+from src_8am.backtest.bar_loader import BarLoader
 from src_8am.backtest.strategy_iron_fly import IronFlyStrategy
 
 # Lazy import for WF-CV (avoid circular / heavy import on simple runs)
@@ -51,7 +51,7 @@ def load_data(config: dict):
     end = date.fromisoformat(bt.get("end_date", "2026-02-26"))
 
     print(f"Loading SPY bars from {data_file} (scale={price_scale})...")
-    loader = SpyLoader(data_file, price_scale=price_scale)
+    loader = BarLoader(data_file, price_scale=price_scale)
     days_data = []
     for day in loader.iter_days(start_date=start, end_date=end):
         if day.session_date in cbbo_dates:

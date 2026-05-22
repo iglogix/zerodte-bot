@@ -19,7 +19,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.engine import _CPI_DATES, _FOMC_DATES, _is_nfp_friday
 from src_v2.backtest.orchestrator import BacktestOrchestrator
 from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
@@ -192,7 +192,7 @@ def main():
     print(f"STRANGLE analyzer — Preloading CBBO {start} → {end}…")
     mem = CbboStore.preload_cache(bt.get("cbbo_cache_dir", "data/cbbo_cache"), start=start, end=end)
     cbbo = CbboStore(bt.get("cbbo_cache_dir"), preloaded=mem)
-    loader = SpyLoader(
+    loader = BarLoader(
         bt.get("data_file"),
         price_scale=bt.get("price_scale", 10.0),
         symbol=base_cfg["bot"]["symbol"],

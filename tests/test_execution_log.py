@@ -1,6 +1,6 @@
 """Tests for the MEIC execution-comparison log + join."""
 
-from src_v2.services.execution_log import ExecutionLog, compare
+from src_v2.services.execution_log import ExecutionLog, compare, compare_quotes
 
 
 def _assumed(trade_id="T1", put_trig=3.41, call_trig=3.41):
@@ -72,3 +72,32 @@ def test_log_round_trip(tmp_path):
     assert recs[1]["type"] == "fill" and recs[1]["is_stop_fill"] is True
     rows = compare(recs)
     assert rows[0]["slippage"] == 0.09
+
+
+def _quote(trade_id, role, symbol, ask, trigger, ts):
+    return {"type": "quote", "trade_id": trade_id, "role": role, "symbol": symbol,
+            "real_bid": ask - 0.05, "real_ask": ask, "trigger": trigger,
+            "crossed": ask >= trigger, "ts": ts}
+
+
+def test_compare_quotes_first_cross_and_overshoot():
+    recs = [
+        _quote("T1", "short_call", "C", 1.0, 3.41, "t1"),   # below
+        _quote("T1", "short_call", "C", 3.80, 3.41, "t2"),  # first cross, overshoot 0.39
+        _quote("T1", "short_call", "C", 5.0, 3.41, "t3"),   # still crossed
+    ]
+    rows = compare_quotes(recs)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["crossed"] is True
+    assert r["first_cross_ask"] == 3.80
+    assert r["overshoot_at_cross"] == 0.39
+    assert r["max_ask"] == 5.0
+
+
+def test_compare_quotes_never_crossed():
+    recs = [_quote("T1", "short_put", "P", 1.0, 3.41, "t1"),
+            _quote("T1", "short_put", "P", 1.5, 3.41, "t2")]
+    rows = compare_quotes(recs)
+    assert rows[0]["crossed"] is False
+    assert rows[0]["overshoot_at_cross"] is None

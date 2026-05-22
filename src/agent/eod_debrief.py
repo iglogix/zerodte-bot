@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+import os
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -65,6 +66,7 @@ class EodDebrief:
             summary = await self._build_summary(session_date)
             markdown = await self._call_llm(summary, session_date)
             await self._save(markdown, session_date)
+            await self._ingest_brain(markdown, session_date)
             await self._notify(markdown, session_date)
             return markdown
         except Exception:
@@ -179,6 +181,32 @@ class EodDebrief:
         with open(out_path, "w") as f:
             f.write(markdown)
         logger.info("EOD debrief written: %s", out_path)
+
+    async def _ingest_brain(self, markdown: str, session_date: date):
+        """Best-effort POST of the debrief to the LightRAG brain. Silent on failure."""
+        url = os.environ.get("LIGHTRAG_URL", "http://127.0.0.1:9621").rstrip("/")
+        api_key = os.environ.get("LIGHTRAG_API_KEY")
+        if not api_key:
+            logger.debug("LIGHTRAG_API_KEY not set; skipping brain ingest")
+            return
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        source = f"eod-debrief:0dte-bot:{session_date.isoformat()}:{ts}"
+        payload = {"text": markdown, "file_source": source}
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+                resp = await client.post(
+                    f"{url}/documents/text",
+                    headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+                    json=payload,
+                )
+                if 200 <= resp.status_code < 300:
+                    logger.info("EOD debrief ingested to brain (source=%s)", source)
+                else:
+                    logger.warning("Brain ingest returned %s: %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("Brain ingest failed: %s", e)
 
     async def _notify(self, markdown: str, session_date: date):
         if self.notifier:

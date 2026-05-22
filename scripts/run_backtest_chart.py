@@ -18,7 +18,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_8am.backtest.data_loader import DatabentoLoader
-from src_8am.backtest.spy_loader import SpyLoader
+from src_8am.backtest.bar_loader import BarLoader
 from src_8am.backtest.options_engine import OrbOptionsBacktestEngine
 from src_8am.backtest.options_report import generate_options_report
 
@@ -59,7 +59,7 @@ def main():
     print(f"Loading bars from {data_file} (source={data_source})...")
     if data_source == "spy":
         equity_symbol = config.get("bot", {}).get("symbol", "SPX")
-        loader = SpyLoader(data_file, price_scale=price_scale, symbol=equity_symbol)
+        loader = BarLoader(data_file, price_scale=price_scale, symbol=equity_symbol)
     else:
         loader = DatabentoLoader(data_file)
     days = list(loader.iter_days(start_date=start, end_date=end))

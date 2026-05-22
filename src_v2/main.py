@@ -81,6 +81,7 @@ class BotOrchestrator:
         self._monitor = None
         self._tool_handlers = None
         self._fill_listener = None
+        self._quote_comparator = None
         self._fill_queue = None
         self._api_client = None
         self._eod_debrief = None
@@ -142,7 +143,14 @@ class BotOrchestrator:
         self._cache.api_client = api_client
 
         from src_v2.services.execution_log import ExecutionLog
+        from src_v2.services.quote_comparator import QuoteComparator
         self._execution_log = ExecutionLog(base_dir=log_cfg.get("log_dir", "logs"))
+        self._quote_comparator = QuoteComparator(
+            cache=self._cache,
+            api_client=api_client,
+            execution_log=self._execution_log,
+            poll_interval_seconds=monitor_cfg.get("poll_interval_seconds", 15),
+        )
 
         self._tool_handlers = ToolHandlers(
             cache=self._cache,
@@ -150,6 +158,7 @@ class BotOrchestrator:
             db=self._db,
             mode=self.mode,
             execution_log=self._execution_log,
+            on_entry=self._quote_comparator.register,
         )
 
         self._risk_manager = RiskManager(
@@ -277,16 +286,18 @@ class BotOrchestrator:
         return result
 
     async def run_scheduled(self):
-        """Run entry engine, position monitor, and fill listener concurrently."""
+        """Run entry engine, position monitor, fill listener, and quote comparator concurrently."""
         monitor_task = asyncio.create_task(self._monitor.start())
         listener_task = asyncio.create_task(self._fill_listener.start())
+        comparator_task = asyncio.create_task(self._quote_comparator.start())
 
         try:
             await self._engine.run()
         finally:
             await self._fill_listener.stop()
             await self._monitor.stop()
-            for task in (listener_task, monitor_task):
+            await self._quote_comparator.stop()
+            for task in (listener_task, monitor_task, comparator_task):
                 task.cancel()
                 try:
                     await task

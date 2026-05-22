@@ -21,7 +21,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.optimizer import GridSearchOptimizer, OptResult
 
@@ -109,7 +109,7 @@ def main():
     cbbo = CbboStore(cbbo_dir, preloaded=mem)
 
     print(f"Loading bars from {data_file}...")
-    loader = SpyLoader(data_file, price_scale=price_scale, symbol=symbol)
+    loader = BarLoader(data_file, price_scale=price_scale, symbol=symbol)
     days = list(loader.iter_days(start_date=start, end_date=end))
     print(f"  {len(days)} trading days ({start} to {end})")
 

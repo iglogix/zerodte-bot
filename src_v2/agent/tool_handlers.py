@@ -26,8 +26,10 @@ class ToolHandlers:
         mode: Optional[str] = None,
         dry_run: Optional[bool] = None,
         execution_log=None,
+        on_entry=None,
     ):
         self._execution_log = execution_log
+        self._on_entry = on_entry
         if mode is not None:
             self.mode = mode
         elif dry_run is not None:
@@ -395,31 +397,46 @@ class ToolHandlers:
         exp = date.today()
         put_short_sym = format_osi(exp, put["short_strike"], is_call=False)
         call_short_sym = format_osi(exp, call["short_strike"], is_call=True)
+        trade_id = datetime.now().strftime("meic-%H%M%S")
 
-        if self._block_submission():
-            if self.dry_run:
-                ts = datetime.now().strftime('%Y%m%d%H%M%S')
-                logger.info("[DRY RUN] Simulated MEIC two-spread IC + stops: %s", ts)
-                return {
-                    "order_id": f"DRY-MEIC-{ts}",
-                    "dry_run": True, "simulated": True,
-                    "quantity": qty,
-                    "put_spread": put,
-                    "call_spread": call,
-                    "put_stop_result": {"order_id": f"DRY-STOP-P-{ts}", "symbol": put_short_sym,
-                                        "trigger_price": put.get("stop_trigger")},
-                    "call_stop_result": {"order_id": f"DRY-STOP-C-{ts}", "symbol": call_short_sym,
-                                         "trigger_price": call.get("stop_trigger")},
-                }
-            return self._manual_order_result("place_two_spread_ic", payload)
+        if self.dry_run:
+            logger.info("[DRY RUN] Simulated MEIC two-spread IC + stops: %s", trade_id)
+            return {
+                "order_id": f"DRY-{trade_id}", "trade_id": trade_id,
+                "dry_run": True, "simulated": True,
+                "quantity": qty, "put_spread": put, "call_spread": call,
+                "put_stop_result": {"order_id": "DRY-STOP-P", "symbol": put_short_sym,
+                                    "trigger_price": put.get("stop_trigger")},
+                "call_stop_result": {"order_id": "DRY-STOP-C", "symbol": call_short_sym,
+                                     "trigger_price": call.get("stop_trigger")},
+            }
 
-        # 1. Submit the two credit spreads at their net-credit limit prices.
+        # Manual + live: record the assumed entry (credits + stop triggers) and
+        # register the trade so the quote comparator can track its real quotes.
+        if self._execution_log is not None:
+            try:
+                self._execution_log.log_assumed_entry(
+                    trade_id, payload, put_short_sym, call_short_sym)
+            except Exception:
+                logger.exception("Failed to log assumed entry for execution comparison")
+        if self._on_entry is not None:
+            try:
+                self._on_entry(trade_id, payload, put_short_sym, call_short_sym)
+            except Exception:
+                logger.exception("on_entry hook raised")
+
+        if self._block_submission():  # manual — orders generated but NOT submitted
+            res = self._manual_order_result("place_two_spread_ic", payload)
+            res["trade_id"] = trade_id
+            return res
+
+        # Live: submit the two credit spreads at their net-credit limit prices.
         put_result = await self.place_credit_spread(
             "put", put["short_strike"], put["long_strike"], qty, credit=put.get("credit"))
         call_result = await self.place_credit_spread(
             "call", call["short_strike"], call["long_strike"], qty, credit=call.get("credit"))
 
-        # 2. Rest a stop-market on each short leg (MEIC: stops on shorts only).
+        # Rest a stop-market on each short leg (MEIC: stops on shorts only).
         put_stop_result = None
         call_stop_result = None
         if put.get("stop_trigger") is not None:
@@ -435,18 +452,9 @@ class ToolHandlers:
             except Exception:
                 logger.exception("Call short stop submission failed (spread is unprotected)")
 
-        # Record the assumed entry credits + stop triggers for later comparison
-        # against the actual TT fills captured by the OrderFillListener.
-        if self._execution_log is not None:
-            trade_id = (put_result or {}).get("order_id") or datetime.now().strftime("meic-%H%M%S")
-            try:
-                self._execution_log.log_assumed_entry(
-                    trade_id, payload, put_short_sym, call_short_sym)
-            except Exception:
-                logger.exception("Failed to log assumed entry for execution comparison")
-
         return {
             "order_type": "meic_two_spreads",
+            "trade_id": trade_id,
             "quantity": qty,
             "put_result": put_result,
             "call_result": call_result,

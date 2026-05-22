@@ -35,7 +35,7 @@ from scipy.optimize import minimize
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.cbbo_store import CbboStore
 from src_v2.backtest.orchestrator import BacktestOrchestrator
 from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
@@ -179,7 +179,7 @@ def main():
     print(f"Preloading CBBO {start} → {end}…")
     mem = CbboStore.preload_cache("data/cbbo_cache", start=start, end=end)
     cbbo = CbboStore("data/cbbo_cache", preloaded=mem)
-    loader = SpyLoader(base["backtest"]["data_file"], price_scale=10.0, symbol="SPX")
+    loader = BarLoader(base["backtest"]["data_file"], price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days(start_date=start, end_date=end))
     vix_series = load_vix_series("data/vix9d_daily.csv")
     prev_close = _prev_close_index(days)

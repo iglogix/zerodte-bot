@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.services.execution_log import compare
+from src_v2.services.execution_log import compare, compare_quotes
 
 
 def main():
@@ -37,12 +37,35 @@ def main():
     records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     n_assumed = sum(1 for r in records if r.get("type") == "assumed")
     n_fills = sum(1 for r in records if r.get("type") == "fill")
-    rows = compare(records)
+    n_quotes = sum(1 for r in records if r.get("type") == "quote")
 
     print(f"=== MEIC execution comparison {args.date} ===")
-    print(f"  entries logged: {n_assumed}   fills logged: {n_fills}   stop fills: {len(rows)}\n")
+    print(f"  entries: {n_assumed}   fills: {n_fills}   quote polls: {n_quotes}\n")
+
+    # --- Manual-mode: quote-based stop-cross comparison ---
+    qrows = compare_quotes(records)
+    if qrows:
+        print("--- Quote-based (manual mode): where the short's real ask crossed the trigger ---")
+        print(f"  {'role':>11} {'trigger':>8} {'maxAsk':>8} {'crossed':>8} {'overshoot':>9}")
+        crossed = [r for r in qrows if r["crossed"]]
+        for r in qrows:
+            ov = "-" if r["overshoot_at_cross"] is None else f"{r['overshoot_at_cross']:.2f}"
+            trig = "-" if r["trigger"] is None else f"{r['trigger']:.2f}"
+            mx = "-" if r["max_ask"] is None else f"{r['max_ask']:.2f}"
+            print(f"  {r['role']:>11} {trig:>8} {mx:>8} {str(r['crossed']):>8} {ov:>9}")
+        print(f"  short legs tracked: {len(qrows)}   crossed trigger: {len(crossed)}")
+        ov = [r["overshoot_at_cross"] for r in crossed if r["overshoot_at_cross"] is not None]
+        if ov:
+            print(f"  mean overshoot past trigger at first cross: ${sum(ov)/len(ov):.2f} "
+                  f"(max ${max(ov):.2f}) — this is the real stop-fill slippage the "
+                  f"backtest's 'trigger' model ignored.")
+        print()
+
+    # --- Live/sandbox: fill-based comparison ---
+    rows = compare(records)
+    print(f"--- Fill-based (live/sandbox): stop fills vs trigger ({len(rows)}) ---")
     if not rows:
-        print("  (no stop fills yet)")
+        print("  (no stop fills logged)")
         return
 
     print(f"  {'role':>11} {'symbol':>22} {'trigger':>8} {'actual':>8} {'slip':>7}  implied model")

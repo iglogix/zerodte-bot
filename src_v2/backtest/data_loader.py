@@ -1,7 +1,7 @@
 """
-SPY data loader — reads SPY 1-min CSV and returns per-day DayBars in ET.
+1-min bar loader — reads 1-min OHLCV CSV and returns per-day DayBars in ET.
 
-Prices are scaled by price_scale (default 10.0: SPY * 10 ≈ SPX).
+Prices are scaled by price_scale (e.g. 10.0 to use SPY * 10 ≈ SPX).
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ class DayBars:
         return f"DayBars({self.session_date}, {self.symbol}, {len(self.bars)} bars)"
 
 
-class SpyLoader:
-    """Loads SPY 1-min OHLCV CSV and yields DayBars objects.
+class BarLoader:
+    """Loads 1-min OHLCV CSV and yields DayBars objects.
 
-    Prices scaled by price_scale (10.0 -> SPY*10 ≈ SPX).
+    Prices scaled by price_scale (e.g. 10.0 to convert SPY -> SPX scale).
     """
 
     def __init__(self, data_path: str, price_scale: float = 10.0, symbol: str = "SPX"):

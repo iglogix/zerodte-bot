@@ -37,9 +37,9 @@ def test_daybars_repr():
     assert "1 bars" in repr(db)
 
 
-def test_spy_loader_iter_days(spy_csv):
-    from src_v2.backtest.data_loader import SpyLoader
-    loader = SpyLoader(spy_csv, price_scale=10.0, symbol="SPX")
+def test_bar_loader_iter_days(spy_csv):
+    from src_v2.backtest.data_loader import BarLoader
+    loader = BarLoader(spy_csv, price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days())
     assert len(days) == 2
     d1 = days[0]
@@ -52,15 +52,15 @@ def test_spy_loader_iter_days(spy_csv):
     assert d1.bars[0]["ts_et"].hour == 8  # 12:00 UTC = 08:00 ET (Oct, EDT)
 
 
-def test_spy_loader_date_filter(spy_csv):
-    from src_v2.backtest.data_loader import SpyLoader
-    loader = SpyLoader(spy_csv, price_scale=10.0)
+def test_bar_loader_date_filter(spy_csv):
+    from src_v2.backtest.data_loader import BarLoader
+    loader = BarLoader(spy_csv, price_scale=10.0)
     days = list(loader.iter_days(start_date=date(2025, 10, 2)))
     assert len(days) == 1
     assert days[0].session_date == date(2025, 10, 2)
 
 
-def test_spy_loader_missing_file():
-    from src_v2.backtest.data_loader import SpyLoader
+def test_bar_loader_missing_file():
+    from src_v2.backtest.data_loader import BarLoader
     with pytest.raises(FileNotFoundError):
-        SpyLoader("/nonexistent/path.csv")
+        BarLoader("/nonexistent/path.csv")

@@ -69,6 +69,25 @@ class ExecutionLog:
             "quantity": int(quantity),
         })
 
+    def log_quote(self, trade_id: str, leg: Dict[str, Any],
+                  bid: float, ask: float) -> None:
+        """Record a short leg's real bid/ask vs its stop trigger (manual mode).
+
+        `leg` is a registered leg dict: {symbol, role, trigger, ...}.
+        Used to measure where the short's real ask is when it crosses the
+        credit-relative trigger — i.e. where a stop would actually fill.
+        """
+        trigger = leg.get("trigger")
+        ask_f = None if ask is None else float(ask)
+        self._append({
+            "type": "quote", "trade_id": trade_id,
+            "symbol": leg.get("symbol"), "role": leg.get("role"),
+            "real_bid": None if bid is None else float(bid),
+            "real_ask": ask_f,
+            "trigger": trigger,
+            "crossed": bool(trigger is not None and ask_f is not None and ask_f >= trigger),
+        })
+
 
 def compare(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Join assumed short-leg records to their stop fills by symbol.
@@ -106,6 +125,42 @@ def compare(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             # a large positive slippage means reality looked like the "combo" model.
             "implied_model": _classify(slip),
         })
+    return rows
+
+
+def compare_quotes(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per (trade_id, role) short leg: did its real ask cross the stop trigger,
+    and by how much at the first crossing (the real overshoot a stop-market
+    would suffer vs the assumed trigger). One row per short leg seen.
+
+    Pure function over "quote" records logged by the QuoteComparator.
+    """
+    legs: Dict[tuple, Dict[str, Any]] = {}
+    for r in sorted((x for x in records if x.get("type") == "quote"),
+                    key=lambda x: x.get("ts", "")):
+        key = (r.get("trade_id"), r.get("role"))
+        leg = legs.setdefault(key, {
+            "trade_id": r.get("trade_id"), "role": r.get("role"),
+            "symbol": r.get("symbol"), "trigger": r.get("trigger"),
+            "polls": 0, "crossed": False,
+            "first_cross_ask": None, "first_cross_ts": None, "max_ask": None,
+        })
+        leg["polls"] += 1
+        ask = r.get("real_ask")
+        if ask is not None:
+            leg["max_ask"] = ask if leg["max_ask"] is None else max(leg["max_ask"], ask)
+        if r.get("crossed") and not leg["crossed"]:
+            leg["crossed"] = True
+            leg["first_cross_ask"] = ask
+            leg["first_cross_ts"] = r.get("ts")
+
+    rows = []
+    for leg in legs.values():
+        trig = leg["trigger"]
+        overshoot = None
+        if leg["crossed"] and leg["first_cross_ask"] is not None and trig is not None:
+            overshoot = round(leg["first_cross_ask"] - trig, 2)
+        rows.append({**leg, "overshoot_at_cross": overshoot})
     return rows
 
 

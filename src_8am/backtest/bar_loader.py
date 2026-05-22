@@ -1,8 +1,8 @@
 """
-SPY data loader — reads SPY 1-min CSV (from MarketData.app download)
+1-min bar loader — reads 1-min OHLCV CSV (e.g. from MarketData.app download)
 and returns per-day DayBars in ET, compatible with DatabentoLoader interface.
 
-Prices are scaled by config's backtest.price_scale (default 10.0, since SPY*10 ≈ SPX).
+Prices are scaled by config's backtest.price_scale (e.g. 10.0 for SPY * 10 ≈ SPX).
 Set underlying_source="bars" so the engine uses bar prices directly.
 """
 
@@ -38,23 +38,23 @@ def _parse_ts(ts_str: str) -> datetime:
     return datetime.fromisoformat(ts_str).replace(tzinfo=UTC)
 
 
-class SpyLoader:
+class BarLoader:
     """
-    Loads SPY 1-min OHLCV CSV and yields DayBars objects.
+    Loads 1-min OHLCV CSV and yields DayBars objects.
 
-    Prices are scaled by `price_scale` (default 10.0: SPY × 10 ≈ SPX) so that
+    Prices are scaled by `price_scale` (e.g. 10.0 for SPY × 10 ≈ SPX) so that
     all ORB thresholds and strike placement work at SPX/ES scale.
 
     The CSV must have columns: ts_event, symbol, open, high, low, close, volume
     (same format as Databento CSV, written by download_spy_data.py).
 
     Usage:
-        loader = SpyLoader("data/spy_1m.csv", price_scale=10.0)
+        loader = BarLoader("data/spy_1m.csv", price_scale=10.0, symbol="SPX")
         for day in loader.iter_days(start_date, end_date):
-            ...day.bars...  # prices are SPY * price_scale
+            ...day.bars...  # prices are raw_close * price_scale
     """
 
-    def __init__(self, data_path: str, price_scale: float = 10.0, symbol: str = "SPY"):
+    def __init__(self, data_path: str, price_scale: float = 10.0, symbol: str = "SPX"):
         self.data_path = Path(data_path)
         self._price_scale = price_scale
         self._symbol = symbol

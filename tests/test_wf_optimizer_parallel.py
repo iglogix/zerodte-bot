@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import SpyLoader, DayBars
+from src_v2.backtest.data_loader import BarLoader, DayBars
 from src_v2.backtest.wf_optimizer import (
     WalkForwardOptimizer,
     _wait_for_memory,
@@ -73,7 +73,7 @@ def real_data():
 
     mem = CbboStore.preload_cache(cbbo_dir)
     cbbo = CbboStore(cbbo_dir, preloaded=mem)
-    loader = SpyLoader(str(data_file), price_scale=10.0, symbol="SPX")
+    loader = BarLoader(str(data_file), price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days(start_date=date(2025, 9, 22), end_date=date(2026, 1, 31)))
     if len(days) < 30:
         pytest.skip(f"only {len(days)} days loaded, need 30+")

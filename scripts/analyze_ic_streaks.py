@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest.engine import _FOMC_DATES, _CPI_DATES, _is_nfp_friday
 from scripts.analytical_ic_eval import (
     _compute_em, _ic_credit, _ic_mark, _load_data, _max_consec_losses,
@@ -158,7 +158,7 @@ def main():
     )
 
     # Cache spx_closes for trend analysis
-    loader = SpyLoader(args.bars, price_scale=10.0, symbol="SPX")
+    loader = BarLoader(args.bars, price_scale=10.0, symbol="SPX")
     spx_closes = {}
     for d in loader.iter_days():
         if d.bars:

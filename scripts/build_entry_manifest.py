@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 
 
 def main():
@@ -33,7 +33,7 @@ def main():
 
     start = date.fromisoformat(args.start)
     end = date.fromisoformat(args.end)
-    loader = SpyLoader(args.bars, price_scale=10.0, symbol="SPX")
+    loader = BarLoader(args.bars, price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days(start_date=start, end_date=end))
 
     out_path = Path(args.out)

@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_8am.backtest.data_loader import DatabentoLoader
 from src_8am.backtest.optimizer import DEFAULT_GRID, EM_GRID, QUANTITY_GRID, GridSearchOptimizer
-from src_8am.backtest.spy_loader import SpyLoader
+from src_8am.backtest.bar_loader import BarLoader
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ def main():
         OOS_START, OOS_END = SPX_OOS_START, SPX_OOS_END
         price_scale = config.get("backtest", {}).get("price_scale", 10.0)
         equity_symbol = config.get("bot", {}).get("symbol", "SPY")
-        loader = SpyLoader(data_path, price_scale=price_scale, symbol=equity_symbol)
+        loader = BarLoader(data_path, price_scale=price_scale, symbol=equity_symbol)
         product_label = equity_symbol + " (equity)"
     else:
         CV_START, CV_END = ES_CV_START, ES_CV_END

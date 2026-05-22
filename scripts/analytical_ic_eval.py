@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import SpyLoader
+from src_v2.backtest.data_loader import BarLoader
 
 
 QuoteKey = Tuple[str, float, bool]  # (minute_et, strike, is_call)
@@ -302,7 +302,7 @@ def _evaluate(
 def _load_data(cache_dir: Path, bars_path: str, start: date, end: date,
                anchors: List[str]) -> Dict[date, Dict]:
     """Build per-day data dict {date: {spot_open, spot_close, em_0935, quotes}}."""
-    loader = SpyLoader(bars_path, price_scale=10.0, symbol="SPX")
+    loader = BarLoader(bars_path, price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days(start_date=start, end_date=end))
 
     by_date = {}

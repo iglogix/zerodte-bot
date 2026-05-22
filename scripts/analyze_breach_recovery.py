@@ -22,7 +22,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_8am.backtest.data_loader import DatabentoLoader
-from src_8am.backtest.spy_loader import SpyLoader
+from src_8am.backtest.bar_loader import BarLoader
 from src_8am.backtest.options_engine import OrbOptionsBacktestEngine
 
 
@@ -45,7 +45,7 @@ def run_backtest(config_path, params, start, end):
 
     if data_source == "spy":
         price_scale = config.get("backtest", {}).get("price_scale", 10.0)
-        loader = SpyLoader(data_file, price_scale=price_scale)
+        loader = BarLoader(data_file, price_scale=price_scale)
     else:
         loader = DatabentoLoader(data_file)
 

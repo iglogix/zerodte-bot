@@ -17,7 +17,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_8am.backtest.spy_loader import SpyLoader
+from src_8am.backtest.bar_loader import BarLoader
 from src_8am.backtest.options_engine import OrbOptionsBacktestEngine
 
 
@@ -55,7 +55,7 @@ def load_and_run():
     data_file = config["backtest"]["data_file"]
     price_scale = config.get("backtest", {}).get("price_scale", 10.0)
     print(f"Loading bars from {data_file} (scale={price_scale})...")
-    loader = SpyLoader(data_file, price_scale=price_scale)
+    loader = BarLoader(data_file, price_scale=price_scale)
     days = list(loader.iter_days(start_date=CV_START, end_date=CV_END))
     print(f"  {len(days)} day-symbol chunks")
 
