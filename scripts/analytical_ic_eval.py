@@ -304,6 +304,9 @@ def _evaluate(
         "exit_pnls": dict(exit_pnls),
         "avg_credit": (sum(credits_collected) / len(credits_collected)
                        if credits_collected else 0),
+        "credits": credits_collected,
+        "wing_width": wing_width,
+        "sl_mult": sl_mult,
     }
 
 
@@ -438,6 +441,23 @@ def _print_exit_breakdown(em, wing, tp_pct, sl_mult, anchors, by_date,
               f"${al:>+8.0f} ${wl:>+8.0f}")
     blended = sum(all_losses) / len(all_losses) if all_losses else 0
     print(f"\n  Blended avg loss across all exit types: ${blended:+.0f}")
+
+    # SL reachability: a vertical-spread IC's value is bounded [0, wing].
+    # If sl_mult × credit > wing, the SL trigger sits ABOVE the max possible
+    # IC value and can never fire that day.
+    if sl_mult > 0:
+        credits = r["credits"]
+        n = len(credits)
+        reachable = sum(1 for c in credits if sl_mult * c < wing)
+        print(f"\n  SL reachability (sl_mult={sl_mult}, wing=${float(wing):.0f}):")
+        print(f"    SL trigger = {sl_mult}× credit; MAX IC value = wing = ${float(wing):.0f}")
+        print(f"    Days where {sl_mult}×credit < wing (SL CAN fire): "
+              f"{reachable}/{n} = {100*reachable/n:.1f}%")
+        print(f"    → on {100*(1-reachable/n):.1f}% of days the SL is structurally "
+              f"unreachable (credit too rich vs wing)")
+        if reachable / n < 0.5:
+            print(f"    ⚠  SL is largely INERT at this credit/width ratio "
+                  f"({100*r['avg_credit']/float(wing):.0f}% avg) — strategy ≈ hold-to-expiry")
 
 
 if __name__ == "__main__":

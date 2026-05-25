@@ -84,6 +84,22 @@ Blended avg loss = $680.
 
 The real edge: em=0.25 puts shorts ~8 pts from spot (near-ATM, EM≈32) → rich credit ($12.16) on a 20-wide IC → max loss only (20−12.16)×100 ≈ $784. The SL is nearly cosmetic; the edge is rich near-ATM premium + tight wings.
 
+### The SL is structurally INERT at this config
+
+A vertical-spread IC's value is bounded `[0, wing]` — the most it can ever be worth to close is the wing width (one side fully ITM, the other worthless). So:
+
+| Quantity | Value |
+|---|---|
+| Avg credit | $12.16 |
+| SL trigger (2× credit) | **$24.32** |
+| **Max possible IC value** (wing) | **$20.00** |
+
+**$24.32 > $20.00** — the 2× SL trigger sits *above the maximum value the IC can reach*. On **89.8% of days** (credit ≥ $10 → 2×credit ≥ $20), the SL is **physically unreachable**. It only fires on the 10.2% of low-credit days where 2×credit happens to fall below the $20 wing.
+
+So at em=0.25/wing=20 (61% credit/width ratio) the strategy is effectively **"no stop, hold to expiry" ~90% of the time**. The `sl_mult=2.0` label is misleading — it's a near-no-op. Anyone reading the config and assuming the 2× stop is protecting them would be wrong.
+
+Reproduce: `--exit-breakdown` now prints the SL-reachability check. **Rule of thumb: if `sl_mult × avg_credit > wing`, the stop is largely inert.** To make the SL bite, either lower `sl_mult` (e.g. 1.3–1.5) or widen the wings so the credit/width ratio drops below ~50%.
+
 **Caveat:** the coarse 4-anchor SL *under-stops* vs a real continuous 2× stop. A live bot checking every minute would fire the SL more often, cutting losers at ~1× credit ($1,035) instead of the -$656 avg expiry loss — i.e., a tighter live SL would likely REDUCE PnL. This matches the per-minute-sim finding that tight intraday SLs on noisy marks hurt.
 
 ## Asymmetric IC sweep
