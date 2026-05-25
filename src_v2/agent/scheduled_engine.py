@@ -17,6 +17,35 @@ from src_v2.agent.decision_engine import CycleResult
 
 logger = logging.getLogger(__name__)
 
+_NYSE_CAL = None
+
+
+def _nyse_calendar():
+    """Lazily build and cache the NYSE market calendar (pandas is heavy)."""
+    global _NYSE_CAL
+    if _NYSE_CAL is None:
+        import pandas_market_calendars as mcal
+        _NYSE_CAL = mcal.get_calendar("NYSE")
+    return _NYSE_CAL
+
+
+def is_trading_day(d: date) -> bool:
+    """True if `d` is a US equity-market trading day (weekday, not a holiday).
+
+    Weekends short-circuit without touching the calendar. Holidays are checked
+    against the NYSE calendar; if that lookup fails for any reason, a weekday
+    degrades to True (the entry pipeline's anomaly guard still backstops an
+    actual holiday) so the scheduler never crashes on a calendar error.
+    """
+    if d.weekday() >= 5:  # Saturday / Sunday
+        return False
+    try:
+        sched = _nyse_calendar().schedule(start_date=d.isoformat(), end_date=d.isoformat())
+        return not sched.empty
+    except Exception:
+        logger.debug("is_trading_day: NYSE calendar unavailable — weekday fallback")
+        return True
+
 
 class ScheduledEngine(BaseEngine):
     """
@@ -44,17 +73,28 @@ class ScheduledEngine(BaseEngine):
         entry_cfg = self.deps.config.get("entry", {})
         schedule = entry_cfg.get("schedule",
             ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"])
+        skip_non_trading_days = entry_cfg.get("skip_non_trading_days", True)
 
         session_skipped = False
         session_skip_date = None
+        non_trading_logged = None
 
         while True:
             now = datetime.now()
             current_time = now.strftime("%H:%M")
+            today = now.date()
 
-            if session_skip_date and session_skip_date < date.today():
+            if session_skip_date and session_skip_date < today:
                 session_skipped = False
                 session_skip_date = None
+
+            if skip_non_trading_days and not is_trading_day(today):
+                if non_trading_logged != today:
+                    logger.info("[SCHEDULER] %s is not a trading day — entry cycles suspended",
+                                today.isoformat())
+                    non_trading_logged = today
+                await asyncio.sleep(60)
+                continue
 
             if current_time in schedule:
                 if session_skipped:
