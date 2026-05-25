@@ -178,6 +178,9 @@ def _evaluate(
     pnls = []
     exits = defaultdict(int)
     skips = defaultdict(int)
+    # Per-exit-type P&L tracking for the exit-breakdown report
+    exit_pnls = defaultdict(list)  # kind -> list of pnl
+    credits_collected = []
     dates_sorted = sorted(by_date.keys())
 
     # Precompute prior-day moves and rolling-5d EM
@@ -246,6 +249,7 @@ def _evaluate(
         if cred is None:
             continue
         total_credit = cred["total_credit"]
+        credits_collected.append(total_credit)
 
         # Walk intraday anchors looking for first TP/SL event
         exit_event = None
@@ -268,12 +272,13 @@ def _evaluate(
             call_loss = max(spot_close - sc_k, 0) - max(spot_close - lc_k, 0)
             debit = put_loss + call_loss
             pnl = (total_credit - debit) * multiplier
-            exits["expiry"] += 1
+            kind = "expiry"
         else:
             kind, anchor, mark = exit_event
             pnl = (total_credit - mark) * multiplier
-            exits[kind] += 1
 
+        exits[kind] += 1
+        exit_pnls[kind].append(pnl)
         pnls.append(pnl)
 
     if not pnls:
@@ -296,6 +301,9 @@ def _evaluate(
         "best": max(pnls),
         "exits": dict(exits),
         "skips": dict(skips),
+        "exit_pnls": dict(exit_pnls),
+        "avg_credit": (sum(credits_collected) / len(credits_collected)
+                       if credits_collected else 0),
     }
 
 
@@ -353,6 +361,15 @@ def main():
     p.add_argument("--wing-widths", default="20,25,30")
     p.add_argument("--tp-pct", type=float, default=0.50)
     p.add_argument("--sl-mult", type=float, default=2.0)
+    # When set (single em_mult + single wing), print the per-exit-type loss
+    # breakdown for that config instead of the full sweep grid.
+    p.add_argument("--exit-breakdown", action="store_true",
+                   help="print TP/SL/expiry loss breakdown for one config "
+                        "(use with single --em-mults and --wing-widths)")
+    p.add_argument("--em-mult-put", type=float, default=None,
+                   help="asymmetric put-side em_mult (overrides --em-mults for put)")
+    p.add_argument("--em-mult-call", type=float, default=None,
+                   help="asymmetric call-side em_mult (overrides --em-mults for call)")
     args = p.parse_args()
 
     anchors = [a.strip() for a in args.anchors.split(",")]
@@ -367,13 +384,21 @@ def main():
     em_mults = [float(x) for x in args.em_mults.split(",")]
     wings = [float(x) for x in args.wing_widths.split(",")]
 
+    if args.exit_breakdown:
+        _print_exit_breakdown(
+            em_mults[0], wings[0], args.tp_pct, args.sl_mult, anchors, by_date,
+            args.em_mult_put, args.em_mult_call,
+        )
+        return
+
     print(f"TP={args.tp_pct} × credit, SL={args.sl_mult} × credit, anchors={anchors}")
     print(f"{'em':>5} {'wing':>5} {'n':>4} {'WR%':>6} {'total':>10} "
           f"{'Sharpe':>7} {'max_L':>5} {'max_DD':>8} {'avg_W':>7} {'avg_L':>7}")
     print("─" * 95)
     for em in em_mults:
         for w in wings:
-            r = _evaluate(em, w, args.tp_pct, args.sl_mult, anchors, by_date)
+            r = _evaluate(em, w, args.tp_pct, args.sl_mult, anchors, by_date,
+                          em_mult_put=args.em_mult_put, em_mult_call=args.em_mult_call)
             if r["n"] == 0:
                 continue
             print(f"{em:>5.2f} {w:>5.0f} {r['n']:>4d} {r['wr']:>5.1f}% "
@@ -381,6 +406,38 @@ def main():
                   f"{r['sharpe_ann']:>+7.2f} {r['max_consec_L']:>5d} "
                   f"${r['max_dd']:>+7,.0f} "
                   f"${r['avg_win']:>+5.0f} ${r['avg_loss']:>+5.0f}")
+
+
+def _print_exit_breakdown(em, wing, tp_pct, sl_mult, anchors, by_date,
+                          em_put=None, em_call=None):
+    """Per-exit-type P&L + loss breakdown for a single config."""
+    r = _evaluate(em, wing, tp_pct, sl_mult, anchors, by_date,
+                  em_mult_put=em_put, em_mult_call=em_call)
+    if r["n"] == 0:
+        print("NO TRADES")
+        return
+    put_lbl = em_put if em_put is not None else em
+    call_lbl = em_call if em_call is not None else em
+    avg_credit = r["avg_credit"]
+    print(f"Config: em_put={put_lbl} em_call={call_lbl} wing={wing} "
+          f"TP={tp_pct}×credit SL={sl_mult}×credit")
+    print(f"  Avg credit collected: ${avg_credit:.2f}  (×100 = ${avg_credit*100:,.0f})")
+    print(f"  1× credit loss ≈ ${avg_credit*100:,.0f}  (this is what a full 2×-credit SL costs)\n")
+    print(f"  Overall: n={r['n']}  WR={r['wr']:.1f}%  total=${r['total']:+,.0f}  "
+          f"Sharpe={r['sharpe_ann']:.2f}  maxDD=${r['max_dd']:+,.0f}  avg_loss=${r['avg_loss']:+.0f}\n")
+    print(f"  {'exit':>8} {'n':>5} {'total_pnl':>12} {'#loss':>6} {'avg_loss':>10} {'worst':>10}")
+    print("  " + "─" * 56)
+    all_losses = []
+    for kind in ("tp", "sl", "expiry"):
+        seq = r["exit_pnls"].get(kind, [])
+        losses = [p for p in seq if p < 0]
+        all_losses += losses
+        al = sum(losses) / len(losses) if losses else 0
+        wl = min(losses) if losses else 0
+        print(f"  {kind:>8} {len(seq):>5d} ${sum(seq):>+10,.0f} {len(losses):>6d} "
+              f"${al:>+8.0f} ${wl:>+8.0f}")
+    blended = sum(all_losses) / len(all_losses) if all_losses else 0
+    print(f"\n  Blended avg loss across all exit types: ${blended:+.0f}")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,33 @@ The evaluator:
 
 Sweet spot: **em_mult 0.20–0.25 / wing 25–30**. Past em=0.50, PnL collapses because credits get too small relative to occasional max-loss events.
 
+## Why avg loss is only ~$680 despite a "2× credit" SL
+
+A natural objection: with SL = 2× credit, why is avg loss only $681 (em=0.25/wing=20)? Three reasons — reproduce with `--exit-breakdown`:
+
+```bash
+.venv/bin/python -m scripts.analytical_ic_eval \
+  --em-mults 0.25 --wing-widths 20 --tp-pct 0.50 --sl-mult 2.0 --exit-breakdown
+```
+
+| exit | n | total PnL | #loss | avg loss | worst |
+|---|---|---|---|---|---|
+| TP | 316 | +$264,690 | 0 | — | — |
+| SL | 26 | -$26,900 | 26 | -$1,035 | -$1,255 |
+| Expiry | 606 | -$54,216 | 379 | -$656 | -$1,035 |
+
+Blended avg loss = $680.
+
+1. **"2× credit stop" = 1× credit LOSS, not 2×.** When the IC value reaches 2× credit, you've lost `2C − C = 1C`. At avg credit $12.16 (×100 = $1,216), a full SL hit ≈ $1,035 (slightly under, because SL-day credits ran below average).
+
+2. **The SL barely fires — 26 of 405 losses.** The analytical evaluator checks the stop at only 4 anchors (11:00/13:00/15:30/15:59). Most losing days grind to a shallow ITM close without ever spiking to 2× credit at an anchor → they fall through to expiry.
+
+3. **Expiry losses dominate and are shallow (avg -$656).** 379 of 405 losses are expiry exits where the close finished just past a short strike — debit is usually well below 1× credit. This blends *down* the average loss.
+
+The real edge: em=0.25 puts shorts ~8 pts from spot (near-ATM, EM≈32) → rich credit ($12.16) on a 20-wide IC → max loss only (20−12.16)×100 ≈ $784. The SL is nearly cosmetic; the edge is rich near-ATM premium + tight wings.
+
+**Caveat:** the coarse 4-anchor SL *under-stops* vs a real continuous 2× stop. A live bot checking every minute would fire the SL more often, cutting losers at ~1× credit ($1,035) instead of the -$656 avg expiry loss — i.e., a tighter live SL would likely REDUCE PnL. This matches the per-minute-sim finding that tight intraday SLs on noisy marks hurt.
+
 ## Asymmetric IC sweep
 
 | put_em | call_em | wing | Total | Sharpe | Max DD |
