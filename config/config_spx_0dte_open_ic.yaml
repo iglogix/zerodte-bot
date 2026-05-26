@@ -50,20 +50,23 @@ options:
   strike_step_pts: 5
   # strike_mode: "em_mult" (default, model-free) or "delta" (BS-based, unreliable for 0DTE)
   strike_mode: "em_mult"
-  em_mult: 0.20                 # WF-CV v7 winner — narrow strikes, asymmetric exit edge
+  em_mult: 0.25                 # whole-IC analytical winner (2026-05-16, Sharpe-best, lowest DD)
   target_short_delta: 0.25      # legacy delta-mode parameter (unused unless strike_mode=delta)
-  wing_width: 20                # WF-CV v7 winner — MUST be multiple of strike_step_pts (5)
+  wing_width: 20                # whole-IC analytical winner — MUST be multiple of strike_step_pts (5)
   min_credit_per_spread: 0.05
   max_credit_imbalance: 1.50    # max abs(call_credit - put_credit)
   # tp_pct_of_credit semantics: "exit when current IC value <= tp_pct × credit".
   #   0.75 = canonical tastytrade "25% TP" (exit having captured 25% of max profit)
   #   0.25 = late TP — let value drop to 25% of credit (capture 75% of max profit)
   #   The WF-CV winner uses the *late* TP (0.25) combined with sl_mult=2.0.
-  tp_pct_of_credit: 0.50        # WF-CV v7 winner: mid TP (capture 50% of credit)
+  tp_pct_of_credit: 0.50        # mid TP — capture 50% of credit
   tp_mode: "total"              # close whole IC at tp_pct × TOTAL credit
-  sl_mult_of_credit: 2.0        # WF-CV v7 winner
-  sl_scope: "per_side"          # "per_side" = asymmetric leg-out (production)
-                                # "total"    = SL on combined mark (TT canon, research)
+  sl_mult_of_credit: 2.0        # whole-IC analytical 2026-05-16 — note: largely inert
+                                # at this credit/wing ratio (2× credit > wing); see docs
+  sl_scope: "total"             # CHANGED 2026-05-16 from per_side. Whole-IC won 1.6-1.7×
+                                # PnL across every config tested on clean full data. The
+                                # earlier per-side win was a per-minute-sim/data artifact.
+                                # "per_side" = asymmetric leg-out (legacy, kept as option)
   hold_put_breach: true         # no breach-based stop (vanilla TT)
   hold_call_breach: true
   spread_mode: "iron_condor"

@@ -102,6 +102,43 @@ Reproduce: `--exit-breakdown` now prints the SL-reachability check. **Rule of th
 
 **Caveat:** the coarse 4-anchor SL *under-stops* vs a real continuous 2× stop. A live bot checking every minute would fire the SL more often, cutting losers at ~1× credit ($1,035) instead of the -$656 avg expiry loss — i.e., a tighter live SL would likely REDUCE PnL. This matches the per-minute-sim finding that tight intraday SLs on noisy marks hurt.
 
+## Whole-IC vs per-side management (definitive comparison)
+
+Earlier per-minute work had used per-side SL ("asymmetric leg-out") because
+it produced higher PnL on the biased CBBO data. Now with clean multi-anchor
+data we can run both modes on the same 952 days, same anchors:
+
+| Config | Whole-IC | Per-side | |
+|---|---|---|---|
+| em=0.20/w=30 sl=2.0 | **+$219,012 / Sh 3.21 / DD -$11.2k** | +$136,343 / Sh 2.21 / DD -$15.1k | Whole-IC wins |
+| em=0.25/w=20 sl=2.0 | **+$183,574 / Sh 3.74 / DD -$7.9k** | +$116,841 / Sh 2.60 / DD -$18.0k | Whole-IC wins |
+| em=0.25/w=25 sl=2.0 | **+$195,927 / Sh 3.27 / DD -$9.9k** | +$105,460 / Sh 1.94 / DD -$16.4k | Whole-IC wins |
+| em=0.30/w=25 sl=2.0 | **+$180,668 / Sh 3.00 / DD -$10.4k** | +$88,477 / Sh 1.64 / DD -$12.9k | Whole-IC wins |
+| em=0.25/w=25 sl=1.5 | **+$75,005 / Sh 1.27** | -$4,010 / Sh -0.09 | Both hurt by tighter SL |
+| em=0.20/w=30 sl=1.5 | **+$91,119 / Sh 1.36** | -$4,575 / Sh -0.09 | Both hurt by tighter SL |
+
+Whole-IC wins on **PnL (1.6–1.7×), Sharpe, AND drawdown** in every config.
+
+**Why the reversal from earlier per-minute findings?** Two interacting effects:
+
+1. **Whole-IC's SL is near-inert** (2× total credit > wing) so it rides
+   winners to TP/expiry, capturing full theta. The "inert SL" we flagged
+   above as a caveat is actually the edge.
+2. **Per-side's SL is active** (2× side-credit < wing) so it fires often,
+   cutting the un-breached side loose too early and locking losses that
+   would otherwise decay.
+
+Tightening to sl=1.5 confirms: active stops destroy both modes (whole-IC
+drops to +$75k, per-side goes negative). The strategy's edge requires
+LETTING the position decay to TP/expiry; intraday stops eat into it.
+
+**Decision (2026-05-16):** prod config now uses `sl_scope: total`. The
+earlier per-side win (+$15k vs +$4k canonical) was a per-minute-sim +
+biased-data artifact (asymmetric leg-out trick on noisy marks). On clean
+analytical data, whole-IC is decisively better.
+
+Reproduce: `python -m scripts.compare_management`.
+
 ## Asymmetric IC sweep
 
 | put_em | call_em | wing | Total | Sharpe | Max DD |

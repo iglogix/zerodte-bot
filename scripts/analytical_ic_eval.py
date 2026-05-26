@@ -151,6 +151,37 @@ def _max_drawdown(seq: List[float]) -> float:
     return worst_dd
 
 
+def _side_mark(quotes, minute, short_k, long_k, is_call) -> Optional[float]:
+    """Value (cost to close) of one vertical spread at a minute, bounded ≥ 0."""
+    s = _quote_mid(quotes, minute, short_k, is_call)
+    l = _quote_mid(quotes, minute, long_k, is_call)
+    if s is None or l is None:
+        return None
+    return max(s - l, 0)
+
+
+def _per_side_pnl(quotes, anchors, tp_pct, sl_mult, multiplier,
+                  side_credit, short_k, long_k, is_call, spot_close):
+    """Manage ONE vertical independently across anchors; fall back to expiry.
+    Returns (pnl, exit_kind)."""
+    for anchor in anchors:
+        if anchor == "09:35":
+            continue
+        mark = _side_mark(quotes, anchor, short_k, long_k, is_call)
+        if mark is None:
+            continue
+        if mark <= tp_pct * side_credit:
+            return (side_credit - mark) * multiplier, "tp"
+        if sl_mult > 0 and mark >= sl_mult * side_credit:
+            return (side_credit - mark) * multiplier, "sl"
+    # Expiry: intrinsic of this side
+    if is_call:
+        debit = max(spot_close - short_k, 0) - max(spot_close - long_k, 0)
+    else:
+        debit = max(short_k - spot_close, 0) - max(long_k - spot_close, 0)
+    return (side_credit - debit) * multiplier, "expiry"
+
+
 def _evaluate(
     em_mult: float,
     wing_width: float,
@@ -162,6 +193,7 @@ def _evaluate(
     filters: Optional[Dict] = None,
     em_mult_call: Optional[float] = None,
     em_mult_put: Optional[float] = None,
+    manage: str = "total",
 ) -> Dict:
     """Walk per-day data, applying TP/SL at intraday anchors and EOD exit otherwise.
 
@@ -251,31 +283,43 @@ def _evaluate(
         total_credit = cred["total_credit"]
         credits_collected.append(total_credit)
 
-        # Walk intraday anchors looking for first TP/SL event
-        exit_event = None
-        for anchor in anchors:
-            if anchor == "09:35":
-                continue  # entry minute
-            mark = _ic_mark(quotes, anchor, sp_k, lp_k, sc_k, lc_k)
-            if mark is None:
-                continue
-            if mark <= tp_pct * total_credit:
-                exit_event = ("tp", anchor, mark)
-                break
-            if sl_mult > 0 and mark >= sl_mult * total_credit:
-                exit_event = ("sl", anchor, mark)
-                break
-
-        if exit_event is None:
-            # Hold to expiry: P&L from spot_close vs strikes
-            put_loss = max(sp_k - spot_close, 0) - max(lp_k - spot_close, 0)
-            call_loss = max(spot_close - sc_k, 0) - max(spot_close - lc_k, 0)
-            debit = put_loss + call_loss
-            pnl = (total_credit - debit) * multiplier
-            kind = "expiry"
+        if manage == "per_side":
+            # Each vertical managed independently across anchors.
+            put_pnl, put_kind = _per_side_pnl(
+                quotes, anchors, tp_pct, sl_mult, multiplier,
+                cred["put_credit"], sp_k, lp_k, False, spot_close)
+            call_pnl, call_kind = _per_side_pnl(
+                quotes, anchors, tp_pct, sl_mult, multiplier,
+                cred["call_credit"], sc_k, lc_k, True, spot_close)
+            pnl = put_pnl + call_pnl
+            # Day-level exit kind: "sl" if either side stopped, else "tp" if both
+            # tp'd, else "expiry"
+            kinds = {put_kind, call_kind}
+            kind = "sl" if "sl" in kinds else ("tp" if kinds == {"tp"} else "expiry")
         else:
-            kind, anchor, mark = exit_event
-            pnl = (total_credit - mark) * multiplier
+            # Whole IC managed on combined mark.
+            exit_event = None
+            for anchor in anchors:
+                if anchor == "09:35":
+                    continue  # entry minute
+                mark = _ic_mark(quotes, anchor, sp_k, lp_k, sc_k, lc_k)
+                if mark is None:
+                    continue
+                if mark <= tp_pct * total_credit:
+                    exit_event = ("tp", anchor, mark)
+                    break
+                if sl_mult > 0 and mark >= sl_mult * total_credit:
+                    exit_event = ("sl", anchor, mark)
+                    break
+            if exit_event is None:
+                put_loss = max(sp_k - spot_close, 0) - max(lp_k - spot_close, 0)
+                call_loss = max(spot_close - sc_k, 0) - max(spot_close - lc_k, 0)
+                debit = put_loss + call_loss
+                pnl = (total_credit - debit) * multiplier
+                kind = "expiry"
+            else:
+                kind, anchor, mark = exit_event
+                pnl = (total_credit - mark) * multiplier
 
         exits[kind] += 1
         exit_pnls[kind].append(pnl)
