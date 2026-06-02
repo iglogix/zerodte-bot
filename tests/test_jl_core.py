@@ -185,6 +185,37 @@ def test_evaluate_aggregate():
     assert res["skips"] == {}
 
 
+def test_settlement_forward_prefers_chain_over_spot_close():
+    # Final anchor 16:00 has an ATM chain (4995) -> settlement uses the chain
+    # forward, IGNORING a deliberately-wrong spot_close (the SPY*10 basis bias).
+    cfg = jl.JlConfig(anchors=["09:30", "16:00"], exit_mode="intrinsic")
+    q = _entry_chain()
+    q.update({
+        ("16:00", 4990.0, True): (10.0, 11.0), ("16:00", 4990.0, False): (5.0, 6.0),
+        ("16:00", 4995.0, True): (7.0, 8.0),   ("16:00", 4995.0, False): (7.0, 8.0),
+        ("16:00", 5000.0, True): (5.0, 6.0),   ("16:00", 5000.0, False): (9.0, 10.0),
+    })
+    assert jl.settlement_forward(q, cfg.anchors) == 4995.0
+    # At S=4995 both spreads expire worthless -> exit_mark 0, full credit kept.
+    r = jl.evaluate_day(q, cfg, spot_close=4900.0)   # wrong spot_close must be ignored
+    assert r["kind"] == "expiry"
+    assert r["exit_mark"] == 0.0
+    assert r["pnl"] == 600.0
+
+
+def test_intrinsic_falls_back_to_spot_close_when_no_final_chain():
+    # Final anchor 16:00 absent from quotes -> settlement_forward None -> spot_close.
+    cfg = jl.JlConfig(anchors=["09:30", "10:00", "16:00"], exit_mode="intrinsic")
+    q = _entry_chain()
+    q.update({
+        ("10:00", 4990.0, False): (5.0, 5.0), ("10:00", 4960.0, False): (1.0, 1.0),
+        ("10:00", 5010.0, True): (5.0, 5.0),  ("10:00", 5020.0, True): (1.0, 1.0),
+    })
+    assert jl.settlement_forward(q, cfg.anchors) is None
+    r = jl.evaluate_day(q, cfg, spot_close=4980.0)
+    assert r["pnl"] == -400.0
+
+
 def test_max_consec_losses_and_drawdown():
     assert jl._max_consec_losses([1.0, -1.0, -1.0, 2.0, -1.0]) == 2
     assert jl._max_drawdown([100.0, -50.0, -80.0, 30.0]) == -130.0

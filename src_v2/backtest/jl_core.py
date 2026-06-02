@@ -161,6 +161,22 @@ def _intrinsic_debit(strikes: Tuple[float, float, float, float], S: float) -> fl
     return put_debit + call_debit
 
 
+def settlement_forward(quotes: Quotes, anchors: List[str]) -> Optional[float]:
+    """Chain-implied SPX forward at the FINAL anchor — the settlement reference.
+
+    Uses the same put-call-parity forward as entry so settlement stays on the
+    SAME basis as strike placement. (SPY*10 closes run ~18 pts below the SPX
+    chain forward — using them to settle chain-placed strikes manufactures
+    phantom put-side losses.) Returns None if the final anchor has no ATM chain;
+    the caller then falls back to an explicit spot_close.
+    """
+    last = anchors[-1]
+    atm = atm_from_chain(quotes, last)
+    if atm is None:
+        return None
+    return forward_from_chain(quotes, last, atm)
+
+
 def evaluate_day(quotes: Quotes, cfg: JlConfig,
                  spot_close: Optional[float] = None) -> Dict:
     """Evaluate one trading day. Returns {'skip': reason} or a trade-result dict."""
@@ -197,9 +213,12 @@ def evaluate_day(quotes: Quotes, cfg: JlConfig,
 
     if kind is None:
         if cfg.exit_mode == "intrinsic":
-            if spot_close is None:
+            S = settlement_forward(quotes, cfg.anchors)
+            if S is None:
+                S = spot_close  # fallback only if the final anchor's chain is missing
+            if S is None:
                 return {"skip": "no_settle"}
-            exit_anchor, exit_mark, kind = cfg.anchors[-1], _intrinsic_debit(strikes, spot_close), "expiry"
+            exit_anchor, exit_mark, kind = cfg.anchors[-1], _intrinsic_debit(strikes, S), "expiry"
         else:
             if last_avail is None:
                 return {"skip": "no_marks"}
