@@ -158,18 +158,18 @@ async def main():
                            f"(compare 'expected move' to the TT GUI value)")
         em = straddle or (em_1sd or 0)
 
-        # Variant A: $30/$10 ATM
-        _variant(out, "VARIANT A — $30p/$10c, shorts ATM  (slide headline setup):",
-                 by, atm, atm - 30, atm, atm + 10, 10)
-        # Variant B: $20/$5 at 0.25x EM  (use the 16-delta 1SD if available, else straddle)
-        em_b = em_1sd if em_1sd else em
-        spB = _round_strike(spot - 0.25 * em_b, "floor"); scB = _round_strike(spot + 0.25 * em_b, "ceil")
-        _variant(out, f"VARIANT B — $20p/$5c, shorts at 0.25x EM  (EM={em_b:.1f}, offset~{0.25*em_b:.0f}pt):",
-                 by, spB, spB - 20, scB, scB + 5, 5)
-        # Variant C: $30/$10 ~1x straddle (most cost-robust in backtest)
-        spC = _round_strike(spot - 1.0 * (straddle or em), "floor"); scC = _round_strike(spot + 1.0 * (straddle or em), "ceil")
-        _variant(out, f"VARIANT C — $30p/$10c, shorts ~1x straddle  (offset~{(straddle or em):.0f}pt, our most cost-robust):",
-                 by, spC, spC - 30, scC, scC + 10, 10)
+        # Placements use TT-style EM = 16-delta +/-1 SD (fallback: straddle). NO ATM.
+        emU = em_1sd if em_1sd else (straddle or em)
+
+        def place(title, pw, cw, mult):
+            sp = _round_strike(spot - mult * emU, "floor")
+            sc = _round_strike(spot + mult * emU, "ceil")
+            _variant(out, title, by, sp, sp - pw, sc, sc + cw, cw)
+
+        out.append(f"\n[EM used for placement = 16Δ ±1 SD ≈ {emU:.1f} pts]")
+        place(f"VARIANT A — $30p/$10c at 0.25x EM  (offset ~{0.25*emU:.0f}pt) [slide says this; sweep: weak]:", 30, 10, 0.25)
+        place(f"VARIANT B — $20p/$5c  at 0.25x EM  (offset ~{0.25*emU:.0f}pt) [the slide's $20/$5 variant]:", 20, 5, 0.25)
+        place(f"VARIANT C — $30p/$10c at 1.0x EM   (offset ~{emU:.0f}pt) [our swept optimum, hold-to-expiry]:", 30, 10, 1.0)
 
         # ATM chain snapshot
         out.append(f"\nATM CHAIN SNAPSHOT (compare bid/ask/delta to the TT GUI):")
