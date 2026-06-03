@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import itertools
 import json
 import math
@@ -21,7 +22,7 @@ import pickle
 import sys
 from datetime import date, time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -60,15 +61,60 @@ def closes_before(closes: List[Tuple[date, float]], d: date) -> List[float]:
     return [c for (cd, c) in closes if cd < d]
 
 
+def precompute_trend(by_date: Dict, closes: List[Tuple[date, float]], n: int = 21
+                     ) -> Dict[date, int]:
+    """Hull-MA trend sign per date, computed ONCE from the full causal HMA series.
+
+    `_hma_series` is causal (hma[j] depends only on closes[:j+1]), so the trend at
+    date d (index i) = sign(hma[i-1]-hma[i-2]) exactly equals hull_trend(closes<d).
+    This turns the per-combo O(N^3) recompute into a single O(N^2) pass — no lookahead.
+    """
+    ordered = sorted(closes)
+    vals = [c for _, c in ordered]
+    hma = bf._hma_series(vals, n)
+    pos = {d: i for i, (d, _) in enumerate(ordered)}
+    trend: Dict[date, int] = {}
+    for d in by_date:
+        i = pos.get(d)
+        if i is None or i < 2:
+            trend[d] = 0
+            continue
+        a, b = hma[i - 1], hma[i - 2]
+        trend[d] = 0 if (math.isnan(a) or math.isnan(b)) else (1 if a > b else (-1 if a < b else 0))
+    return trend
+
+
+def _side_from_trend(dir_mode: str, d: date, t: int) -> str:
+    if dir_mode == "call":
+        return "call"
+    if dir_mode == "put":
+        return "put"
+    if dir_mode == "coin":
+        return bf.coin_flip_side(d)
+    if dir_mode == "anti":
+        return "put" if t >= 0 else "call"
+    return "call" if t >= 0 else "put"   # hull
+
+
 def run_config(by_date: Dict, closes: List[Tuple[date, float]], base: bf.ButterflyConfig,
-               dir_mode: str, width_mode: str, fixed_width: float) -> Dict:
-    """Build per-day cfgs and aggregate (one trade/day)."""
+               dir_mode: str, width_mode: str, fixed_width: float,
+               trend_by_date: Optional[Dict[date, int]] = None) -> Dict:
+    """Build per-day cfgs and aggregate (one trade/day).
+
+    If `trend_by_date` is supplied, the Hull trend is read from it (fast path);
+    otherwise it is computed per-day via build_day_cfg (slower, used for one-off runs).
+    """
     results: List[Dict] = []
     skips: Dict[str, int] = {}
     for d in sorted(by_date.keys()):
         info = by_date[d]
-        cfg = bf.build_day_cfg(base, dir_mode, width_mode, d,
-                               closes_before(closes, d), info.get("vix"), fixed_width)
+        if trend_by_date is not None:
+            side = _side_from_trend(dir_mode, d, trend_by_date.get(d, 0))
+            width = bf.regime_width(info.get("vix")) if width_mode == "regime" else fixed_width
+            cfg = dataclasses.replace(base, side=side, width=width)
+        else:
+            cfg = bf.build_day_cfg(base, dir_mode, width_mode, d,
+                                   closes_before(closes, d), info.get("vix"), fixed_width)
         r = bf.evaluate_day(info["quotes"], cfg, info.get("spot_close"))
         if r.get("skip"):
             skips[r["skip"]] = skips.get(r["skip"], 0) + 1
@@ -150,47 +196,72 @@ def _write_trades(out_dir: Path, res: Dict, tag: str) -> None:
 
 
 def sweep(by_date: Dict, closes: List[Tuple[date, float]], entry: str, anchors: List[str],
-          out_dir: Path) -> None:
-    """WF-CV sweep over direction x exit x width; select per fold on train Sharpe,
-    score on OOS val. Coin-flip direction is always reported as a baseline."""
+          out_dir: Path, slippage: float, commission: float, min_train_n: int = 30) -> None:
+    """Cost-aware WF-CV sweep over direction x exit x width x gates.
+
+    Selection is on NET (with-cost) train Sharpe so the winner is the best REALISTIC
+    config, not the best mid-price config. Each fold's pick is scored OOS on the val
+    fold both net (primary) and at mid (reference). Combos with < min_train_n train
+    trades are excluded so the gates-on degenerate cases (~2 trades) can't win on a
+    fluke Sharpe. The Hull trend is precomputed once (fast)."""
     dir_modes = ["hull", "call", "put", "coin", "anti"]
     exit_models = ["hold", "target", "trail"]
     width_specs = [("regime", 0.0), ("fixed", 25.0), ("fixed", 40.0), ("fixed", 55.0)]
-    combos = list(itertools.product(dir_modes, exit_models, width_specs))
+    gates_opts = [True, False]
+    combos = list(itertools.product(dir_modes, exit_models, width_specs, gates_opts))
+
+    trend = precompute_trend(by_date, closes)
+
+    def cfg(xm: str, gates_on: bool, costs: bool) -> bf.ButterflyConfig:
+        return bf.ButterflyConfig(
+            entry_anchor=entry, anchors=anchors, exit_model=xm, gates_on=gates_on,
+            slippage_per_leg=(slippage if costs else 0.0),
+            commission_per_leg=(commission if costs else 0.0))
 
     dates = sorted(by_date.keys())
     folds = bf.make_wf_folds(dates, ratio=5, folds=4)
-    print(f"Sweep: {len(combos)} combos x {len(folds)} folds")
+    print(f"Sweep: {len(combos)} combos x {len(folds)} folds "
+          f"(select on NET train Sharpe, min_train_n={min_train_n})")
 
     fold_rows: List[Dict] = []
     for fi, (train, val) in enumerate(folds):
-        train_set, val_set = set(train), set(val)
+        train_by = {d: by_date[d] for d in train if d in by_date}
+        val_by = {d: by_date[d] for d in val if d in by_date}
         scored = []
-        for (dm, xm, (wmode, fw)) in combos:
-            base = bf.ButterflyConfig(entry_anchor=entry, anchors=anchors, exit_model=xm)
-            tr = run_config({d: by_date[d] for d in by_date if d in train_set},
-                            closes, base, dm, wmode, fw)
-            scored.append(((dm, xm, wmode, fw), tr.get("sharpe_ann", 0.0), tr.get("n", 0)))
+        for (dm, xm, (wmode, fw), g) in combos:
+            tr = run_config(train_by, closes, cfg(xm, g, True), dm, wmode, fw, trend)
+            if tr.get("n", 0) >= min_train_n:
+                scored.append(((dm, xm, wmode, fw, g), tr.get("sharpe_ann", 0.0)))
+        if not scored:
+            print(f"  fold {fi}: no combo had >= {min_train_n} train trades")
+            continue
         scored.sort(key=lambda x: x[1], reverse=True)
-        (dm, xm, wmode, fw), tr_sharpe, tr_n = scored[0]
-        base = bf.ButterflyConfig(entry_anchor=entry, anchors=anchors, exit_model=xm)
-        vr = run_config({d: by_date[d] for d in by_date if d in val_set},
-                        closes, base, dm, wmode, fw)
-        row = {"fold": fi, "pick": f"{dm}/{xm}/{wmode}:{fw}",
-               "train_sharpe": round(tr_sharpe, 2), "train_n": tr_n,
-               "val_n": vr.get("n", 0), "val_total": round(vr.get("total", 0.0), 0),
-               "val_mean": round(vr.get("mean", 0.0), 1),
-               "val_sharpe": round(vr.get("sharpe_ann", 0.0), 2)}
+        (dm, xm, wmode, fw, g), tr_sharpe = scored[0]
+        vr = run_config(val_by, closes, cfg(xm, g, True), dm, wmode, fw, trend)
+        vr_mid = run_config(val_by, closes, cfg(xm, g, False), dm, wmode, fw, trend)
+        gtag = "gOn" if g else "gOff"
+        row = {"fold": fi, "pick": f"{dm}/{xm}/{wmode}:{fw}/{gtag}",
+               "train_net_sharpe": round(tr_sharpe, 2),
+               "val_n": vr.get("n", 0),
+               "val_net_mean": round(vr.get("mean", 0.0), 1),
+               "val_net_sharpe": round(vr.get("sharpe_ann", 0.0), 2),
+               "val_mid_mean": round(vr_mid.get("mean", 0.0), 1)}
         fold_rows.append(row)
-        print(f"  fold {fi}: pick={row['pick']:<28} train_Sharpe={row['train_sharpe']:<6} "
-              f"-> OOS n={row['val_n']} mean=${row['val_mean']:+.1f} Sharpe={row['val_sharpe']}")
+        print(f"  fold {fi}: pick={row['pick']:<26} train_netSharpe={row['train_net_sharpe']:<6} "
+              f"-> OOS n={row['val_n']} net_mean=${row['val_net_mean']:+.1f} "
+              f"net_Sharpe={row['val_net_sharpe']} (mid_mean=${row['val_mid_mean']:+.1f})")
 
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "wf_folds.json", "w") as f:
         json.dump(fold_rows, f, indent=2)
-    oos_mean = sum(r["val_mean"] * r["val_n"] for r in fold_rows) / max(
-        1, sum(r["val_n"] for r in fold_rows))
-    print(f"\nPooled OOS mean/trade = ${oos_mean:+.1f}  (>0 with positive skew = primary success test)")
+    tot_n = sum(r["val_n"] for r in fold_rows)
+    if tot_n:
+        oos_net = sum(r["val_net_mean"] * r["val_n"] for r in fold_rows) / tot_n
+        oos_mid = sum(r["val_mid_mean"] * r["val_n"] for r in fold_rows) / tot_n
+        print(f"\nPooled OOS NET mean/trade = ${oos_net:+.1f}   (mid = ${oos_mid:+.1f})")
+        print("Primary success test: NET OOS mean > 0 with positive skew.")
+    else:
+        print("\nNo OOS trades selected.")
 
 
 def main() -> int:
@@ -225,14 +296,15 @@ def main() -> int:
     print(f"Days with cache: {len(by_date)}  entry={args.entry}  anchors={len(anchors)}")
 
     if args.sweep:
-        sweep(by_date, closes, args.entry, anchors, Path(args.out))
+        sweep(by_date, closes, args.entry, anchors, Path(args.out), args.slippage, args.commission)
         return 0
 
+    trend = precompute_trend(by_date, closes)
     gates_on = not args.gates_off
     gtag = "gates-off" if args.gates_off else "gates-on"
     base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
                               gates_on=gates_on)
-    headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width)
+    headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width, trend)
     _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag} (mid, zero-cost)", headline)
     if headline.get("n"):
         _regime_breakdown(headline)
@@ -240,7 +312,7 @@ def main() -> int:
     base_c = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
                                 gates_on=gates_on,
                                 slippage_per_leg=args.slippage, commission_per_leg=args.commission)
-    costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width)
+    costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width, trend)
     _print(f"WITH COSTS (slip=${args.slippage}/leg, comm=${args.commission}/leg)", costs)
 
     _write_trades(Path(args.out), headline, "headline")
