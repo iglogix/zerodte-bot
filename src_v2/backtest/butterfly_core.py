@@ -262,3 +262,69 @@ def evaluate_day(quotes, cfg: ButterflyConfig,
         "gross": gross, "pnl": net, "strikes": strikes, "em": em, "forward": fwd,
         "r2r_theo": (cfg.width - debit) / debit if debit > 0 else 0.0,
     }
+
+
+# --- Task 5: Aggregation, per-regime breakdown, and WF folds ---
+
+def make_wf_folds(dates: List[date], ratio: int = 5, folds: int = 4
+                  ) -> List[Tuple[List[date], List[date]]]:
+    """Ratio-based expanding walk-forward folds: train grows by one step per fold,
+    val is the next single step (always out-of-sample)."""
+    ds = sorted(dates)
+    n = len(ds)
+    step = n // (ratio + folds)
+    out: List[Tuple[List[date], List[date]]] = []
+    if step == 0:
+        return out
+    for i in range(folds):
+        train_end = step * (ratio + i)
+        val_end = train_end + step
+        train, val = ds[:train_end], ds[train_end:val_end]
+        if val:
+            out.append((train, val))
+    return out
+
+
+def evaluate(by_date: Dict, cfg: ButterflyConfig) -> Dict:
+    """Run evaluate_day over {date: {quotes, spot_close, vix?}}; aggregate metrics."""
+    results: List[Dict] = []
+    skips: Dict[str, int] = defaultdict(int)
+    exits: Dict[str, int] = defaultdict(int)
+    for d in sorted(by_date.keys()):
+        info = by_date[d]
+        r = evaluate_day(info["quotes"], cfg, info.get("spot_close"))
+        if r.get("skip"):
+            skips[r["skip"]] += 1
+            continue
+        r["date"] = d
+        exits[r["kind"]] += 1
+        results.append(r)
+
+    pnls = [r["pnl"] for r in results]
+    if not pnls:
+        return {"n": 0, "skips": dict(skips), "results": []}
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    mean = sum(pnls) / len(pnls)
+    var = sum((p - mean) ** 2 for p in pnls) / max(1, len(pnls) - 1)
+    std = math.sqrt(var)
+    gross_w = sum(wins)
+    gross_l = -sum(losses)
+    return {
+        "n": len(pnls),
+        "wr": 100 * len(wins) / len(pnls),
+        "total": sum(pnls),
+        "mean": mean,
+        "expectancy": mean,
+        "sharpe_ann": math.sqrt(252) * mean / std if std > 0 else 0.0,
+        "profit_factor": gross_w / gross_l if gross_l > 0 else float("inf"),
+        "max_consec_L": _max_consec_losses(pnls),
+        "max_dd": _max_drawdown(pnls),
+        "avg_win": sum(wins) / len(wins) if wins else 0.0,
+        "avg_loss": sum(losses) / len(losses) if losses else 0.0,
+        "realized_r2r": (sum(wins) / len(wins)) / (-sum(losses) / len(losses))
+                        if wins and losses else 0.0,
+        "worst": min(pnls), "best": max(pnls),
+        "exits": dict(exits), "skips": dict(skips),
+        "results": results,
+    }

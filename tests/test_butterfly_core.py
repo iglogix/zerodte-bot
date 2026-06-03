@@ -268,3 +268,39 @@ def test_evaluate_day_put_side_hold_win():
     assert r["debit"] == 2.0
     assert r["exit_mark"] == 30.0      # put fly intrinsic at S=4980 (body) = width
     assert r["pnl"] == 2800.0          # (30 - 2) * 100
+
+
+# --- Task 5: Aggregation, per-regime breakdown, and WF folds ---
+
+def test_make_wf_folds_ratio_5_4folds():
+    dates = [_date(2025, 1, 1).fromordinal(_date(2025, 1, 1).toordinal() + i) for i in range(90)]
+    folds = bf.make_wf_folds(dates, ratio=5, folds=4)
+    assert len(folds) == 4
+    # expanding train, 1-step OOS val (step = 90 // 9 = 10)
+    train0, val0 = folds[0]
+    assert len(train0) == 50 and len(val0) == 10
+    train3, val3 = folds[3]
+    assert len(train3) == 80 and len(val3) == 10
+    # val windows are disjoint and strictly after their train
+    assert max(train0) < min(val0)
+
+
+def test_evaluate_aggregates_pnl_and_winrate():
+    cfg = bf.ButterflyConfig(side="call", anchors=["09:30", "16:00"], exit_model="hold")
+    win_q = _final_anchor_forward_5020(_entry_chain_fly())          # +2800
+    loss_q = _entry_chain_fly()
+    # final forward at 4900 -> call fly intrinsic 0 -> full debit loss -200
+    loss_q.update({
+        ("16:00", 4895.0, True): (12.0, 13.0), ("16:00", 4895.0, False): (7.0, 8.0),
+        ("16:00", 4900.0, True): (9.5, 10.5),  ("16:00", 4900.0, False): (9.5, 10.5),
+        ("16:00", 4905.0, True): (7.0, 8.0),   ("16:00", 4905.0, False): (12.0, 13.0),
+    })
+    by_date = {
+        _date(2025, 1, 2): {"quotes": win_q, "spot_close": 5020.0, "vix": 14.0},
+        _date(2025, 1, 3): {"quotes": loss_q, "spot_close": 4900.0, "vix": 14.0},
+    }
+    res = bf.evaluate(by_date, cfg)
+    assert res["n"] == 2
+    assert res["total"] == 2600.0      # 2800 - 200
+    assert res["wr"] == 50.0
+    assert res["exits"] == {"expiry": 2}
