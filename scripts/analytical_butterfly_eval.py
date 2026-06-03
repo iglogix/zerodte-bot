@@ -16,11 +16,12 @@ import argparse
 import csv
 import itertools
 import json
+import math
 import pickle
 import sys
 from datetime import date, time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -84,7 +85,6 @@ def _aggregate(results: List[Dict]) -> Dict:
     pnls = [r["pnl"] for r in results]
     if not pnls:
         return {"n": 0, "results": []}
-    import math
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     mean = sum(pnls) / len(pnls)
@@ -115,9 +115,12 @@ def _regime_breakdown(res: Dict) -> None:
     buckets = {"Zombieland(<17)": [], "Goldilocks(17-32)": [], "Chaos(>=32)": []}
     for r in res["results"]:
         v = r.get("vix")
-        key = ("Chaos(>=32)" if v is not None and v >= 32
-               else "Goldilocks(17-32)" if v is not None and v >= 17
-               else "Zombieland(<17)")
+        if v is not None and v >= 32:
+            key = "Chaos(>=32)"
+        elif v is None or v >= 17:
+            key = "Goldilocks(17-32)"
+        else:
+            key = "Zombieland(<17)"
         buckets[key].append(r["pnl"])
     print("  per-regime:")
     for k, pnls in buckets.items():
