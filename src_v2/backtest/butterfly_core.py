@@ -12,6 +12,7 @@ trend; width is set by a VIX regime map. See the design spec for the rule set.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -328,3 +329,14 @@ def evaluate(by_date: Dict, cfg: ButterflyConfig) -> Dict:
         "exits": dict(exits), "skips": dict(skips),
         "results": results,
     }
+
+
+# --- Task 7: Per-day config builder ---
+
+def build_day_cfg(base: ButterflyConfig, dir_mode: str, width_mode: str,
+                  d: date, closes_before: List[float], vix: Optional[float],
+                  fixed_width: float) -> ButterflyConfig:
+    """Clone `base` with the per-day side (direction mode) and width (width mode)."""
+    side = resolve_side(dir_mode, d, closes_before)
+    width = regime_width(vix) if width_mode == "regime" else fixed_width
+    return dataclasses.replace(base, side=side, width=width)

@@ -304,3 +304,18 @@ def test_evaluate_aggregates_pnl_and_winrate():
     assert res["total"] == 2600.0      # 2800 - 200
     assert res["wr"] == 50.0
     assert res["exits"] == {"expiry": 2}
+
+
+# --- Task 7: Per-day config builder ---
+
+def test_build_day_cfg_sets_side_and_width():
+    base = bf.ButterflyConfig(exit_model="hold")
+    up = [float(x) for x in range(1, 40)]
+    cfg = bf.build_day_cfg(base, dir_mode="hull", width_mode="regime",
+                           d=_date(2025, 1, 2), closes_before=up, vix=14.0, fixed_width=30.0)
+    assert cfg.side == "call"        # rising Hull -> call
+    assert cfg.width == 25.0          # VIX 14 -> Zombieland 25
+    cfg2 = bf.build_day_cfg(base, dir_mode="put", width_mode="fixed",
+                            d=_date(2025, 1, 2), closes_before=up, vix=40.0, fixed_width=35.0)
+    assert cfg2.side == "put"
+    assert cfg2.width == 35.0          # fixed mode ignores regime
