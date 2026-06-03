@@ -170,3 +170,95 @@ def regime_width(vix: Optional[float]) -> float:
     if vix < 32:
         return 40.0
     return 55.0
+
+
+# --- Task 4: Per-day evaluation with three exit models ---
+
+def _to_min(hhmm: str) -> int:
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+
+def trail_giveback(minute: str) -> float:
+    """Time-of-day trailing giveback (fraction of peak profit allowed back).
+
+    Published rule: wide AM (50-75% -> 0.625), tighter midday (30-40% -> 0.35),
+    tight PM (30% -> 0.30).
+    """
+    m = _to_min(minute)
+    if m < _to_min("12:00"):
+        return 0.625
+    if m < _to_min("14:00"):
+        return 0.35
+    return 0.30
+
+
+def evaluate_day(quotes, cfg: ButterflyConfig,
+                 spot_close: Optional[float] = None) -> Dict:
+    """Evaluate one trading day. Returns {'skip': reason} or a trade-result dict."""
+    ea = cfg.entry_anchor
+    atm = atm_from_chain(quotes, ea)
+    if atm is None:
+        return {"skip": "no_atm"}
+    em = compute_em(quotes, ea, atm)
+    if em is None or em <= 0:
+        return {"skip": "no_em"}
+    fwd = forward_from_chain(quotes, ea, atm)
+    if fwd is None:
+        return {"skip": "no_forward"}
+
+    strikes = select_fly_strikes(fwd, em, cfg)
+    is_call = cfg.side == "call"
+    debit = fly_value(quotes, ea, strikes, is_call)
+    if debit is None or debit <= 0:
+        return {"skip": "no_debit"}
+    if not passes_gates(debit, cfg):
+        return {"skip": "gate"}
+
+    kind: Optional[str] = None
+    exit_anchor: Optional[str] = None
+    exit_mark: Optional[float] = None
+    peak_profit = 0.0
+    eod = _to_min(cfg.eod_anchor)
+
+    if cfg.exit_model in ("target", "trail"):
+        for a in cfg.anchors:
+            if a == ea or _to_min(a) > eod:
+                continue
+            m = fly_mark(quotes, a, strikes, is_call)
+            if m is None:
+                continue
+            profit = m - debit
+            if cfg.exit_model == "target":
+                if profit >= cfg.target_mult * debit:
+                    kind, exit_anchor, exit_mark = "target", a, m
+                    break
+            else:  # trail
+                peak_profit = max(peak_profit, profit)
+                if (peak_profit >= cfg.trail_arm_pct * debit
+                        and profit <= peak_profit * (1 - trail_giveback(a))):
+                    kind, exit_anchor, exit_mark = "trail", a, m
+                    break
+
+    if kind is None:   # hold model, or no mid-exit trigger fired -> settle at expiry
+        S = settlement_forward(quotes, cfg.anchors)
+        if S is None:
+            S = spot_close
+        if S is None:
+            return {"skip": "no_settle"}
+        kind, exit_anchor, exit_mark = "expiry", cfg.anchors[-1], fly_intrinsic(strikes, is_call, S)
+
+    mult = cfg.multiplier
+    gross = (exit_mark - debit) * mult
+    n_legs = 4   # 1 + 2 + 1 contracts
+    entry_slip = cfg.slippage_per_leg * n_legs
+    exit_slip = 0.0 if kind == "expiry" else cfg.slippage_per_leg * n_legs
+    n_comm = n_legs if kind == "expiry" else n_legs * 2
+    cost = (entry_slip + exit_slip) * mult + cfg.commission_per_leg * n_comm
+    net = gross - cost
+
+    return {
+        "skip": None, "kind": kind, "side": cfg.side, "exit_anchor": exit_anchor,
+        "debit": debit, "exit_mark": exit_mark, "width": cfg.width,
+        "gross": gross, "pnl": net, "strikes": strikes, "em": em, "forward": fwd,
+        "r2r_theo": (cfg.width - debit) / debit if debit > 0 else 0.0,
+    }

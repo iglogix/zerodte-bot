@@ -124,3 +124,121 @@ def test_regime_width():
     assert bf.regime_width(22.0) == 40.0    # Goldilocks (17-32)
     assert bf.regime_width(40.0) == 55.0    # Chaos (>=32)
     assert bf.regime_width(None) == 40.0    # missing VIX -> mid default
+
+
+# --- Task 4: Per-day evaluation with three exit models ---
+
+def _atm_chain_5000(minute):
+    """Chain so atm=5000, em=20, forward=5000 (call_mid==put_mid==10 at 5000)."""
+    return {
+        (minute, 4990.0, True): (14.5, 15.5), (minute, 4990.0, False): (4.5, 5.5),
+        (minute, 5000.0, True): (9.5, 10.5),  (minute, 5000.0, False): (9.5, 10.5),
+        (minute, 5010.0, True): (4.5, 5.5),   (minute, 5010.0, False): (14.5, 15.5),
+    }
+
+
+def _entry_chain_fly():
+    """09:30 chain: atm/em/forward = 5000/20/5000, call fly debit = 2.0.
+
+    body_em_mult 1.0, width 30 -> strikes (4990, 5020, 5050).
+    call mids low=15 (from atm chain), body=8, high=3 -> debit 15+3-16 = 2.0.
+    """
+    q = _atm_chain_5000("09:30")
+    q.update({
+        ("09:30", 5020.0, True): (7.5, 8.5),   # body mid 8.0
+        ("09:30", 5050.0, True): (2.5, 3.5),   # high mid 3.0
+    })
+    return q
+
+
+def _final_anchor_forward_5020(q):
+    """Give the 16:00 anchor an ATM chain at 5020 -> settlement forward 5020."""
+    q.update({
+        ("16:00", 5015.0, True): (12.0, 13.0), ("16:00", 5015.0, False): (7.0, 8.0),
+        ("16:00", 5020.0, True): (9.5, 10.5),  ("16:00", 5020.0, False): (9.5, 10.5),
+        ("16:00", 5025.0, True): (7.0, 8.0),   ("16:00", 5025.0, False): (12.0, 13.0),
+    })
+    return q
+
+
+def test_evaluate_day_hold_to_expiry_win():
+    cfg = bf.ButterflyConfig(side="call", anchors=["09:30", "16:00"], exit_model="hold")
+    q = _final_anchor_forward_5020(_entry_chain_fly())
+    r = bf.evaluate_day(q, cfg)
+    assert r["skip"] is None
+    assert r["kind"] == "expiry"
+    assert r["debit"] == 2.0
+    assert r["exit_mark"] == 30.0           # intrinsic at S=5020 (body) = width
+    assert r["pnl"] == 2800.0               # (30 - 2) * 100
+
+
+def test_evaluate_day_gate_blocks_rich_debit():
+    cfg = bf.ButterflyConfig(side="call", anchors=["09:30", "16:00"], exit_model="hold")
+    q = _entry_chain_fly()
+    q[("09:30", 5020.0, True)] = (6.0, 6.0)   # body mid 6 -> debit 15+3-12 = 6.0 (20% of 30)
+    r = bf.evaluate_day(q, cfg)
+    assert r["skip"] == "gate"
+
+
+def test_evaluate_day_target_exit():
+    cfg = bf.ButterflyConfig(side="call", anchors=["09:30", "12:00", "16:00"],
+                             exit_model="target", target_mult=2.0)
+    q = _final_anchor_forward_5020(_entry_chain_fly())
+    # 12:00 mark: low=9, body=1, high=0.5 -> value = 9 + 0.5 - 2 = 7.5; profit 5.5 >= 2*2=4
+    # Note: _mid(0.0,1.0) returns ask=1.0 (bid<=0 shortcut), so use (0.25,0.75) to get mid=0.5
+    q.update({
+        ("12:00", 4990.0, True): (8.5, 9.5), ("12:00", 5020.0, True): (0.5, 1.5),
+        ("12:00", 5050.0, True): (0.25, 0.75),
+    })
+    r = bf.evaluate_day(q, cfg)
+    assert r["kind"] == "target"
+    assert r["exit_anchor"] == "12:00"
+    assert r["exit_mark"] == 7.5
+    assert r["pnl"] == 550.0                # (7.5 - 2) * 100
+
+
+def test_evaluate_day_trail_exit():
+    cfg = bf.ButterflyConfig(side="call",
+                             anchors=["09:30", "10:00", "10:30", "16:00"],
+                             exit_model="trail", trail_arm_pct=0.50)
+    q = _final_anchor_forward_5020(_entry_chain_fly())
+    # 10:00 profit peaks; 10:30 retraces past the AM giveback (0.625 of peak) -> exit
+    # 10:00 value: low=10, body=1, high~0 -> ~8.0 ; profit ~6 (armed, peak ~6)
+    # Note: _mid(0.0,0.0) returns None, so use (0.01,0.01) for the near-zero high wing
+    q.update({
+        ("10:00", 4990.0, True): (9.5, 10.5), ("10:00", 5020.0, True): (0.5, 1.5),
+        ("10:00", 5050.0, True): (0.01, 0.01),
+    })
+    # 10:30: value must be exactly 2.0 for pnl=(2-2)*100=0.
+    # low=4, high=0.01, body=1.005 -> 4 + 0.01 - 2*1.005 = 2.00
+    # profit 0.0 <= peak*(1-0.625)~2.25 -> trail fires
+    q.update({
+        ("10:30", 4990.0, True): (3.5, 4.5), ("10:30", 5020.0, True): (1.005, 1.005),
+        ("10:30", 5050.0, True): (0.01, 0.01),
+    })
+    r = bf.evaluate_day(q, cfg)
+    assert r["kind"] == "trail"
+    assert r["exit_anchor"] == "10:30"
+    assert r["exit_mark"] == 2.0
+    assert r["pnl"] == 0.0                   # (2.0 - 2.0) * 100
+
+
+def test_evaluate_day_with_costs():
+    cfg = bf.ButterflyConfig(side="call", anchors=["09:30", "16:00"], exit_model="hold",
+                             slippage_per_leg=0.05, commission_per_leg=1.0)
+    q = _final_anchor_forward_5020(_entry_chain_fly())
+    r = bf.evaluate_day(q, cfg)
+    # gross 2800; expiry cash-settle: entry slip 0.05*4*100 = 20; no exit slip;
+    # commission 4 legs * 1.0 (open only) = 4 -> net 2800 - 24 = 2776
+    assert r["pnl"] == 2776.0
+
+
+def test_evaluate_day_skips_no_atm():
+    cfg = bf.ButterflyConfig()
+    assert bf.evaluate_day({}, cfg)["skip"] == "no_atm"
+
+
+def test_trail_giveback_by_time_of_day():
+    assert bf.trail_giveback("11:30") == 0.625
+    assert bf.trail_giveback("12:30") == 0.35
+    assert bf.trail_giveback("14:30") == 0.30
