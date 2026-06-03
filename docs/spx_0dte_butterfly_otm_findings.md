@@ -70,18 +70,51 @@ big-move / tail days — and differ by side (call drops 69, put drops 9, coin 44
 variant is silently scored on a different, truncation-selected subset of days. So the
 apparent `anti` edge cannot be trusted on this cache.
 
-## Verdict (preliminary)
-- The advertised structure (1σ body, 9:1 gate, follow-the-trend) shows **no edge**: the
-  gate is unfillable, `hull` ≈ `coin` ≈ negative net.
-- The sweep surfaced a **plausible but unproven** counter-thesis: **`anti` (fade the
-  morning trend) / hold-to-expiry** is net-positive — consistent with intraday 0DTE
-  mean-reversion. It is economically sensible but **confounded by ±100pt truncation**
-  and weak (t≈1.7), so it can be neither confirmed nor dismissed on the current data.
+### 6. The author's actual guide differs from the deck — and I had tested the wrong setup
+Per fattail.ai's full SPX guide (updated Apr 2026), the real trade is **centered, not
+1σ-OTM**: body **at-the-money / at the GEX magnet** ("where price settles"), **narrow
+10/15/20/25pt** wings (4 VIX regimes), entry **9:45–11:00** (it explicitly calls "a
+butterfly at 9:31 gambling"), exit by **profit target (75–350% of risk)**, and — the
+core — a **GEX regime filter**: trade centered flies only on **positive-GEX
+(mean-reverting)** days; go directional or sit out on **negative-GEX (trending)** days.
 
-## Decision: the ±250pt backfill is now worth running
-Earlier I expected the wider backfill to be a formality. The free sweep changed that: it
-produced an **ambiguous, truncation-contaminated positive**, not a clean negative. The
-±250pt window (`no_debit` skips → ~0) removes the side-dependent selection bias and
-includes the tail days, giving a **clean, trustworthy** WF-CV answer on whether the
-`anti`/mean-reversion edge is real. Cost ≈ **$11 Databento**, ~1 cycle. Recommended.
-**Pending user go/no-go.**
+Re-tested faithfully on the existing cache (centered ATM body, narrow widths, 09:45,
+**no truncation** — no_debit ≈ 3–8):
+
+| Setup | Mean/trade (mid) | Mean/trade (net) | Net Sharpe |
+|---|---|---|---|
+| centered/10w/hold | +$2.8 | −$21.2 | −1.28 |
+| centered/15w/hold | +$2.9 | −$21.1 | −0.74 |
+| centered/20w/hold | +$3.3 | −$20.7 | −0.51 |
+| centered/15w/**target 0.75×** | −$24.3 | **−$59.3** | −3.36 |
+| centered/15w/target 2.0× | −$3.7 | −$30.0 | −1.12 |
+| centered/15w/hold/**gates-on** (n=65) | +$32.4 | +$8.4 | +0.41 (t≈0.2, n.s.) |
+
+Two clean conclusions: (a) the centered fly is **~zero-EV at mid, negative net** — same
+as every other variant; (b) **profit-targeting makes it strictly worse** — exiting
+winners early clips the convex right tail (the whole edge) while losers still run to max
+loss, inverting positive skew into negative. This contradicts the guide's own
+"take-profit-at-75%" management.
+
+## Verdict
+Across **both** of the author's framings — the deck's 1σ-OTM/9:1 directional fly **and**
+the guide's centered/narrow/profit-target fly — there is **no net-of-cost edge** when you
+trade every day. At mid the structure is efficiently priced (~zero-EV); 4-leg costs make
+it a reliable loser. The deck's 9:1 gate is unfillable at a 1σ body; direction (Hull) ≈
+coin flip; profit targets destroy the convexity. The only flickers (`anti`/mean-reversion
++$76 confounded by truncation; narrow-ATM gates-on +$8 at n=65) are weak or contaminated.
+
+**The one untested ingredient is the author's actual edge claim: the GEX regime filter**
+(centered fly + body at the GEX magnet, *only on positive-gamma days*). My runs trade
+every day, so −GEX trending days (price blows through the narrow body → max loss) drown
+any +GEX mean-reversion edge. The mean-reversion flicker I *did* see is consistent with
+this mechanism.
+
+## Decision: to test the real claim, we need GEX (open-interest) data
+GEX = Σ(OI × gamma × …) per strike — it needs **per-strike open interest / dealer
+gamma**, which the cbbo quote cache lacks. Testing the author's actual strategy faithfully
+requires pulling OI (a separate Databento schema) and computing the daily GEX regime +
+magnet strike, then: trade the centered fly only on +GEX days, body at the magnet.
+- The ±250pt backfill (in progress) cleanly enables the **−GEX directional/wide** variants.
+- A GEX/OI pull would enable the **+GEX centered** variant — the author's core edge.
+**Pending user direction on whether to pursue the GEX data.**

@@ -279,7 +279,11 @@ def main() -> int:
     p.add_argument("--dir-mode", default="hull", choices=["hull", "call", "put", "coin", "anti"])
     p.add_argument("--width-mode", default="regime", choices=["regime", "fixed"])
     p.add_argument("--fixed-width", type=float, default=40.0)
+    p.add_argument("--body-em-mult", type=float, default=1.0,
+                   help="body offset in EM multiples (0 = ATM/centered per the guide; 1.0 = 1sigma)")
     p.add_argument("--exit", default="hold", choices=["hold", "target", "trail"])
+    p.add_argument("--target-mult", type=float, default=2.0,
+                   help="profit target as a multiple of debit (0.75 = 75%% return on risk)")
     p.add_argument("--gates-off", action="store_true",
                    help="disable the 10%%-debit / 9:1 entry gate (trade every day)")
     p.add_argument("--slippage", type=float, default=0.05)
@@ -303,14 +307,17 @@ def main() -> int:
     gates_on = not args.gates_off
     gtag = "gates-off" if args.gates_off else "gates-on"
     base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
-                              gates_on=gates_on)
+                              gates_on=gates_on, body_em_mult=args.body_em_mult,
+                              target_mult=args.target_mult)
     headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width, trend)
-    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag} (mid, zero-cost)", headline)
+    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag} "
+           f"body={args.body_em_mult}EM (mid, zero-cost)", headline)
     if headline.get("n"):
         _regime_breakdown(headline)
 
     base_c = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
-                                gates_on=gates_on,
+                                gates_on=gates_on, body_em_mult=args.body_em_mult,
+                                target_mult=args.target_mult,
                                 slippage_per_leg=args.slippage, commission_per_leg=args.commission)
     costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width, trend)
     _print(f"WITH COSTS (slip=${args.slippage}/leg, comm=${args.commission}/leg)", costs)
