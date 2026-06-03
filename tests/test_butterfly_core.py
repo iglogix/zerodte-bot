@@ -74,3 +74,46 @@ def test_passes_gates():
     assert bf.passes_gates(0.0, cfg) is False       # non-positive debit
     cfg_off = bf.ButterflyConfig(width=30.0, gates_on=False)
     assert bf.passes_gates(9.9, cfg_off) is True    # gates disabled
+
+
+# --- Task 3: Direction filter (Hull MA), coin-flip, regime width ---
+from datetime import date as _date
+
+
+def test_wma_weights_recent_most():
+    # WMA of [1,2,3] with n=3: (1*1 + 2*2 + 3*3) / (1+2+3) = 14/6
+    assert abs(bf.wma([1.0, 2.0, 3.0], 3) - (14.0 / 6.0)) < 1e-9
+
+
+def test_hull_trend_up_and_down():
+    up = [float(x) for x in range(1, 40)]          # strictly rising
+    assert bf.hull_trend(up, 21) > 0
+    down = [float(x) for x in range(40, 1, -1)]     # strictly falling
+    assert bf.hull_trend(down, 21) < 0
+
+
+def test_hull_trend_insufficient_history_returns_zero():
+    assert bf.hull_trend([1.0, 2.0, 3.0], 21) == 0
+
+
+def test_coin_flip_side_deterministic_by_date():
+    # parity of ordinal: even -> call, odd -> put; same date always same side
+    d = _date(2025, 1, 2)
+    assert bf.coin_flip_side(d) in ("call", "put")
+    assert bf.coin_flip_side(d) == bf.coin_flip_side(d)
+    assert bf.coin_flip_side(_date(2025, 1, 2)) != bf.coin_flip_side(_date(2025, 1, 3))
+
+
+def test_resolve_side_modes():
+    up = [float(x) for x in range(1, 40)]
+    assert bf.resolve_side("call", _date(2025, 1, 2), up) == "call"
+    assert bf.resolve_side("put", _date(2025, 1, 2), up) == "put"
+    assert bf.resolve_side("hull", _date(2025, 1, 2), up) == "call"
+    assert bf.resolve_side("anti", _date(2025, 1, 2), up) == "put"
+
+
+def test_regime_width():
+    assert bf.regime_width(14.0) == 25.0    # Zombieland (<17)
+    assert bf.regime_width(22.0) == 40.0    # Goldilocks (17-32)
+    assert bf.regime_width(40.0) == 55.0    # Chaos (>=32)
+    assert bf.regime_width(None) == 40.0    # missing VIX -> mid default

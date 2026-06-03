@@ -92,3 +92,76 @@ def passes_gates(debit: float, cfg: ButterflyConfig) -> bool:
         return False
     r2r = (cfg.width - debit) / debit
     return debit <= cfg.max_debit_pct * cfg.width and r2r >= cfg.min_r2r
+
+
+# --- Task 3: Direction filter (Hull MA), coin-flip, regime width ---
+
+def wma(values: List[float], n: int) -> Optional[float]:
+    """Linearly-weighted moving average of the last n values (weight = recency)."""
+    if len(values) < n or n <= 0:
+        return None
+    window = values[-n:]
+    denom = n * (n + 1) / 2
+    return sum((i + 1) * window[i] for i in range(n)) / denom
+
+
+def _hma_series(values: List[float], n: int) -> List[float]:
+    """Hull MA series: HMA = WMA(2*WMA(n/2) - WMA(n), sqrt(n))."""
+    half, sq = max(1, n // 2), max(1, int(round(math.sqrt(n))))
+    raw: List[float] = []
+    for i in range(len(values)):
+        w_half = wma(values[: i + 1], half)
+        w_full = wma(values[: i + 1], n)
+        if w_half is None or w_full is None:
+            raw.append(float("nan"))
+        else:
+            raw.append(2 * w_half - w_full)
+    out: List[float] = []
+    for i in range(len(raw)):
+        valid = [x for x in raw[: i + 1] if not math.isnan(x)]
+        h = wma(valid, sq) if len(valid) >= sq else None
+        out.append(h if h is not None else float("nan"))
+    return out
+
+
+def hull_trend(daily_closes: List[float], n: int = 21) -> int:
+    """Sign of the Hull-MA slope using only the supplied (pre-entry) closes.
+
+    Returns +1 (up), -1 (down), or 0 (flat / insufficient history).
+    """
+    hma = _hma_series(daily_closes, n)
+    valid = [x for x in hma if not math.isnan(x)]
+    if len(valid) < 2:
+        return 0
+    slope = valid[-1] - valid[-2]
+    return 1 if slope > 0 else (-1 if slope < 0 else 0)
+
+
+def coin_flip_side(d: date) -> str:
+    """Deterministic ~50/50 baseline: even ordinal -> call, odd -> put."""
+    return "call" if d.toordinal() % 2 == 0 else "put"
+
+
+def resolve_side(mode: str, d: date, closes_before: List[float], n: int = 21) -> str:
+    """Map a direction MODE to a side. closes_before excludes the entry day."""
+    if mode == "call":
+        return "call"
+    if mode == "put":
+        return "put"
+    if mode == "coin":
+        return coin_flip_side(d)
+    t = hull_trend(closes_before, n)
+    if mode == "anti":
+        return "put" if t >= 0 else "call"
+    return "call" if t >= 0 else "put"   # "hull" (default)
+
+
+def regime_width(vix: Optional[float]) -> float:
+    """Representative wing width per VIX regime (deck bands: <17 / 17-32 / 32+)."""
+    if vix is None:
+        return 40.0
+    if vix < 17:
+        return 25.0
+    if vix < 32:
+        return 40.0
+    return 55.0
