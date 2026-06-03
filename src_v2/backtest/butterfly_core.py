@@ -222,7 +222,7 @@ def evaluate_day(quotes, cfg: ButterflyConfig,
 
     if cfg.exit_model in ("target", "trail"):
         for a in cfg.anchors:
-            if a == ea or _to_min(a) > eod:
+            if _to_min(a) <= _to_min(ea) or _to_min(a) > eod:
                 continue
             m = fly_mark(quotes, a, strikes, is_call)
             if m is None:

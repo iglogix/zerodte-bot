@@ -242,3 +242,29 @@ def test_trail_giveback_by_time_of_day():
     assert bf.trail_giveback("11:30") == 0.625
     assert bf.trail_giveback("12:30") == 0.35
     assert bf.trail_giveback("14:30") == 0.30
+
+
+def test_evaluate_day_put_side_hold_win():
+    # Downtrend day: put fly. forward 5000, em 20, body_em_mult 1.0 -> body 4980.
+    # width 30 -> put strikes (4950, 4980, 5010). Put mids: low=3, body=8, high=15
+    # -> debit = 3 + 15 - 16 = 2.0 (gates pass: 2/30, r2r 14).
+    cfg = bf.ButterflyConfig(side="put", anchors=["09:30", "16:00"], exit_model="hold")
+    q = _atm_chain_5000("09:30")
+    q.update({
+        ("09:30", 4950.0, False): (2.5, 3.5),   # low put mid 3.0
+        ("09:30", 4980.0, False): (7.5, 8.5),    # body put mid 8.0
+        ("09:30", 5010.0, False): (14.5, 15.5),  # high put mid 15.0
+    })
+    # 16:00 chain with forward at 4980 (body) -> put fly intrinsic = width = 30
+    q.update({
+        ("16:00", 4975.0, True): (12.0, 13.0), ("16:00", 4975.0, False): (7.0, 8.0),
+        ("16:00", 4980.0, True): (9.5, 10.5),  ("16:00", 4980.0, False): (9.5, 10.5),
+        ("16:00", 4985.0, True): (7.0, 8.0),   ("16:00", 4985.0, False): (12.0, 13.0),
+    })
+    r = bf.evaluate_day(q, cfg)
+    assert r["skip"] is None
+    assert r["side"] == "put"
+    assert r["kind"] == "expiry"
+    assert r["debit"] == 2.0
+    assert r["exit_mark"] == 30.0      # put fly intrinsic at S=4980 (body) = width
+    assert r["pnl"] == 2800.0          # (30 - 2) * 100
