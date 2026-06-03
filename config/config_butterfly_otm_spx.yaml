@@ -1,0 +1,39 @@
+# config/config_butterfly_otm_spx.yaml
+# Reference defaults + sweep grid for the OTM 0DTE butterfly backtest.
+# The analytical evaluator takes CLI overrides; this file documents intent.
+bot:
+  name: "spx-0dte-butterfly-otm"
+  symbol: "SPX"
+
+strategy:
+  entry_time: "09:30"
+  body_em_mult: 1.0           # body 1-sigma (ATM-straddle EM) OTM
+  direction: "hull"           # 21-period Hull MA trend
+  eod_force_close: "15:50"
+  gates:
+    max_debit_pct: 0.10
+    min_r2r: 9.0
+
+regime_width:                 # VIX prior-close -> representative wing width
+  zombieland: {vix_lt: 17, width: 25}
+  goldilocks: {vix_lt: 32, width: 40}
+  chaos:      {vix_gte: 32, width: 55}
+
+sweep:
+  dir_modes: [hull, call, put, coin, anti]
+  exit_models: [hold, target, trail]
+  entry_times: ["09:30", "10:00", "10:30"]
+  widths: {mode: [regime, fixed], fixed: [25, 40, 55]}
+  body_em_mult: [1.0, 0.75]
+
+costs:
+  slippage_per_leg: 0.05      # sweep 0.025 / 0.05 / 0.10
+  commission_per_leg: 1.0
+
+backtest:
+  cache_dir: "data/cbbo_cache_fly_10min"
+  bars: "data/spy_1m.csv"
+  vix: "data/vix1d_daily.csv"
+  start: "2022-05-11"
+  end: "2026-03-30"
+  wf_cv: {ratio: 5, folds: 4}
