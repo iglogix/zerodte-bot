@@ -197,15 +197,20 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Analytical OTM butterfly evaluator")
     p.add_argument("--cache", default="data/cbbo_cache_fly_10min")
     p.add_argument("--bars", default="data/spy_1m.csv")
-    p.add_argument("--vix", default="data/vix1d_daily.csv")
+    # vix9d covers the full 2021-03..2026 range; vix1d only starts 2023-04.
+    p.add_argument("--vix", default="data/vix9d_daily.csv")
     p.add_argument("--start", default="2022-05-11")
     p.add_argument("--end", default="2026-03-30")
-    p.add_argument("--entry", default="09:30")
+    # cbbo-1m bars are stamped at interval END, so the 09:30->09:31 bar is
+    # labeled "09:31" — that is the real first tradable anchor (not "09:30").
+    p.add_argument("--entry", default="09:31")
     p.add_argument("--anchors", default="")
     p.add_argument("--dir-mode", default="hull", choices=["hull", "call", "put", "coin", "anti"])
     p.add_argument("--width-mode", default="regime", choices=["regime", "fixed"])
     p.add_argument("--fixed-width", type=float, default=40.0)
     p.add_argument("--exit", default="hold", choices=["hold", "target", "trail"])
+    p.add_argument("--gates-off", action="store_true",
+                   help="disable the 10%%-debit / 9:1 entry gate (trade every day)")
     p.add_argument("--slippage", type=float, default=0.05)
     p.add_argument("--commission", type=float, default=1.0)
     p.add_argument("--sweep", action="store_true")
@@ -223,13 +228,17 @@ def main() -> int:
         sweep(by_date, closes, args.entry, anchors, Path(args.out))
         return 0
 
-    base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit)
+    gates_on = not args.gates_off
+    gtag = "gates-off" if args.gates_off else "gates-on"
+    base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
+                              gates_on=gates_on)
     headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width)
-    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode} (mid, zero-cost)", headline)
+    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag} (mid, zero-cost)", headline)
     if headline.get("n"):
         _regime_breakdown(headline)
 
     base_c = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
+                                gates_on=gates_on,
                                 slippage_per_leg=args.slippage, commission_per_leg=args.commission)
     costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width)
     _print(f"WITH COSTS (slip=${args.slippage}/leg, comm=${args.commission}/leg)", costs)
