@@ -32,3 +32,45 @@ def test_fly_intrinsic_put():
     assert bf.fly_intrinsic(strikes, False, 4980.0) == 30.0  # peak at body
     assert bf.fly_intrinsic(strikes, False, 5020.0) == 0.0   # above high wing
     assert bf.fly_intrinsic(strikes, False, 4940.0) == 0.0   # below low wing
+
+
+def _call_legs_quotes(minute):
+    # call mids: low=15.0, body=8.0, high=3.0 -> value = 15 + 3 - 2*8 = 2.0
+    return {
+        (minute, 4990.0, True): (14.5, 15.5),
+        (minute, 5020.0, True): (7.5, 8.5),
+        (minute, 5050.0, True): (2.5, 3.5),
+    }
+
+
+def test_fly_value_call():
+    q = _call_legs_quotes("09:30")
+    assert bf.fly_value(q, "09:30", (4990.0, 5020.0, 5050.0), True) == 2.0
+
+
+def test_fly_value_none_when_leg_missing():
+    q = {("09:30", 4990.0, True): (14.5, 15.5)}
+    assert bf.fly_value(q, "09:30", (4990.0, 5020.0, 5050.0), True) is None
+
+
+def test_fly_mark_clamps_negative_to_zero():
+    # noisy mids producing a slightly negative raw value clamp to 0
+    q = {
+        ("10:00", 4990.0, True): (1.0, 1.0),
+        ("10:00", 5020.0, True): (1.0, 1.0),
+        ("10:00", 5050.0, True): (0.0, 0.0),   # mid None -> treated as missing
+    }
+    # high leg missing -> mark None
+    assert bf.fly_mark(q, "10:00", (4990.0, 5020.0, 5050.0), True) is None
+    q[("10:00", 5050.0, True)] = (0.4, 0.6)    # mid 0.5; raw = 1 + 0.5 - 2 = -0.5 -> clamp 0
+    assert bf.fly_mark(q, "10:00", (4990.0, 5020.0, 5050.0), True) == 0.0
+
+
+def test_passes_gates():
+    cfg = bf.ButterflyConfig(width=30.0, max_debit_pct=0.10, min_r2r=9.0)
+    assert bf.passes_gates(2.0, cfg) is True      # 2/30 = 6.7%, r2r 14 -> ok
+    assert bf.passes_gates(3.0, cfg) is True       # 3/30 = 10%, r2r 9 -> exactly ok
+    assert bf.passes_gates(4.0, cfg) is False      # 4/30 = 13.3% -> too rich
+    assert bf.passes_gates(0.0, cfg) is False       # non-positive debit
+    cfg_off = bf.ButterflyConfig(width=30.0, gates_on=False)
+    assert bf.passes_gates(9.9, cfg_off) is True    # gates disabled

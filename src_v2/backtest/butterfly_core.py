@@ -64,3 +64,31 @@ def fly_intrinsic(strikes: Strikes, is_call: bool, S: float) -> float:
     if is_call:
         return (max(S - k_low, 0.0) - 2 * max(S - k_body, 0.0) + max(S - k_high, 0.0))
     return (max(k_high - S, 0.0) - 2 * max(k_body - S, 0.0) + max(k_low - S, 0.0))
+
+
+def fly_value(quotes, minute: str, strikes: Strikes, is_call: bool,
+              fallback_min: int = 5) -> Optional[float]:
+    """Raw combined value of the 1-2-1 fly at `minute` (long low + long high - 2*body)."""
+    k_low, k_body, k_high = strikes
+    lo = quote_mid(quotes, minute, k_low, is_call, fallback_min)
+    bo = quote_mid(quotes, minute, k_body, is_call, fallback_min)
+    hi = quote_mid(quotes, minute, k_high, is_call, fallback_min)
+    if lo is None or bo is None or hi is None:
+        return None
+    return lo + hi - 2 * bo
+
+
+def fly_mark(quotes, minute: str, strikes: Strikes, is_call: bool,
+             fallback_min: int = 5) -> Optional[float]:
+    """Closeable mark = fly_value clamped to [0, +inf) (a long fly is never worth < 0)."""
+    v = fly_value(quotes, minute, strikes, is_call, fallback_min)
+    return None if v is None else max(v, 0.0)
+
+
+def passes_gates(debit: float, cfg: ButterflyConfig) -> bool:
+    if not cfg.gates_on:
+        return True
+    if debit <= 0:
+        return False
+    r2r = (cfg.width - debit) / debit
+    return debit <= cfg.max_debit_pct * cfg.width and r2r >= cfg.min_r2r
