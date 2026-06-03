@@ -54,18 +54,34 @@ Hold makes money in Goldilocks/Chaos but loses in Zombieland; the **trail** exit
 small per-regime samples ⇒ treat as noise, not a robust regime effect. **Chaos n=10 is
 tiny and biased** (only the Chaos days whose wide structure happened to fit ±100pt).
 
-## Preliminary verdict
-As specified, **no robust net-of-cost edge.** At mid the fly is ~zero-EV; realistic
-4-leg costs make it a reliable loser (Sharpe −0.4 to −0.65). Direction selection ≈
-coin flip. The advertised 9:1 gate is essentially unfillable. The single flicker of
-interest is **Chaos / hold (+$237/trade at mid)** — but it is under-sampled and
-under-covered by the ±100pt cache, and even a real positive Chaos mean is unlikely to
-overcome the per-trade cost drag given how rare Chaos days are.
+### 4. Free WF-CV sweep (120 combos × 4 folds, select on NET train Sharpe)
+Pooled **OOS net mean = +$70/trade** (mid +$94) — but fragile and confounded:
+- 3/4 folds picked `anti/hold/fixed:40/gOff`; folds 1–2 genuinely positive OOS (net
+  Sharpe 1.9, 1.0), fold 0 flat (−$3.9), **fold 3 blew up** (picked a degenerate
+  gates-on combo, n=12, net Sharpe −4.5).
+- Full-sample `anti/hold/fixed40/gOff` = **+$76/trade net, Sharpe 0.91**, positive in
+  all three regimes — vs `hull` −$25 and `coin` −$21.
 
-## Decision: is the ±250pt backfill worth it?
-The wider backfill's *only* incremental value is to **de-bias the Chaos regime** (add
-the truncated high-vol/high-EM days and full far-OTM strikes) — the one place with a
-hint of positive mean and the home of the "fat tail" thesis. Cost ≈ **$11 Databento**.
-Given the free evidence already shows no net edge in the dominant regimes and a brutal
-cost drag, the wider run is a *thoroughness* step to nail the Chaos claim, not a likely
-verdict-changer. **Pending user go/no-go on the spend.**
+### 5. ⚠️ The ±100pt cache contaminates these results
+`call`-only (+$28) **and** `put`-only (+$22) are *both* net-positive, yet their random
+mixture `coin` is **−$21**. That is impossible without a sampling artifact: the
+`no_debit` skips (strikes outside the ±100pt window) are **non-random** — they drop the
+big-move / tail days — and differ by side (call drops 69, put drops 9, coin 44). Each
+variant is silently scored on a different, truncation-selected subset of days. So the
+apparent `anti` edge cannot be trusted on this cache.
+
+## Verdict (preliminary)
+- The advertised structure (1σ body, 9:1 gate, follow-the-trend) shows **no edge**: the
+  gate is unfillable, `hull` ≈ `coin` ≈ negative net.
+- The sweep surfaced a **plausible but unproven** counter-thesis: **`anti` (fade the
+  morning trend) / hold-to-expiry** is net-positive — consistent with intraday 0DTE
+  mean-reversion. It is economically sensible but **confounded by ±100pt truncation**
+  and weak (t≈1.7), so it can be neither confirmed nor dismissed on the current data.
+
+## Decision: the ±250pt backfill is now worth running
+Earlier I expected the wider backfill to be a formality. The free sweep changed that: it
+produced an **ambiguous, truncation-contaminated positive**, not a clean negative. The
+±250pt window (`no_debit` skips → ~0) removes the side-dependent selection bias and
+includes the tail days, giving a **clean, trustworthy** WF-CV answer on whether the
+`anti`/mean-reversion edge is real. Cost ≈ **$11 Databento**, ~1 cycle. Recommended.
+**Pending user go/no-go.**
