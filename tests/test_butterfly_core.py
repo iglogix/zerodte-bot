@@ -112,6 +112,13 @@ def test_resolve_side_modes():
     assert bf.resolve_side("anti", _date(2025, 1, 2), up) == "put"
 
 
+def test_resolve_side_rejects_unknown_mode():
+    import pytest
+    up = [float(x) for x in range(1, 40)]
+    with pytest.raises(ValueError):
+        bf.resolve_side("bogus", _date(2025, 1, 2), up)
+
+
 def test_regime_width():
     assert bf.regime_width(14.0) == 25.0    # Zombieland (<17)
     assert bf.regime_width(22.0) == 40.0    # Goldilocks (17-32)

@@ -128,6 +128,9 @@ def hull_trend(daily_closes: List[float], n: int = 21) -> int:
     """Sign of the Hull-MA slope using only the supplied (pre-entry) closes.
 
     Returns +1 (up), -1 (down), or 0 (flat / insufficient history).
+    Requires at least ~n + round(sqrt(n)) closes (≈26 for n=21) before it can
+    return a non-zero trend; until then it returns 0, and hull/anti callers fall
+    to their flat-default side.
     """
     hma = _hma_series(daily_closes, n)
     valid = [x for x in hma if not math.isnan(x)]
@@ -150,10 +153,12 @@ def resolve_side(mode: str, d: date, closes_before: List[float], n: int = 21) ->
         return "put"
     if mode == "coin":
         return coin_flip_side(d)
+    if mode not in ("hull", "anti"):
+        raise ValueError(f"Unknown direction mode: {mode!r}")
     t = hull_trend(closes_before, n)
     if mode == "anti":
         return "put" if t >= 0 else "call"
-    return "call" if t >= 0 else "put"   # "hull" (default)
+    return "call" if t >= 0 else "put"   # "hull"
 
 
 def regime_width(vix: Optional[float]) -> float:
