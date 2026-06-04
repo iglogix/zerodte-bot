@@ -84,6 +84,25 @@ def precompute_trend(by_date: Dict, closes: List[Tuple[date, float]], n: int = 2
     return trend
 
 
+def precompute_morning(by_date: Dict, ref_anchor: str, entry_anchor: str) -> Dict[date, Optional[float]]:
+    """Per-day morning drift |fwd(entry) - fwd(ref)| / EM (a pre-trade +GEX proxy:
+    small drift = contained/range-bound morning). Uses only data up to the entry
+    anchor, so it is lookahead-free for an entry at `entry_anchor`."""
+    out: Dict[date, Optional[float]] = {}
+    for d, info in by_date.items():
+        q = info["quotes"]
+        a0 = bf.atm_from_chain(q, ref_anchor)
+        a1 = bf.atm_from_chain(q, entry_anchor)
+        if a0 is None or a1 is None:
+            out[d] = None
+            continue
+        f0 = bf.forward_from_chain(q, ref_anchor, a0)
+        f1 = bf.forward_from_chain(q, entry_anchor, a1)
+        em = bf.compute_em(q, entry_anchor, a1)
+        out[d] = None if (f0 is None or f1 is None or em is None or em <= 0) else abs(f1 - f0) / em
+    return out
+
+
 def _side_from_trend(dir_mode: str, d: date, t: int) -> str:
     if dir_mode == "call":
         return "call"
@@ -98,16 +117,25 @@ def _side_from_trend(dir_mode: str, d: date, t: int) -> str:
 
 def run_config(by_date: Dict, closes: List[Tuple[date, float]], base: bf.ButterflyConfig,
                dir_mode: str, width_mode: str, fixed_width: float,
-               trend_by_date: Optional[Dict[date, int]] = None) -> Dict:
+               trend_by_date: Optional[Dict[date, int]] = None,
+               morning: Optional[Dict[date, Optional[float]]] = None,
+               calm_max: Optional[float] = None) -> Dict:
     """Build per-day cfgs and aggregate (one trade/day).
 
     If `trend_by_date` is supplied, the Hull trend is read from it (fast path);
     otherwise it is computed per-day via build_day_cfg (slower, used for one-off runs).
+    If `calm_max` is set, days whose morning drift (`morning[d]`) exceeds it — or is
+    missing — are skipped (a pre-trade +GEX/range-bound proxy filter).
     """
     results: List[Dict] = []
     skips: Dict[str, int] = {}
     for d in sorted(by_date.keys()):
         info = by_date[d]
+        if calm_max is not None:
+            md = (morning or {}).get(d)
+            if md is None or md > calm_max:
+                skips["calm_filter"] = skips.get("calm_filter", 0) + 1
+                continue
         if trend_by_date is not None:
             side = _side_from_trend(dir_mode, d, trend_by_date.get(d, 0))
             width = bf.regime_width(info.get("vix")) if width_mode == "regime" else fixed_width
@@ -286,6 +314,10 @@ def main() -> int:
                    help="profit target as a multiple of debit (0.75 = 75%% return on risk)")
     p.add_argument("--gates-off", action="store_true",
                    help="disable the 10%%-debit / 9:1 entry gate (trade every day)")
+    p.add_argument("--calm-max", type=float, default=-1.0,
+                   help="+GEX proxy: only trade days whose 09:31->entry drift <= this x EM "
+                        "(<=0 disables the filter)")
+    p.add_argument("--ref-anchor", default="09:31", help="reference anchor for the calm-morning drift")
     p.add_argument("--slippage", type=float, default=0.05)
     p.add_argument("--commission", type=float, default=1.0)
     p.add_argument("--sweep", action="store_true")
@@ -304,13 +336,17 @@ def main() -> int:
         return 0
 
     trend = precompute_trend(by_date, closes)
+    calm_max = args.calm_max if args.calm_max > 0 else None
+    morning = precompute_morning(by_date, args.ref_anchor, args.entry) if calm_max is not None else None
     gates_on = not args.gates_off
     gtag = "gates-off" if args.gates_off else "gates-on"
+    ctag = f"/calm<={args.calm_max}EM" if calm_max is not None else ""
     base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
                               gates_on=gates_on, body_em_mult=args.body_em_mult,
                               target_mult=args.target_mult)
-    headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width, trend)
-    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag} "
+    headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width,
+                          trend, morning, calm_max)
+    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag}{ctag} "
            f"body={args.body_em_mult}EM (mid, zero-cost)", headline)
     if headline.get("n"):
         _regime_breakdown(headline)
@@ -319,7 +355,8 @@ def main() -> int:
                                 gates_on=gates_on, body_em_mult=args.body_em_mult,
                                 target_mult=args.target_mult,
                                 slippage_per_leg=args.slippage, commission_per_leg=args.commission)
-    costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width, trend)
+    costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width,
+                       trend, morning, calm_max)
     _print(f"WITH COSTS (slip=${args.slippage}/leg, comm=${args.commission}/leg)", costs)
 
     _write_trades(Path(args.out), headline, "headline")

@@ -96,25 +96,49 @@ winners early clips the convex right tail (the whole edge) while losers still ru
 loss, inverting positive skew into negative. This contradicts the guide's own
 "take-profit-at-75%" management.
 
+### 7. Calm-morning (+GEX proxy) filter — the regime signal is REAL but execution-bound
+A free, lookahead-free pre-trade proxy for the +GEX/range-bound regime: trade the centered
+fly only when the 09:31→09:45 drift ≤ X·EM (calm morning). Centered/15w/hold:
+
+| Calm filter | n | Mean (mid) | Net @ $0.05/leg | Net Sharpe |
+|---|---|---|---|---|
+| none | 937 | +$2.9 | −$21.1 | −0.74 |
+| ≤0.3 EM | 615 | +$13.0 | −$11.0 | −0.38 |
+| ≤0.2 EM | 444 | **+$20.7** (Sharpe 0.71) | −$3.3 | −0.11 |
+
+The mid edge rises **monotonically** as mornings get calmer (+$2.9 → +$20.7) — a
+dose-response that supports the author's GEX thesis: range-bound (+GEX) days favor the
+centered butterfly. **Cost sensitivity at calm≤0.2 (mid edge +$20.7):**
+
+| slip/leg, comm/leg | Net mean/trade | Net Sharpe |
+|---|---|---|
+| $0.10 / $1.00 (realistic retail) | −$23.3 | −0.80 |
+| $0.05 / $1.00 | −$3.3 | −0.11 |
+| $0.025 / $0.65 (good fills) | +$8.1 | +0.28 |
+| $0.00 / $0.65 (mid fills) | +$18.1 | +0.62 |
+
+**Break-even ≈ $0.04/leg slippage.** The edge is real but sits entirely inside the
+bid/ask spread of a 4-leg 0DTE structure. Caveat: the calm-filtered mid edge is only
+**t≈0.9** (n=444) — suggestive, not statistically robust; the *monotonicity* is the
+stronger evidence.
+
 ## Verdict
-Across **both** of the author's framings — the deck's 1σ-OTM/9:1 directional fly **and**
-the guide's centered/narrow/profit-target fly — there is **no net-of-cost edge** when you
-trade every day. At mid the structure is efficiently priced (~zero-EV); 4-leg costs make
-it a reliable loser. The deck's 9:1 gate is unfillable at a 1σ body; direction (Hull) ≈
-coin flip; profit targets destroy the convexity. The only flickers (`anti`/mean-reversion
-+$76 confounded by truncation; narrow-ATM gates-on +$8 at n=65) are weak or contaminated.
+- The deck's literal strategy (1σ-OTM body, 9:1 gate, follow-trend) has **no edge**: gate
+  unfillable, Hull ≈ coin ≈ negative.
+- The guide's centered/narrow fly is **efficiently priced (~zero-EV at mid)**; profit
+  targets make it worse (they clip the convex tail).
+- The author's **regime thesis is directionally CORRECT**: filtering to calm/+GEX
+  mornings monotonically improves the centered fly (+$2.9 → +$20.7/trade at mid).
+- **But the edge is execution-bound** — net-positive only below ~$0.04/leg slippage. For
+  realistic retail 0DTE fills ($0.10/leg ≈ half a wing spread) it loses; for a desk that
+  reliably gets near-mid fills it's marginally positive (Sharpe ~0.3–0.6). It is an
+  *execution-quality* play, not a structural free lunch — and weak (t≈0.9) on this sample.
 
-**The one untested ingredient is the author's actual edge claim: the GEX regime filter**
-(centered fly + body at the GEX magnet, *only on positive-gamma days*). My runs trade
-every day, so −GEX trending days (price blows through the narrow body → max loss) drown
-any +GEX mean-reversion edge. The mean-reversion flicker I *did* see is consistent with
-this mechanism.
-
-## Decision: to test the real claim, we need GEX (open-interest) data
-GEX = Σ(OI × gamma × …) per strike — it needs **per-strike open interest / dealer
-gamma**, which the cbbo quote cache lacks. Testing the author's actual strategy faithfully
-requires pulling OI (a separate Databento schema) and computing the daily GEX regime +
-magnet strike, then: trade the centered fly only on +GEX days, body at the magnet.
-- The ±250pt backfill (in progress) cleanly enables the **−GEX directional/wide** variants.
-- A GEX/OI pull would enable the **+GEX centered** variant — the author's core edge.
-**Pending user direction on whether to pursue the GEX data.**
+## Next steps (optional)
+- **Stronger regime signal:** replace the crude calm proxy with **real GEX** (Σ OI×gamma
+  per strike + magnet placement) — needs an open-interest data pull. Likely lands in the
+  same execution-bound zone but with a cleaner filter and magnet-nudged body.
+- **−GEX/wide variants:** the ±250pt backfill (done/in progress) enables clean tests of
+  directional/wide flies on trending days.
+- **Execution study:** model realistic per-leg fill quality on SPXW 0DTE wings to place
+  the break-even precisely.
