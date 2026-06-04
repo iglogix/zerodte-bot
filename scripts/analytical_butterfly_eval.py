@@ -28,12 +28,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src_v2.backtest.data_loader import BarLoader
 from src_v2.backtest import butterfly_core as bf
+from src_v2.backtest import gex
 from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
 
 
 def load_inputs(cache_dir: Path, bars_path: str, start: date, end: date,
-                vix_csv: str) -> Tuple[Dict, List[Tuple[date, float]]]:
-    """Return ({date: {quotes, spot_close, vix}}, ordered [(date, daily_close)])."""
+                vix_csv: str, oi_dir: Optional[str] = None
+                ) -> Tuple[Dict, List[Tuple[date, float]]]:
+    """Return ({date: {quotes, spot_close, vix, oi}}, ordered [(date, daily_close)])."""
     loader = BarLoader(bars_path, price_scale=10.0, symbol="SPX")
     vix_series = load_vix_series(vix_csv)
     by_date: Dict = {}
@@ -49,10 +51,17 @@ def load_inputs(cache_dir: Path, bars_path: str, start: date, end: date,
             continue
         with open(pkl, "rb") as f:
             quotes = pickle.load(f)
+        oi = None
+        if oi_dir:
+            oi_pkl = Path(oi_dir) / f"{d.isoformat()}.pkl"
+            if oi_pkl.exists():
+                with open(oi_pkl, "rb") as f:
+                    oi = pickle.load(f)
         by_date[d] = {
             "quotes": quotes,
             "spot_close": eod["close"] if eod else None,
             "vix": lookup_prior_close(vix_series, date.fromordinal(d.toordinal() - 1)),
+            "oi": oi,
         }
     return by_date, closes
 
@@ -103,6 +112,32 @@ def precompute_morning(by_date: Dict, ref_anchor: str, entry_anchor: str) -> Dic
     return out
 
 
+def precompute_gex(by_date: Dict, entry_anchor: str) -> Dict[date, Optional[Dict]]:
+    """Per-day GEX regime sign + magnet strike from OI + the entry chain. Uses only
+    prior-close OI and the entry-time chain, so it is lookahead-free."""
+    hours = max((16 * 60 - bf._to_min(entry_anchor)) / 60.0, 0.25)
+    T = (hours / 6.5) / 252.0   # trading-time years to the close
+    out: Dict[date, Optional[Dict]] = {}
+    for d, info in by_date.items():
+        oi = info.get("oi")
+        q = info["quotes"]
+        if not oi:
+            out[d] = None
+            continue
+        atm = bf.atm_from_chain(q, entry_anchor)
+        fwd = bf.forward_from_chain(q, entry_anchor, atm) if atm is not None else None
+        em = bf.compute_em(q, entry_anchor, atm) if atm is not None else None
+        if fwd is None or em is None or em <= 0:
+            out[d] = None
+            continue
+        sigma = gex.iv_from_em(fwd, em, T)
+        tg = gex.total_gex(oi, fwd, sigma, T)
+        mag = gex.magnet_strike(oi, fwd, sigma, T)
+        out[d] = {"sign": 1 if tg > 0 else (-1 if tg < 0 else 0),
+                  "gex": tg, "magnet": mag, "fwd": fwd, "em": em}
+    return out
+
+
 def _side_from_trend(dir_mode: str, d: date, t: int) -> str:
     if dir_mode == "call":
         return "call"
@@ -119,18 +154,25 @@ def run_config(by_date: Dict, closes: List[Tuple[date, float]], base: bf.Butterf
                dir_mode: str, width_mode: str, fixed_width: float,
                trend_by_date: Optional[Dict[date, int]] = None,
                morning: Optional[Dict[date, Optional[float]]] = None,
-               calm_max: Optional[float] = None) -> Dict:
+               calm_max: Optional[float] = None,
+               gex_info: Optional[Dict[date, Optional[Dict]]] = None,
+               gex_filter: bool = False, gex_magnet: bool = False) -> Dict:
     """Build per-day cfgs and aggregate (one trade/day).
 
     If `trend_by_date` is supplied, the Hull trend is read from it (fast path);
     otherwise it is computed per-day via build_day_cfg (slower, used for one-off runs).
     If `calm_max` is set, days whose morning drift (`morning[d]`) exceeds it — or is
-    missing — are skipped (a pre-trade +GEX/range-bound proxy filter).
+    missing — are skipped. If `gex_filter`, only positive-GEX days trade; if
+    `gex_magnet`, the body is placed at the GEX magnet strike (overriding body_em_mult).
     """
     results: List[Dict] = []
     skips: Dict[str, int] = {}
     for d in sorted(by_date.keys()):
         info = by_date[d]
+        gi = (gex_info or {}).get(d)
+        if gex_filter and (gi is None or gi["sign"] <= 0):
+            skips["gex_filter"] = skips.get("gex_filter", 0) + 1
+            continue
         if calm_max is not None:
             md = (morning or {}).get(d)
             if md is None or md > calm_max:
@@ -139,7 +181,10 @@ def run_config(by_date: Dict, closes: List[Tuple[date, float]], base: bf.Butterf
         if trend_by_date is not None:
             side = _side_from_trend(dir_mode, d, trend_by_date.get(d, 0))
             width = bf.regime_width(info.get("vix")) if width_mode == "regime" else fixed_width
-            cfg = dataclasses.replace(base, side=side, width=width)
+            bem = base.body_em_mult
+            if gex_magnet and gi and gi.get("em", 0) > 0 and gi.get("magnet") is not None:
+                bem = (gi["magnet"] - gi["fwd"]) / gi["em"]
+            cfg = dataclasses.replace(base, side=side, width=width, body_em_mult=bem)
         else:
             cfg = bf.build_day_cfg(base, dir_mode, width_mode, d,
                                    closes_before(closes, d), info.get("vix"), fixed_width)
@@ -318,6 +363,9 @@ def main() -> int:
                    help="+GEX proxy: only trade days whose 09:31->entry drift <= this x EM "
                         "(<=0 disables the filter)")
     p.add_argument("--ref-anchor", default="09:31", help="reference anchor for the calm-morning drift")
+    p.add_argument("--oi-dir", default="data/oi_cache", help="open-interest cache for GEX")
+    p.add_argument("--gex-filter", action="store_true", help="trade only positive-GEX days")
+    p.add_argument("--gex-magnet", action="store_true", help="place the body at the GEX magnet strike")
     p.add_argument("--slippage", type=float, default=0.05)
     p.add_argument("--commission", type=float, default=1.0)
     p.add_argument("--sweep", action="store_true")
@@ -326,9 +374,10 @@ def main() -> int:
 
     anchors = ([a.strip() for a in args.anchors.split(",")] if args.anchors
                else bf.make_anchors(args.entry, "16:00", 10))
+    use_gex = args.gex_filter or args.gex_magnet
     by_date, closes = load_inputs(Path(args.cache), args.bars,
                                   date.fromisoformat(args.start), date.fromisoformat(args.end),
-                                  args.vix)
+                                  args.vix, args.oi_dir if use_gex else None)
     print(f"Days with cache: {len(by_date)}  entry={args.entry}  anchors={len(anchors)}")
 
     if args.sweep:
@@ -338,15 +387,21 @@ def main() -> int:
     trend = precompute_trend(by_date, closes)
     calm_max = args.calm_max if args.calm_max > 0 else None
     morning = precompute_morning(by_date, args.ref_anchor, args.entry) if calm_max is not None else None
+    gex_info = precompute_gex(by_date, args.entry) if use_gex else None
+    if use_gex:
+        n_oi = sum(1 for v in by_date.values() if v.get("oi"))
+        n_pos = sum(1 for g in (gex_info or {}).values() if g and g["sign"] > 0)
+        print(f"GEX: {n_oi} days with OI; {n_pos} positive-GEX days")
     gates_on = not args.gates_off
     gtag = "gates-off" if args.gates_off else "gates-on"
     ctag = f"/calm<={args.calm_max}EM" if calm_max is not None else ""
+    gxtag = (("/+GEX" if args.gex_filter else "") + ("/magnet" if args.gex_magnet else ""))
     base = bf.ButterflyConfig(entry_anchor=args.entry, anchors=anchors, exit_model=args.exit,
                               gates_on=gates_on, body_em_mult=args.body_em_mult,
                               target_mult=args.target_mult)
     headline = run_config(by_date, closes, base, args.dir_mode, args.width_mode, args.fixed_width,
-                          trend, morning, calm_max)
-    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag}{ctag} "
+                          trend, morning, calm_max, gex_info, args.gex_filter, args.gex_magnet)
+    _print(f"HEADLINE {args.dir_mode}/{args.exit}/{args.width_mode}/{gtag}{ctag}{gxtag} "
            f"body={args.body_em_mult}EM (mid, zero-cost)", headline)
     if headline.get("n"):
         _regime_breakdown(headline)
@@ -356,7 +411,7 @@ def main() -> int:
                                 target_mult=args.target_mult,
                                 slippage_per_leg=args.slippage, commission_per_leg=args.commission)
     costs = run_config(by_date, closes, base_c, args.dir_mode, args.width_mode, args.fixed_width,
-                       trend, morning, calm_max)
+                       trend, morning, calm_max, gex_info, args.gex_filter, args.gex_magnet)
     _print(f"WITH COSTS (slip=${args.slippage}/leg, comm=${args.commission}/leg)", costs)
 
     _write_trades(Path(args.out), headline, "headline")
