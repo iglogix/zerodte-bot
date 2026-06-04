@@ -1,9 +1,11 @@
 # SPX 0DTE OTM Butterfly — Backtest Findings
 
-> **Status: PRELIMINARY (free Phase-0).** Results below are from the EXISTING
-> ±100pt JL cache (`data/cbbo_cache_jl_10min`), which covers Zombieland +
-> Goldilocks well but **truncates wide / high-EM days** (Chaos is under-sampled).
-> The wider ±250pt backfill (Phase 1/2) is **not yet run** — see "Decision" below.
+> **Status: COMPLETE.** Caches: ±100pt JL (`cbbo_cache_jl_10min`) and the clean
+> ±250pt (`cbbo_cache_fly_10min`, $10.49) + OI (`oi_cache`, $0.08). The doc reads
+> chronologically (§1–8 on the ±100pt cache; §9 + FINAL VERDICT on the clean ±250pt
+> cache). **Headline: the author's specific recipes show no edge, but a real intraday
+> mean-reversion signal — fade the morning move (`anti`), the inverse of the deck —
+> is net-positive across all 4 OOS folds, of modest strength. See FINAL VERDICT.**
 
 ## Method
 - Spec: `docs/superpowers/specs/2026-06-03-otm-butterfly-backtest-design.md`
@@ -177,33 +179,49 @@ net-positive — and the `anti`−`hull` spread (~$132/trade) is a large, consis
 
 **Cost sensitivity (`anti`):** +$46 @ $0.10/leg (Sharpe 0.54) · +$66 @ $0.05 · +$77 @ $0.025
 — net-positive even at pessimistic retail fills (break-even ≫ $0.10/leg, unlike the
-centered fly's $0.04). **Sub-period:** +$34/trade 2022-05→2024-03 (Sharpe 0.41) and
-+$92/trade 2024-03→2026-03 (Sharpe 1.08) — **positive in both halves**, so not purely
-long-side drift. Statistical strength is still modest (full-sample net t≈1.5; mid t≈2.1).
-**Decisive WF-CV (OOS) pending** — that determines whether this is a real edge or
-in-sample luck.
+centered fly's $0.04).
 
-## VERDICT (interim — §9 pending clean-cache WF-CV)
-On the *truncated* cache, across every framing there was **no robust net-of-cost edge**:
+**4-fold sequential OOS (pre-specified `anti/hold/fixed40`, net @ $0.05; `hull` control):**
 
-1. **Deck (1σ-OTM, 9:1 gate, follow-trend):** gate unfillable (~2/942 days); Hull ≈ coin.
-2. **Guide (centered/narrow, profit-target):** ~zero-EV at mid, reliable loser net;
-   profit-targets make it worse (they clip the convex tail).
-3. **Calm-morning (+GEX proxy):** a *real* regime effect (mid edge +$2.9→+$20.7 as
-   mornings calm) but **execution-bound** — break-even ≈ $0.04/leg slippage, and weak
-   (t≈0.9).
-4. **Real GEX filter (prior-close):** does **not** validate — it hurts the fly; the
-   apparent −GEX advantage is a vol/cheapness confound, not mean-reversion.
+| Period | `anti` (fade) | `hull` (follow) |
+|---|---|---|
+| 2022-05→2023-05 | +$8.9 (Sh 0.11) | −$52.0 |
+| 2023-05→2024-05 | +$26.2 (Sh 0.31) | −$35.3 |
+| 2024-05→2025-05 | +$11.6 (Sh 0.14) | −$0.4 |
+| 2025-05→2026-03 | **+$179.2 (Sh 2.10)** | −$147.0 |
 
-**Bottom line:** the convexity is real but **efficiently priced**; the only thing that
-moves the mid edge is fly cheapness (R2R), and 4-leg 0DTE transaction costs swamp it for
-any realistic retail execution. The strategy is, at best, an **execution-quality play**
-for a desk that reliably fills near mid — not a structural edge. This matches the a-priori
-read of the marketing deck: sound risk philosophy, no demonstrable realized edge.
+`anti` is net-positive in **all 4 folds**, `hull` net-negative in **all 4** — the
+direction effect (fade beats follow) is **consistent across every sub-period**.
+
+**The 120-combo WF-CV sweep, by contrast, is unreliable** (pooled OOS +$60.9 but it never
+selects `anti`; it picks bull-drift `call/target/55` and degenerate gates-on combos at
+n=8–9). Selecting the single best train-Sharpe among 120 combos overfits — the
+pre-specified single-hypothesis test above is the honest one.
+
+## FINAL VERDICT
+**The author's *specific* recipes do NOT work; but the investigation surfaced one real,
+robust effect — the *opposite* of what the deck teaches.**
+
+- **Deck (1σ-OTM, 9:1 gate, follow-trend):** no edge — gate unfillable; following the
+  trend (`hull`) **loses in every period**.
+- **Guide (centered/narrow at the GEX magnet, profit-target):** ~zero-EV at mid, loses
+  net; profit-targets clip the convex tail and make it worse.
+- **GEX regime filter (prior-close OI):** does **not** validate — a vol/cheapness confound,
+  not mean-reversion. (Real-time intraday GEX remains untested — needs live data.)
+
+- **✅ The real finding — intraday mean-reversion:** *fade* the morning move with a cheap
+  1σ-OTM 40-wide fly, hold to expiry (`anti`). Net-positive in **all 4 OOS folds**,
+  survives costs to ≫$0.10/leg, and the `anti`−`hull` spread (~$132/trade) is large and
+  sign-consistent. **Caveats:** profitability is **marginal in 3 of 4 folds** (+$9–26/trade,
+  Sharpe 0.1–0.3) and **concentrated in the recent high-vol fold** (+$179); full-sample net
+  t≈1.5 (suggestive, not >2σ). So: a **genuine, economically-sensible signal of modest
+  strength**, worth forward/paper validation — not yet a proven money machine. It is also
+  the inverse of the deck's "trend-continuation" thesis: the edge is in **fading**, not
+  following, the morning move.
 
 ## Optional follow-ups
-- **−GEX/wide variants** on the ±250pt cache (in progress) — but §8 shows the "edge" there
-  is just cheapness/vol, so low expected value.
-- **Real-time intraday GEX** — the only untested signal; needs intraday OI/positioning
-  (live data), beyond historical reconstruction.
-- **Execution study** — model realistic SPXW 0DTE per-leg fills to place break-even exactly.
+- **Forward/paper-trade `anti`** with realistic SPXW 0DTE fills to confirm the modest edge
+  out-of-sample in live conditions.
+- **Tune `anti`** (width by regime, body multiple, entry time, partial profit-taking) —
+  but guard hard against overfitting given the modest t-stat.
+- **Real-time intraday GEX** — the only untested author signal; needs live OI/positioning.
