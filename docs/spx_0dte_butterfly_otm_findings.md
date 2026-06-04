@@ -134,11 +134,55 @@ stronger evidence.
   reliably gets near-mid fills it's marginally positive (Sharpe ~0.3–0.6). It is an
   *execution-quality* play, not a structural free lunch — and weak (t≈0.9) on this sample.
 
-## Next steps (optional)
-- **Stronger regime signal:** replace the crude calm proxy with **real GEX** (Σ OI×gamma
-  per strike + magnet placement) — needs an open-interest data pull. Likely lands in the
-  same execution-bound zone but with a cleaner filter and magnet-nudged body.
-- **−GEX/wide variants:** the ±250pt backfill (done/in progress) enables clean tests of
-  directional/wide flies on trending days.
-- **Execution study:** model realistic per-leg fill quality on SPXW 0DTE wings to place
-  the break-even precisely.
+### 8. Real GEX test (prior-close OI) — the author's core claim does NOT validate
+Built a GEX engine (`src_v2/backtest/gex.py`): BS gamma per strike × (call−put OI) →
+dealer GEX sign, magnet strike, gamma flip. OI pulled from OPRA statistics (949 days,
+$0.08). Sign convention is standard (**+GEX = 60% of days**, a healthy majority). Tested
+the author's actual recipe — centered fly **only on +GEX days, body at the magnet**:
+
+| Variant (centered/15w/hold) | n | Mean (mid) | Mean (net @$0.05) |
+|---|---|---|---|
+| all days | 937 | +$2.9 | −$21.1 |
+| **+GEX days only** | 559 | **−$21.3** | −$45.3 |
+| +GEX + magnet body | 557 | −$9.8 | −$33.8 |
+| −GEX days (control) | 377 | **+$38.9** | — |
+
+The filter **inverts** the claim: the centered fly does *worse* on +GEX days and *better*
+on −GEX days. Diagnosis (identical ~30% win rates both groups) shows it's a **vol
+confound, not a regime effect**: −GEX days have higher VIX9D (19.4 vs 16.6) → larger EM
+(32.5 vs 25.7) → a fixed 15-wide fly is **cheaper** ($2.58 vs $3.10) → higher R2R (5.9 vs
+4.7) → bigger convex payoff at the same hit rate. Prior-close GEX is just a noisy proxy
+for vol level; it has **no predictive relation to the realized intraday regime** (morning
+drift identical, 0.256 vs 0.255). The real driver is fly *cheapness* (width vs EM) — the
+deck's original 9:1 framing, come full circle.
+
+**Caveat:** the guide uses a *real-time intraday* GEX overlay (a live product). 0DTE OI is
+largely built intraday, so prior-close OI may genuinely miss it. That intraday signal is
+unprovable with historical data — but the *pre-open* GEX the guide says to "check before
+the open" does not validate here.
+
+## FINAL VERDICT
+Across every faithfully-testable framing of the FatTail 0DTE butterfly, there is **no
+robust, net-of-cost, statistically-significant edge** in 2022-05→2026-03 SPXW data:
+
+1. **Deck (1σ-OTM, 9:1 gate, follow-trend):** gate unfillable (~2/942 days); Hull ≈ coin.
+2. **Guide (centered/narrow, profit-target):** ~zero-EV at mid, reliable loser net;
+   profit-targets make it worse (they clip the convex tail).
+3. **Calm-morning (+GEX proxy):** a *real* regime effect (mid edge +$2.9→+$20.7 as
+   mornings calm) but **execution-bound** — break-even ≈ $0.04/leg slippage, and weak
+   (t≈0.9).
+4. **Real GEX filter (prior-close):** does **not** validate — it hurts the fly; the
+   apparent −GEX advantage is a vol/cheapness confound, not mean-reversion.
+
+**Bottom line:** the convexity is real but **efficiently priced**; the only thing that
+moves the mid edge is fly cheapness (R2R), and 4-leg 0DTE transaction costs swamp it for
+any realistic retail execution. The strategy is, at best, an **execution-quality play**
+for a desk that reliably fills near mid — not a structural edge. This matches the a-priori
+read of the marketing deck: sound risk philosophy, no demonstrable realized edge.
+
+## Optional follow-ups
+- **−GEX/wide variants** on the ±250pt cache (in progress) — but §8 shows the "edge" there
+  is just cheapness/vol, so low expected value.
+- **Real-time intraday GEX** — the only untested signal; needs intraday OI/positioning
+  (live data), beyond historical reconstruction.
+- **Execution study** — model realistic SPXW 0DTE per-leg fills to place break-even exactly.
