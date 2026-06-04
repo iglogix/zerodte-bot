@@ -161,9 +161,30 @@ largely built intraday, so prior-close OI may genuinely miss it. That intraday s
 unprovable with historical data — but the *pre-open* GEX the guide says to "check before
 the open" does not validate here.
 
-## FINAL VERDICT
-Across every faithfully-testable framing of the FatTail 0DTE butterfly, there is **no
-robust, net-of-cost, statistically-significant edge** in 2022-05→2026-03 SPXW data:
+### 9. ⚠️ CLEAN ±250 cache OVERTURNS the no-edge verdict for the directional `anti` fly
+The earlier "no edge" rested on the truncated ±100 cache, where the directional 1σ-OTM
+fly was confounded. On the **clean ±250 cache** (`no_debit` skips = 2, truncation gone),
+the **`anti` (fade-the-morning-trend) 1σ-OTM, 40-wide, hold-to-expiry** fly is robustly
+net-positive — and the `anti`−`hull` spread (~$132/trade) is a large, consistent intraday
+**mean-reversion** signal:
+
+| dir (hold/fixed40/1σ) | MID mean | NET @$0.05 | NET Sharpe |
+|---|---|---|---|
+| **anti** | +$90.1 | **+$66.1** | 0.77 |
+| call-only | +$62.9 | +$38.9 | 0.45 (likely bull-drift) |
+| hull (follow) | −$42.3 | −$66.3 | −0.82 |
+| coin | −$40.5 | −$64.5 | −0.78 |
+
+**Cost sensitivity (`anti`):** +$46 @ $0.10/leg (Sharpe 0.54) · +$66 @ $0.05 · +$77 @ $0.025
+— net-positive even at pessimistic retail fills (break-even ≫ $0.10/leg, unlike the
+centered fly's $0.04). **Sub-period:** +$34/trade 2022-05→2024-03 (Sharpe 0.41) and
++$92/trade 2024-03→2026-03 (Sharpe 1.08) — **positive in both halves**, so not purely
+long-side drift. Statistical strength is still modest (full-sample net t≈1.5; mid t≈2.1).
+**Decisive WF-CV (OOS) pending** — that determines whether this is a real edge or
+in-sample luck.
+
+## VERDICT (interim — §9 pending clean-cache WF-CV)
+On the *truncated* cache, across every framing there was **no robust net-of-cost edge**:
 
 1. **Deck (1σ-OTM, 9:1 gate, follow-trend):** gate unfillable (~2/942 days); Hull ≈ coin.
 2. **Guide (centered/narrow, profit-target):** ~zero-EV at mid, reliable loser net;
