@@ -1,0 +1,6 @@
+# Theta Terminal runtime artifacts (binary / logs / creds-adjacent) — not source
+ThetaTerminal.jar
+terminal.log
+terminal.pid
+*.out
+__pycache__/

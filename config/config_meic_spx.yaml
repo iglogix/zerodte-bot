@@ -35,6 +35,11 @@ strategy:
   pm_scale_out_tiers: [0.65, 0.85]
   pm_scale_out_fractions: [0.50, 0.50]
   abandon_long_below: 0.05
+  # Skip entries priced off a dislocated leg quote (stale/locked market whose
+  # mid is a fantasy fill, e.g. 2025-04-09 13:20 short put 0.05/45.00). A leg is
+  # dislocated when spread > dislocation_min_spread_pts AND spread > mult x mid.
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
   credit_equality_threshold: 0.30
   default_tranche_qty: 3
   tranche_sizing:

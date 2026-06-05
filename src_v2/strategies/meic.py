@@ -64,6 +64,11 @@ class MeicStrategy(LiveStrategy):
         self._pm_tiers = list(strat.get("pm_scale_out_tiers", [0.65, 0.85]))
         self._pm_fractions = list(strat.get("pm_scale_out_fractions", [0.50, 0.50]))
         self._abandon_long_below = strat.get("abandon_long_below", 0.05)
+        # Dislocation guard: reject an entry priced off a leg whose quote spread
+        # is both wide (> _disloc_min_spread_pts) AND a large fraction of its mid
+        # (> _disloc_spread_mult x mid), e.g. a stale/locked 0.05/45.00 market.
+        self._disloc_min_spread_pts = strat.get("dislocation_min_spread_pts", 1.0)
+        self._disloc_spread_mult = strat.get("dislocation_spread_mult", 1.5)
         self._credit_equality_threshold = strat.get("credit_equality_threshold", 0.30)
         self._default_tranche_qty = strat.get("default_tranche_qty", 3)
         self._tranche_sizing = dict(strat.get("tranche_sizing", {}))
@@ -96,6 +101,21 @@ class MeicStrategy(LiveStrategy):
     def _tranche_qty(self) -> int:
         slot = self._now_fn().strftime("%H:%M")
         return int(self._tranche_sizing.get(slot, self._default_tranche_qty))
+
+    def _is_dislocated(self, opt: Optional[Dict[str, Any]]) -> bool:
+        """A quote is dislocated when its spread is both wide in absolute terms
+        AND a large fraction of its mid (e.g. 0.05/45.00). The spread mid of such
+        a quote is not a fill you could actually achieve, so the entry is skipped."""
+        if not opt:
+            return False
+        bid = opt.get("bid", 0)
+        ask = opt.get("ask", 0)
+        if bid <= 0 or ask <= 0:
+            return False
+        spread = ask - bid
+        mid = (bid + ask) / 2
+        return (spread > self._disloc_min_spread_pts
+                and spread > self._disloc_spread_mult * mid)
 
     def _compute_em(
         self, chain: List[Dict[str, Any]], spot: float,
@@ -152,6 +172,13 @@ class MeicStrategy(LiveStrategy):
         sp_mid = _mid(by.get((float(short_put), "put")))
         lp_mid = _mid(by.get((float(long_put), "put")))
         if sc_mid is None or lc_mid is None or sp_mid is None or lp_mid is None:
+            return empty
+
+        # Reject if any traded leg's quote is dislocated — its mid is a fantasy
+        # fill (e.g. 2025-04-09 13:20 short put 0.05/45.00 on the tariff spike).
+        if any(self._is_dislocated(by.get((float(k), t))) for k, t in (
+                (short_call, "call"), (long_call, "call"),
+                (short_put, "put"), (long_put, "put"))):
             return empty
 
         call_credit = round(sc_mid - lc_mid, 4)

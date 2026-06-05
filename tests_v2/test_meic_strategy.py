@@ -169,6 +169,42 @@ class TestMeicSearchCandidates:
         assert result["candidates_found"] == 0
 
 
+class TestMeicDislocationGuard:
+    """Reject entries priced off a dislocated leg quote (e.g. 2025-04-09 13:20
+    short put 0.05/45.00). The spread mid of such a quote is a fantasy fill."""
+
+    def test_configure_reads_dislocation_params(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._disloc_min_spread_pts == 1.0
+        assert s._disloc_spread_mult == 1.5
+
+    @pytest.mark.asyncio
+    async def test_rejects_dislocated_short_leg(self, meic_config):
+        # Both put legs wide so the put credit stays POSITIVE (11.9) and passes
+        # the credit/width gate -> the dislocation guard is the ONLY rejecter.
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        chain = _em_chain(6700, 120.0)
+        for o in chain:
+            if o["option_type"] == "put" and o["strike"] == 6580.0:
+                o["bid"], o["ask"] = 0.05, 45.00     # short put: spread 44.95, mid 22.5
+            if o["option_type"] == "put" and o["strike"] == 6520.0:
+                o["bid"], o["ask"] = 0.10, 21.10     # long put: spread 21.0, mid 10.6
+        result = await s.search_candidates(chain, 6700.0)
+        assert result["candidates_found"] == 0
+
+    @pytest.mark.asyncio
+    async def test_allows_wide_but_sane_quote(self, meic_config):
+        # spread 4.0 is wide in absolute terms but < mult*mid (1.5*48=72) -> NOT
+        # dislocated; credit unchanged (mid still 48) -> candidate must survive.
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        chain = _em_chain(6700, 120.0)
+        for o in chain:
+            if o["option_type"] == "put" and o["strike"] == 6580.0:
+                o["bid"], o["ask"] = 46.0, 50.0
+        result = await s.search_candidates(chain, 6700.0)
+        assert result["candidates_found"] == 1
+
+
 class TestMeicValidate:
     def _setup(self, sc=6820.0, lc=6880.0, sp=6580.0, lp=6520.0,
                ccw=0.10, pcw=0.10, qty=3):
