@@ -29,6 +29,16 @@ strategy:
   # See docs/spx_0dte_meic_strategy.md. Under hold_to_expiry the stop/scale-out
   # params below are ignored.
   exit_mode: hold_to_expiry
+  # Sizing: "static" (legacy fixed qty map) or "fixed_fractional" (deploy
+  # sizing_fraction x equity of defined risk/day, split by the weight map).
+  # Fixed-fractional bounds the worst day at ~f of equity (ruin impossible) but
+  # needs equity wired (backtest: backtest.starting_equity; LIVE: account net-liq
+  # via the orchestrator — UNWIRED LIVE FAILS SAFE = skips, never oversizes).
+  # NOTE: f=0.03 is conservative (~20% DD) but has a ~$1M granularity floor; below
+  # that, integer lots skip the (profitable) high-vol tranches. Smaller accounts
+  # need a higher f (more drawdown). See docs/spx_0dte_meic_strategy.md §6.
+  sizing_mode: fixed_fractional
+  sizing_fraction: 0.03
   am_pm_cutoff: "12:30"
   short_em_mult: 1.0
   wing_em_frac: 0.5
@@ -106,3 +116,4 @@ backtest:
   cbbo_cache_dir: "data/cbbo_cache_meic"
   start_date: "2022-05-11"
   end_date: "2026-02-27"
+  starting_equity: 1000000   # base for fixed_fractional compounding (backtest only)

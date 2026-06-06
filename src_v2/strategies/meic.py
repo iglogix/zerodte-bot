@@ -42,6 +42,9 @@ class MeicStrategy(LiveStrategy):
         self._scaleout_state: Dict[Tuple[str, str], set] = {}
         # Injectable clock for testability; tests override this.
         self._now_fn = lambda: datetime.now(ET)
+        # Injectable account-equity source for fixed-fractional sizing. Default
+        # None -> fixed-fractional fails safe (skips) until wired (engine/live).
+        self._equity_fn = lambda: None
 
     # ------------------------------------------------------------------
     # Configure
@@ -76,6 +79,11 @@ class MeicStrategy(LiveStrategy):
         self._credit_equality_threshold = strat.get("credit_equality_threshold", 0.30)
         self._default_tranche_qty = strat.get("default_tranche_qty", 3)
         self._tranche_sizing = dict(strat.get("tranche_sizing", {}))
+        # Sizing: "static" (the weight map) or "fixed_fractional" (f x equity of
+        # defined risk per day, split by the weight map). See _size_from_margin.
+        self._sizing_mode = strat.get("sizing_mode", "static")
+        self._sizing_fraction = strat.get("sizing_fraction", 0.05)
+        self._multiplier = config.get("options", {}).get("contract_multiplier", 100)
 
     # ------------------------------------------------------------------
     # Simple methods
@@ -105,6 +113,25 @@ class MeicStrategy(LiveStrategy):
     def _tranche_qty(self) -> int:
         slot = self._now_fn().strftime("%H:%M")
         return int(self._tranche_sizing.get(slot, self._default_tranche_qty))
+
+    def _size_from_margin(self, ic_margin_per_contract: float) -> int:
+        """Contracts for the current tranche.
+
+        static          -> the tranche weight map (legacy fixed sizing).
+        fixed_fractional -> floor( f x equity x weight/total_weight / IC_margin ).
+        Fails SAFE to 0 (skip) when equity is unavailable so live never silently
+        falls back to oversized static sizing.
+        """
+        if self._sizing_mode != "fixed_fractional":
+            return self._tranche_qty()
+        equity = self._equity_fn() if self._equity_fn else None
+        if not equity or equity <= 0 or ic_margin_per_contract <= 0:
+            return 0
+        slot = self._now_fn().strftime("%H:%M")
+        weight = self._tranche_sizing.get(slot, self._default_tranche_qty)
+        total_weight = sum(self._tranche_sizing.values()) or 1
+        budget = self._sizing_fraction * equity * weight / total_weight
+        return int(budget // ic_margin_per_contract)
 
     def _is_dislocated(self, opt: Optional[Dict[str, Any]]) -> bool:
         """A quote is dislocated when its spread is both wide in absolute terms
@@ -159,7 +186,6 @@ class MeicStrategy(LiveStrategy):
             return empty
 
         step = self._strike_step
-        qty = self._tranche_qty()
         by = {
             (float(o.get("strike", 0)), o.get("option_type", "").lower()): o
             for o in chain
@@ -196,6 +222,15 @@ class MeicStrategy(LiveStrategy):
             return empty
 
         total_credit = round(call_credit + put_credit, 4)
+
+        # Position sizing. IC margin per contract = (wing - total credit) x mult
+        # = the defined max loss. Fixed-fractional sizing deploys f x equity of
+        # that; qty 0 -> skip the tranche (budget can't afford a contract).
+        ic_margin_pc = max(0.0, wing_pts - total_credit) * self._multiplier
+        qty = self._size_from_margin(ic_margin_pc)
+        if qty <= 0:
+            return empty
+
         setup = LiveTradeSetup(
             strategy_type="meic",
             legs=[

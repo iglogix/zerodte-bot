@@ -117,6 +117,19 @@ irreducible (e.g. the 2025-04-09 gap moved *after* entry).
 
 ## 6. Sizing policy *(the binding constraint — not edge or fills)*
 
+> ✅ **Implemented.** `sizing_mode: fixed_fractional` + `sizing_fraction: <f>`. Per tranche,
+> `lots = floor(f × equity × weight/total_weight / IC_margin_per_contract)`. Equity is the
+> running account value: the **backtest** compounds from `backtest.starting_equity`; **live**
+> must inject account net-liq into `MeicStrategy._equity_fn` (the orchestrator wiring is the
+> one remaining live step — until then fixed-fractional **fails safe = skips**, never
+> oversizes). `sizing_mode: static` keeps the legacy fixed-qty map.
+>
+> **Granularity floor (important):** integer lots mean a too-small account can't afford a
+> contract on the expensive high-vol tranches and **skips exactly the profitable days** →
+> near-breakeven. Verified: at **f=0.03** the strategy needs **~$1M** to deploy cleanly
+> (\$250k near-breakevens; \$1M→+75%, \$2M→+88%, \$5M→+95% over 3.8y compounded). For
+> smaller accounts use a **higher f** (more drawdown) or accept fewer tranches.
+
 The raw backtest uses **fixed** contracts (`tranche_sizing` map, qty 3–6 by time-of-day), so
 its headline P&L is a non-compounded sum and "% return on $100k" is meaningless. Trade it
 instead with **fixed-fractional defined-risk sizing**:

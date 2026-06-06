@@ -134,6 +134,24 @@ def test_meic_backtest_hold_to_expiry_settles_at_intrinsic(monkeypatch):
     assert closed["put"].realized_pnl_usd == pytest.approx(6.0 * 100 * 3, abs=1.0)
 
 
+def test_meic_backtest_fixed_fractional_scales_qty(monkeypatch):
+    # Fixed-fractional sizing: qty scales with starting equity, not the static map.
+    # em 120 -> wing 60; total_credit ~12 -> IC margin (60-12)*100 = 4800/contract.
+    # budget = f 0.10 * equity 2,000,000 * (weight 3 / total 3) = 200,000
+    # -> floor(200000 / 4800) = 41 lots (vs static 3).
+    d = date(2026, 1, 5)
+    cfg = _config()
+    cfg["strategy"]["sizing_mode"] = "fixed_fractional"
+    cfg["strategy"]["sizing_fraction"] = 0.10
+    cfg["strategy"]["exit_mode"] = "hold_to_expiry"
+    cfg["backtest"]["starting_equity"] = 2_000_000
+    engine = _make_engine(monkeypatch, _LinearCbbo(6700, 120.0, eod_spot=6700.0), cfg)
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
+    closed = [r for r in results if r.status == "closed"]
+    assert closed, "expected trades"
+    assert closed[0].qty == 41
+
+
 def test_meic_backtest_worthless_expiry(monkeypatch):
     d = date(2026, 1, 5)
     engine = _make_engine(monkeypatch, _LinearCbbo(6700, 120.0))

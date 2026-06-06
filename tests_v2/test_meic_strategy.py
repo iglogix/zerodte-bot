@@ -239,6 +239,43 @@ class TestMeicHoldToExpiry:
         assert s.check_exit(trade, quotes).action == "hold"
 
 
+class TestMeicFixedFractionalSizing:
+    """Size each tranche so total deployed BP = f x equity (split by the tranche
+    weight map), with per-contract IC margin = (wing - total_credit) x 100.
+    Defined-risk + this sizing => worst day bounded at ~f of equity."""
+
+    def test_default_sizing_mode_is_static(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._sizing_mode == "static"
+
+    def test_static_mode_ignores_margin(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        assert s._size_from_margin(999_999.0) == s._tranche_sizing.get("11:00", 3)
+
+    def test_fixed_fractional_scales_with_equity(self, meic_config):
+        meic_config["strategy"]["sizing_mode"] = "fixed_fractional"
+        meic_config["strategy"]["sizing_fraction"] = 0.05
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        w = s._tranche_sizing["11:00"]; tot = sum(s._tranche_sizing.values())
+        s._equity_fn = lambda: 1_000_000
+        exp = int(0.05 * 1_000_000 * w / tot // 500.0)
+        assert exp > 0 and s._size_from_margin(500.0) == exp
+        s._equity_fn = lambda: 2_000_000          # double equity -> ~double lots
+        assert s._size_from_margin(500.0) == int(0.05 * 2_000_000 * w / tot // 500.0)
+
+    def test_fixed_fractional_skips_when_unaffordable(self, meic_config):
+        meic_config["strategy"]["sizing_mode"] = "fixed_fractional"
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        s._equity_fn = lambda: 10_000
+        assert s._size_from_margin(5_000.0) == 0   # budget << one contract's margin
+
+    def test_fixed_fractional_fails_safe_without_equity(self, meic_config):
+        # No equity source injected -> skip (0). MUST NOT fall back to oversized static.
+        meic_config["strategy"]["sizing_mode"] = "fixed_fractional"
+        s = MeicStrategy(); s.configure(meic_config); _at(s, "11:00")
+        assert s._size_from_margin(500.0) == 0
+
+
 class TestMeicValidate:
     def _setup(self, sc=6820.0, lc=6880.0, sp=6580.0, lp=6520.0,
                ccw=0.10, pcw=0.10, qty=3):

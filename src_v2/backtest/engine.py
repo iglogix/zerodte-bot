@@ -149,6 +149,9 @@ class BacktestEngine:
         # MEIC exit mode: "managed" (stop + scale-outs) or "hold_to_expiry"
         # (settle remaining qty at expiry intrinsic instead of assuming worthless).
         self._exit_mode = strat_cfg.get("exit_mode", "managed")
+        # Fixed-fractional sizing tracks running equity across days (compounding).
+        self._starting_equity = config.get("backtest", {}).get("starting_equity", 100_000.0)
+        self._equity = float(self._starting_equity)
 
         # Range filter
         rf = strat_cfg.get("orb_range_filter", {})
@@ -215,7 +218,12 @@ class BacktestEngine:
                 continue
 
             if self._strategy_kind == "meic":
-                all_results.extend(self._process_day_meic(day))
+                # Size off equity at the START of the day (no intraday look-ahead);
+                # compound after the day's P&L is realized.
+                self._strategy._equity_fn = (lambda eq: lambda: eq)(self._equity)
+                day_results = self._process_day_meic(day)
+                self._equity += sum((r.realized_pnl_usd or 0.0) for r in day_results)
+                all_results.extend(day_results)
             else:
                 results = self._process_day(day)
                 all_results.extend(results)
