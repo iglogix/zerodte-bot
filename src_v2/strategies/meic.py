@@ -54,8 +54,12 @@ class MeicStrategy(LiveStrategy):
         self._wing_em_frac = strat.get("wing_em_frac", 0.5)
         self._min_credit_width_ratio = strat.get("min_credit_width_ratio", 0.08)
         self._strike_step = strat.get("strike_step_pts", 5)
+        # Exit mode: "managed" (legacy stop + AM/PM scale-outs) or "hold_to_expiry"
+        # (validated: defined-risk spreads held to cash settlement, no stop/scale-out
+        # — see docs/spx_0dte_meic_strategy.md). stop_pct is irrelevant when holding.
+        self._exit_mode = strat.get("exit_mode", "managed")
         self._stop_pct = strat.get("stop_pct_of_total_credit", 0.70)
-        if not (0.65 <= self._stop_pct <= 0.90):
+        if self._exit_mode == "managed" and not (0.65 <= self._stop_pct <= 0.90):
             raise ValueError(
                 f"stop_pct_of_total_credit must be in [0.65, 0.90], got {self._stop_pct}"
             )
@@ -319,6 +323,10 @@ class MeicStrategy(LiveStrategy):
     def check_exit(
         self, trade: Dict[str, Any], quotes: Dict[str, Dict[str, Any]],
     ) -> ExitAction:
+        # Hold-to-expiry never stops or scales out; positions cash-settle at expiry.
+        if self._exit_mode == "hold_to_expiry":
+            return ExitAction(action="hold")
+
         trade_id = trade.get("trade_id", "")
         tiers, fractions = self._tiers_for(trade)
 

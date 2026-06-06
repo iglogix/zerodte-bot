@@ -146,6 +146,9 @@ class BacktestEngine:
         self._market_open = self._parse_time(strat_cfg.get("market_open", "09:30"))
         self._eod = self._parse_time(strat_cfg.get("eod_force_close", "15:50"))
         self._midline_tol = strat_cfg.get("midline_tolerance_pts", 1.0)
+        # MEIC exit mode: "managed" (stop + scale-outs) or "hold_to_expiry"
+        # (settle remaining qty at expiry intrinsic instead of assuming worthless).
+        self._exit_mode = strat_cfg.get("exit_mode", "managed")
 
         # Range filter
         rf = strat_cfg.get("orb_range_filter", {})
@@ -404,6 +407,10 @@ class BacktestEngine:
         if self._cbbo.load_day(d) == 0:
             return [self._skip_result(d, symbol, "no_cbbo_data")]
 
+        # Settlement spot for hold-to-expiry: robust parity forward at the latest
+        # available minute (closest to the 16:00 cash-settlement print).
+        settle_spot = self._cbbo.settlement_forward()
+
         results: list[BacktestResult] = []
         for slot in schedule:
             slot_bar = bars_by_minute.get(slot)
@@ -437,7 +444,7 @@ class BacktestEngine:
             for side in ("put", "call"):
                 results.append(self._simulate_meic_side(
                     side, setup, stop_info, monitoring_bars,
-                    d, symbol, slot_dt, spot, eod_dt))
+                    d, symbol, slot_dt, spot, eod_dt, settle_spot))
         if not results:
             return [self._skip_result(d, symbol, "no_meic_trades")]
         return results
@@ -445,7 +452,7 @@ class BacktestEngine:
     def _simulate_meic_side(
         self, side: str, setup, stop_info: dict, monitoring_bars: list,
         d: date, symbol: str, entry_dt: datetime, spot: float,
-        eod_dt: datetime,
+        eod_dt: datetime, settle_spot: float | None = None,
     ) -> BacktestResult:
         if side == "put":
             credit = setup.extra["put_credit"]
@@ -566,13 +573,28 @@ class BacktestEngine:
                     base.realized_pnl_usd = round(realized, 2)
                     return base
 
-        # EOD / no exit: remaining qty expires worthless. No closing fill, so
-        # no exit slippage — but entry slippage + commission are already in.
+        # EOD / no exit.
         remaining = int(trade[qty_key])
-        realized += credit_eff * mult * remaining
         base.exit_time = eod_dt
-        base.debit_paid = 0.0
-        base.exit_reason = "expired_worthless" if remaining == qty else "partial_then_expiry"
+        if self._exit_mode == "hold_to_expiry":
+            # Cash settlement: remaining qty settles at the short's expiry intrinsic
+            # (capped at the wing width), NOT assumed worthless.
+            if settle_spot is not None:
+                intrinsic = max(0.0, (settle_spot - short_strike) if side == "call"
+                                else (short_strike - settle_spot))
+            else:
+                intrinsic = 0.0
+            loss = min(intrinsic, width)
+            realized += (credit_eff - loss) * mult * remaining
+            base.debit_paid = round(loss, 2)
+            base.underlying_at_exit = settle_spot
+            base.exit_reason = "held_to_expiry"
+        else:
+            # Managed mode: un-stopped survivors are OTM -> expire worthless. No
+            # closing fill, so no exit slippage; entry slippage + commission already in.
+            realized += credit_eff * mult * remaining
+            base.debit_paid = 0.0
+            base.exit_reason = "expired_worthless" if remaining == qty else "partial_then_expiry"
         base.realized_pnl_usd = round(realized, 2)
         return base
 

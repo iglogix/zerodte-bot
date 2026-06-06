@@ -147,3 +147,23 @@ class CbboStore:
         c_mid = (call_q[0] + call_q[1]) / 2
         p_mid = (put_q[0] + put_q[1]) / 2
         return round(atm_k + c_mid - p_mid, 2)
+
+    def settlement_forward(self) -> Optional[float]:
+        """Cash-settlement forward at the latest loaded minute, using the strike
+        that minimises |call_mid - put_mid| (true ATM) for a robust parity value.
+        Independent of any external spot reference (avoids the SPYx10 basis)."""
+        if not self._quotes:
+            return None
+        last_min = max(k[0] for k in self._quotes)
+        best: Optional[Tuple[float, float]] = None
+        for k in {key[1] for key in self._quotes if key[0] == last_min}:
+            cq = self._quotes.get((last_min, k, True))
+            pq = self._quotes.get((last_min, k, False))
+            if cq is None or pq is None:
+                continue
+            c_mid = (cq[0] + cq[1]) / 2
+            p_mid = (pq[0] + pq[1]) / 2
+            diff = abs(c_mid - p_mid)
+            if best is None or diff < best[0]:
+                best = (diff, k + c_mid - p_mid)
+        return round(best[1], 2) if best else None

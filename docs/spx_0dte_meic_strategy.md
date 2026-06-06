@@ -7,11 +7,12 @@
 Entry logic from [`superpowers/specs/2026-05-21-meic-em-relative-design.md`](superpowers/specs/2026-05-21-meic-em-relative-design.md) stands.
 Evidence & reproduction: [`../tools/theta/README.md`](../tools/theta/README.md).
 
-> ⚠️ **Implementation gap:** the live code (`src_v2/strategies/meic.py`) still implements
-> the **old** stop + scale-out logic, and `config_meic_spx.yaml` requires
-> `stop_pct_of_total_credit ∈ [0.65, 0.90]` (the stop cannot be disabled via config). The
-> validated variant below (**hold-to-expiry**) is **not yet implementable in the live engine
-> without a code change.** This spec documents the *target*; the code has not caught up.
+> ✅ **Implemented.** Set `exit_mode: hold_to_expiry` in `config_meic_spx.yaml` to run the
+> validated variant — `MeicStrategy.check_exit` then never stops/scales, and the backtest
+> engine settles remaining qty at expiry intrinsic (robust parity forward via
+> `CbboStore.settlement_forward`). Default `exit_mode: managed` preserves the legacy
+> stop + scale-out path unchanged. The engine in hold-to-expiry mode reproduces the
+> independent re-simulation to ~1.5% (identical 87.5% win rate).
 
 ---
 

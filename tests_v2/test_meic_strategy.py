@@ -205,6 +205,40 @@ class TestMeicDislocationGuard:
         assert result["candidates_found"] == 1
 
 
+class TestMeicHoldToExpiry:
+    """Validated exit mode: hold defined-risk spreads to cash settlement, no stop,
+    no scale-out. The stop+scale-out 'managed' mode destroys the edge (see
+    docs/spx_0dte_meic_strategy.md)."""
+
+    def test_default_exit_mode_is_managed(self, meic_config):
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._exit_mode == "managed"
+
+    def test_hold_to_expiry_skips_stop_pct_validation(self, meic_config):
+        # stop_pct is irrelevant when never stopping -> must not raise even if invalid.
+        meic_config["strategy"]["exit_mode"] = "hold_to_expiry"
+        meic_config["strategy"]["stop_pct_of_total_credit"] = 0.50
+        s = MeicStrategy(); s.configure(meic_config)
+        assert s._exit_mode == "hold_to_expiry"
+
+    def test_check_exit_holds_despite_stop_breach(self, meic_config):
+        meic_config["strategy"]["exit_mode"] = "hold_to_expiry"
+        s = MeicStrategy(); s.configure(meic_config)
+        trade = {
+            "trade_id": "t", "entry_time_et": datetime(2026, 5, 20, 11, 40, tzinfo=ET),
+            "short_call_symbol": "SC", "long_call_symbol": "LC",
+            "short_put_symbol": "SP", "long_put_symbol": "LP",
+            "call_credit": 1.40, "put_credit": 1.40,
+            "call_open_qty": 4, "put_open_qty": 4,
+            "short_call_stop_price": 3.41, "short_put_stop_price": 3.41,
+        }
+        # SC ask 3.50 >= stop 3.41 AND a deep take-profit on SP -> managed would act;
+        # hold_to_expiry must still hold.
+        quotes = {"SC": {"bid": 3.40, "ask": 3.50}, "SP": {"bid": 0.15, "ask": 0.20},
+                  "LC": {"bid": 0.8, "ask": 0.9}, "LP": {"bid": 0.5, "ask": 0.6}}
+        assert s.check_exit(trade, quotes).action == "hold"
+
+
 class TestMeicValidate:
     def _setup(self, sc=6820.0, lc=6880.0, sp=6580.0, lp=6520.0,
                ccw=0.10, pcw=0.10, qty=3):

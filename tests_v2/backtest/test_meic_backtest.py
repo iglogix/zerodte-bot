@@ -15,7 +15,8 @@ class _LinearCbbo:
     from peak em/2, floored at `floor`. Optional time-shifted per-(strike,is_call)
     overrides from `shift_minute` onward (to drive stops / scale-outs)."""
     def __init__(self, spot, em, rate=0.10, floor=0.05, step=5, span=400,
-                 shift_minute=None, shift_overrides=None):
+                 shift_minute=None, shift_overrides=None,
+                 eod_spot=None, eod_from="15:50"):
         self._spot = spot
         self._peak = em / 2.0
         self._rate = rate
@@ -23,12 +24,19 @@ class _LinearCbbo:
         self._span = span
         self._shift_minute = shift_minute
         self._shift = shift_overrides or {}
+        self._eod_spot = eod_spot          # settlement spot from eod_from onward
+        self._eod_from = eod_from
 
     def load_day(self, d):
         return 1
 
     def derive_spot(self, minute, ref):
+        if self._eod_spot is not None and minute >= self._eod_from:
+            return self._eod_spot
         return self._spot
+
+    def settlement_forward(self):
+        return self._eod_spot if self._eod_spot is not None else self._spot
 
     def lookup(self, minute, strike, is_call):
         key = (float(strike), is_call)
@@ -104,6 +112,26 @@ def _make_engine(monkeypatch, fake_cbbo, config=None):
     monkeypatch.setattr(eng, "CbboStore", lambda *a, **k: fake_cbbo,
                         raising=False)
     return BacktestEngine(config or _config(), MeicStrategy())
+
+
+def test_meic_backtest_hold_to_expiry_settles_at_intrinsic(monkeypatch):
+    # Hold-to-expiry: no stop / no scale-out; remaining qty settles at intrinsic.
+    # entry spot 6700 -> call short 6820 / long 6880 (wing 60), put short 6580.
+    # Rally to 6850 at settlement: call short 30 ITM (loss 30, < width 60);
+    # put far OTM -> keeps full credit. credit per side ~6.0 (em 120 linear chain).
+    d = date(2026, 1, 5)
+    cfg = _config()
+    cfg["strategy"]["exit_mode"] = "hold_to_expiry"
+    cbbo = _LinearCbbo(6700, 120.0, eod_spot=6850.0)
+    engine = _make_engine(monkeypatch, cbbo, cfg)
+    results = engine.run([_Day(_bars_flat(d, price=6700.0), d)])
+    closed = {r.spread_type: r for r in results if r.status == "closed"}
+    assert closed["call"].exit_reason == "held_to_expiry"
+    assert closed["put"].exit_reason == "held_to_expiry"
+    # call: (credit 6.0 - intrinsic 30) * 100 * 3 = -7200
+    assert closed["call"].realized_pnl_usd == pytest.approx((6.0 - 30) * 100 * 3, abs=1.0)
+    # put: OTM -> full credit kept = 6.0 * 100 * 3 = 1800
+    assert closed["put"].realized_pnl_usd == pytest.approx(6.0 * 100 * 3, abs=1.0)
 
 
 def test_meic_backtest_worthless_expiry(monkeypatch):

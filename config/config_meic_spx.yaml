@@ -24,6 +24,11 @@ entry:
   skip_non_trading_days: true  # suspend entry cycles on weekends/NYSE holidays
 
 strategy:
+  # Exit mode: "managed" (legacy stop + AM/PM scale-outs) or "hold_to_expiry"
+  # (validated — hold defined-risk spreads to cash settlement; no stop/scale-out).
+  # See docs/spx_0dte_meic_strategy.md. Under hold_to_expiry the stop/scale-out
+  # params below are ignored.
+  exit_mode: managed
   am_pm_cutoff: "12:30"
   short_em_mult: 1.0
   wing_em_frac: 0.5
