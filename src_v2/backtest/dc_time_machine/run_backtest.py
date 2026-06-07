@@ -57,10 +57,13 @@ def atm_from_spy(spy_csv: str | Path = "data/spy_daily.csv"):
 
 
 def backfill_range(client, sessions: List[date], atm_for, params: DcParams,
-                   out_dir: str | Path, pad: int = 1, half_width: int = 80) -> List[Path]:
+                   out_dir: str | Path, pad: int = 1, half_width: int = 80,
+                   source: str = "databento") -> List[Path]:
     """Fetch each session's front/back expiry panels into <out_dir>/<session>.pkl.
 
-    Sessions with no ATM reference are skipped. Returns the written pickle paths.
+    source="theta" uses the local Theta Terminal (flat-rate, no client); "databento"
+    uses the provided Historical client. Sessions with no ATM reference are skipped.
+    Returns the written pickle paths.
     """
     written: List[Path] = []
     for s in sessions:
@@ -70,7 +73,11 @@ def backfill_range(client, sessions: List[date], atm_for, params: DcParams,
         exps = session_expiries(s, params, pad=pad)
         if not exps:
             continue
-        path = backfill_session(client, s, exps, atm, out_dir, half_width_pts=half_width)
+        if source == "theta":
+            from src_v2.backtest.dc_time_machine.theta_backfill import backfill_session_theta
+            path = backfill_session_theta(s, exps, atm, out_dir, half_width_pts=half_width)
+        else:
+            path = backfill_session(client, s, exps, atm, out_dir, half_width_pts=half_width)
         written.append(path)
     return written
 
@@ -125,6 +132,7 @@ def main(argv: List[str] | None = None) -> int:
     bf.add_argument("--out", default="data/dc_cache")
     bf.add_argument("--pad", type=int, default=1)
     bf.add_argument("--half-width", type=int, default=80)
+    bf.add_argument("--source", choices=["theta", "databento"], default="theta")
 
     sim = sub.add_parser("simulate")
     sim.add_argument("--cache", required=True)
@@ -138,14 +146,16 @@ def main(argv: List[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "backfill":
-        import databento as dbn   # local import: only needed for the paid path
-        client = dbn.Historical()  # reads DATABENTO_API_KEY from env
+        client = None
+        if args.source == "databento":
+            import databento as dbn   # local import: only needed for the paid path
+            client = dbn.Historical()  # reads DATABENTO_API_KEY from env
         sessions = sessions_between(date.fromisoformat(args.start), date.fromisoformat(args.end))
         atm_for = atm_from_spy()
         params = DcParams()
         paths = backfill_range(client, sessions, atm_for, params, Path(args.out),
-                               pad=args.pad, half_width=args.half_width)
-        print(f"backfilled {len(paths)}/{len(sessions)} sessions → {args.out}")
+                               pad=args.pad, half_width=args.half_width, source=args.source)
+        print(f"backfilled {len(paths)}/{len(sessions)} sessions → {args.out} (source={args.source})")
         return 0
 
     if args.cmd == "simulate":
