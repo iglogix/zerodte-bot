@@ -9,8 +9,11 @@ from src_v2.backtest.dc_time_machine.simulator import (
     resolve_expiries, select_strikes, compute_iv_features,
 )
 
-S = date(2026, 2, 2)
-EXPS = [date(2026, 2, 3), date(2026, 2, 4), date(2026, 2, 11), date(2026, 2, 12)]
+S = date(2026, 2, 2)   # Monday
+# Contiguous NYSE sessions after S = trading days 1..9 (02-03 Tue ... 02-13 Fri)
+EXPS = [date(2026, 2, 3), date(2026, 2, 4), date(2026, 2, 5), date(2026, 2, 6),
+        date(2026, 2, 9), date(2026, 2, 10), date(2026, 2, 11), date(2026, 2, 12),
+        date(2026, 2, 13)]
 
 
 def _panel_for_resolution():
@@ -24,19 +27,30 @@ def _panel_for_resolution():
     return panel
 
 
-def test_resolve_expiries_picks_front_and_back_by_index():
+def test_resolve_expiries_picks_by_trading_day_distance():
     store = MultiExpiryStore(preloaded=_panel_for_resolution())
     store.load_session(S)
-    # only 4 expiries exist; front_dte=3 → 3rd expiry after S (index 2) = 2026-02-11, gap 1 → 2026-02-12
+    # front_dte=3 → expiry 3 trading days after S = 2026-02-05; gap 1 → 4 td out = 2026-02-06
     front, back = resolve_expiries(store, S, DcParams(front_dte=3, gap=1))
-    assert front == date(2026, 2, 11)
-    assert back == date(2026, 2, 12)
+    assert front == date(2026, 2, 5)
+    assert back == date(2026, 2, 6)
+
+
+def test_resolve_expiries_tolerates_a_missing_exact_expiry():
+    # Drop the exact 3-td expiry (02-05); nearest within tolerance (02-04 @ 2 td or 02-06 @ 4 td) is used
+    panel = _panel_for_resolution()
+    del panel[S][date(2026, 2, 5)]
+    store = MultiExpiryStore(preloaded=panel)
+    store.load_session(S)
+    front, _ = resolve_expiries(store, S, DcParams(front_dte=3, gap=1), dte_tolerance=2)
+    assert front in (date(2026, 2, 4), date(2026, 2, 6))
 
 
 def test_resolve_expiries_returns_none_when_out_of_range():
     store = MultiExpiryStore(preloaded=_panel_for_resolution())
     store.load_session(S)
-    assert resolve_expiries(store, S, DcParams(front_dte=9, gap=1)) == (None, None)
+    # nearest available expiry is only 9 td out; target 20 td is off by >2 → no match
+    assert resolve_expiries(store, S, DcParams(front_dte=20, gap=1)) == (None, None)
 
 
 def test_select_strikes_returns_put_below_call_above_spot():

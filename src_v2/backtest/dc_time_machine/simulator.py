@@ -133,15 +133,31 @@ from typing import Tuple
 from src_v2.backtest.dc_time_machine.iv import bs_delta, implied_vol, front_back_ratio
 
 
-def resolve_expiries(store: MultiExpiryStore, session: date, params: DcParams
-                     ) -> Tuple[Optional[date], Optional[date]]:
-    """front = (front_dte)th available expiry strictly after session; back = front idx + gap."""
-    exps = [e for e in store.available_expiries() if e > session]
-    fi = params.front_dte - 1
-    bi = fi + params.gap
-    if fi < 0 or bi >= len(exps):
+def resolve_expiries(store: MultiExpiryStore, session: date, params: DcParams,
+                     dte_tolerance: int = 2) -> Tuple[Optional[date], Optional[date]]:
+    """Pick front/back expiries by TRADING-DAY distance (robust to sparse caches).
+
+    front  = available expiry nearest `front_dte` trading days after session;
+    back   = available expiry after front nearest `front_dte + gap` trading days out.
+    Returns (None, None) if the nearest match is off by more than `dte_tolerance`
+    trading days (no suitable expiry was cached).
+    """
+    from src_v2.backtest.dc_time_machine import trading_calendar as _cal
+
+    avail = [e for e in store.available_expiries() if e > session]
+    if not avail:
         return None, None
-    return exps[fi], exps[bi]
+    front = min(avail, key=lambda e: abs(_cal.trading_days_after(session, e) - params.front_dte))
+    if abs(_cal.trading_days_after(session, front) - params.front_dte) > dte_tolerance:
+        return None, None
+    later = [e for e in avail if e > front]
+    if not later:
+        return None, None
+    target_back = params.front_dte + params.gap
+    back = min(later, key=lambda e: abs(_cal.trading_days_after(session, e) - target_back))
+    if abs(_cal.trading_days_after(session, back) - target_back) > dte_tolerance:
+        return None, None
+    return front, back
 
 
 def _T(session: date, expiry: date) -> float:
