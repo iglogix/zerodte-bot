@@ -207,3 +207,39 @@ def compute_iv_features(store: MultiExpiryStore, session: date, front: date,
         "is_fri_mon": bool(is_fri_mon),
         "ratio_z": 0.0, "ratio_falling": False,   # filled by flux_scanner history when available
     }
+
+
+# --- append to src_v2/backtest/dc_time_machine/simulator.py ---
+
+def session_minutes(store: MultiExpiryStore, front: date) -> List[str]:
+    """Sorted unique minute strings present for the front expiry of the loaded session."""
+    return sorted({k[0] for k in store._panel.get(front, {})})
+
+
+def run_session(store: MultiExpiryStore, params: DcParams, session: date
+                ) -> Optional[TradeResult]:
+    """Resolve a single DC trade for `session` and simulate it. None if no expiries."""
+    store.load_session(session)
+    front, back = resolve_expiries(store, session, params)
+    if front is None or back is None:
+        return None
+    spot = store.derive_spot(front, params.entry_minute, ref=_panel_ref(store, front))
+    if spot is None:
+        return TradeResult(session=session, front=front, back=back, k_put=0.0,
+                           k_call=0.0, outcome="no_entry", params_wing=params.wing_width)
+    k_put, k_call = select_strikes(store, session, front, params, spot)
+    if k_put is None or k_call is None:
+        return TradeResult(session=session, front=front, back=back, k_put=0.0,
+                           k_call=0.0, outcome="no_entry", params_wing=params.wing_width)
+    feats = compute_iv_features(store, session, front, back, params.entry_minute, spot, params)
+    minutes = session_minutes(store, front)
+    return simulate_trade(store, params, session=session, minutes=minutes,
+                          k_put=k_put, k_call=k_call, front=front, back=back,
+                          features=feats, is_fri_mon=feats["is_fri_mon"],
+                          ratio=feats["ratio"])
+
+
+def _panel_ref(store: MultiExpiryStore, front: date) -> float:
+    """A rough ATM reference = median available strike for `front` (for spot derivation)."""
+    ks = sorted(store.strikes(front))
+    return ks[len(ks) // 2] if ks else 0.0
