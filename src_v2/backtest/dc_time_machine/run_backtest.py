@@ -17,12 +17,62 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List
 
+from src_v2.backtest.dc_time_machine.dc_backfill import backfill_session
 from src_v2.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 from src_v2.backtest.dc_time_machine.simulator import TradeResult, run_session
 from src_v2.backtest.dc_time_machine.strategy import DcParams
+from src_v2.backtest.dc_time_machine.trading_calendar import (
+    nth_trading_day_after, sessions_between,
+)
 
 _CSV_FIELDS = ["session", "front", "back", "k_put", "k_call", "outcome", "entry_debit",
                "credit", "bank", "transform_minute", "settlement", "pnl"]
+
+
+def session_expiries(session: date, params: DcParams, pad: int = 1) -> List[date]:
+    """Expiry dates to fetch for one session: trading days [front_dte-pad .. front_dte+gap+pad].
+
+    The pad tolerates SPXW dates that aren't actual expiries, so resolve_expiries always
+    finds a cached expiry within tolerance of its front/back targets.
+    """
+    lo = max(1, params.front_dte - pad)
+    hi = params.front_dte + params.gap + pad
+    out: List[date] = []
+    for n in range(lo, hi + 1):
+        d = nth_trading_day_after(session, n)
+        if d is not None and d not in out:
+            out.append(d)
+    return out
+
+
+def atm_from_spy(spy_csv: str | Path = "data/spy_daily.csv"):
+    """Build a session→ATM-strike lookup from SPY daily closes (SPY×10 ≈ SPX, step-aligned)."""
+    import csv as _csv
+    m: Dict[date, float] = {}
+    with open(spy_csv) as f:
+        for row in _csv.DictReader(f):
+            d = date.fromisoformat(row["Date"])
+            m[d] = round(float(row["Close"]) * 10 / 5) * 5
+    return lambda s: m.get(s)
+
+
+def backfill_range(client, sessions: List[date], atm_for, params: DcParams,
+                   out_dir: str | Path, pad: int = 1, half_width: int = 80) -> List[Path]:
+    """Fetch each session's front/back expiry panels into <out_dir>/<session>.pkl.
+
+    Sessions with no ATM reference are skipped. Returns the written pickle paths.
+    """
+    written: List[Path] = []
+    for s in sessions:
+        atm = atm_for(s)
+        if atm is None:
+            continue
+        exps = session_expiries(s, params, pad=pad)
+        if not exps:
+            continue
+        path = backfill_session(client, s, exps, atm, out_dir, half_width_pts=half_width)
+        written.append(path)
+    return written
 
 
 def write_trades_csv(trades: List[TradeResult], path: str | Path) -> None:
@@ -69,6 +119,13 @@ def main(argv: List[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dc-backtest")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    bf = sub.add_parser("backfill")
+    bf.add_argument("--start", required=True)
+    bf.add_argument("--end", required=True)
+    bf.add_argument("--out", default="data/dc_cache")
+    bf.add_argument("--pad", type=int, default=1)
+    bf.add_argument("--half-width", type=int, default=80)
+
     sim = sub.add_parser("simulate")
     sim.add_argument("--cache", required=True)
     sim.add_argument("--out", default="results/dc_time_machine/trades.csv")
@@ -79,6 +136,17 @@ def main(argv: List[str] | None = None) -> int:
     cc.add_argument("--fill-k", type=float, default=1.0)
 
     args = ap.parse_args(argv)
+
+    if args.cmd == "backfill":
+        import databento as dbn   # local import: only needed for the paid path
+        client = dbn.Historical()  # reads DATABENTO_API_KEY from env
+        sessions = sessions_between(date.fromisoformat(args.start), date.fromisoformat(args.end))
+        atm_for = atm_from_spy()
+        params = DcParams()
+        paths = backfill_range(client, sessions, atm_for, params, Path(args.out),
+                               pad=args.pad, half_width=args.half_width)
+        print(f"backfilled {len(paths)}/{len(sessions)} sessions → {args.out}")
+        return 0
 
     if args.cmd == "simulate":
         params = DcParams(fill_k=args.fill_k)
