@@ -125,3 +125,85 @@ def simulate_trade(store: MultiExpiryStore, params: DcParams, *, session: date,
     res.outcome = "closed_eod"
     res.pnl = round((v_close - D) * 100, 2)
     return res
+
+
+# --- append to src_v2/backtest/dc_time_machine/simulator.py ---
+from typing import Tuple
+
+from src_v2.backtest.dc_time_machine.iv import bs_delta, implied_vol, front_back_ratio
+
+
+def resolve_expiries(store: MultiExpiryStore, session: date, params: DcParams
+                     ) -> Tuple[Optional[date], Optional[date]]:
+    """front = (front_dte)th available expiry strictly after session; back = front idx + gap."""
+    exps = [e for e in store.available_expiries() if e > session]
+    fi = params.front_dte - 1
+    bi = fi + params.gap
+    if fi < 0 or bi >= len(exps):
+        return None, None
+    return exps[fi], exps[bi]
+
+
+def _T(session: date, expiry: date) -> float:
+    return max((expiry - session).days, 1) / 365.0
+
+
+def select_strikes(store: MultiExpiryStore, session: date, front: date,
+                   params: DcParams, spot: float) -> Tuple[Optional[float], Optional[float]]:
+    """Pick K_p (put, below spot) and K_c (call, above spot) nearest the target abs delta.
+
+    Delta is computed with each strike's own implied vol at the entry minute; falls
+    back to scanning available strikes. Returns (None, None) if no usable strikes.
+    """
+    em = params.entry_minute
+    T = _T(session, front)
+    ks = sorted(store.strikes(front))
+    best_put = best_call = None
+    bp_err = bc_err = 1e9
+    for K in ks:
+        for is_call in (True, False):
+            q = store.lookup(front, em, K, is_call)
+            if q is None:
+                continue
+            mid = (q[0] + q[1]) / 2
+            iv = implied_vol(mid, spot, K, T, params.rate, is_call)
+            if iv != iv:   # NaN
+                continue
+            d = bs_delta(spot, K, T, iv, params.rate, is_call)
+            err = abs(abs(d) - params.target_delta)
+            if is_call and K > spot and err < bc_err:
+                bc_err, best_call = err, K
+            if (not is_call) and K < spot and err < bp_err:
+                bp_err, best_put = err, K
+    return best_put, best_call
+
+
+def compute_iv_features(store: MultiExpiryStore, session: date, front: date,
+                        back: date, minute: str, spot: float, params: DcParams) -> Dict:
+    """Reconstruct the front/back ATM IV ratio (the 'Flux' signal) + day-combo flags."""
+    def atm_iv(expiry: date) -> float:
+        ks = store.strikes(expiry)
+        if not ks:
+            return float("nan")
+        atm = min(ks, key=lambda x: abs(x - spot))
+        ivs = []
+        T = _T(session, expiry)
+        for is_call in (True, False):
+            q = store.lookup(expiry, minute, atm, is_call)
+            if q is None:
+                continue
+            mid = (q[0] + q[1]) / 2
+            iv = implied_vol(mid, spot, atm, T, params.rate, is_call)
+            if iv == iv:
+                ivs.append(iv)
+        return sum(ivs) / len(ivs) if ivs else float("nan")
+
+    fr, bk = atm_iv(front), atm_iv(back)
+    ratio = front_back_ratio(fr, bk)
+    is_fri_mon = (session.weekday() == 4 or front.weekday() == 4) and back.weekday() == 0
+    return {
+        "front_iv": fr, "back_iv": bk, "ratio": ratio,
+        "is_backwardation": (ratio == ratio and ratio > 1.0),
+        "is_fri_mon": bool(is_fri_mon),
+        "ratio_z": 0.0, "ratio_falling": False,   # filled by flux_scanner history when available
+    }
