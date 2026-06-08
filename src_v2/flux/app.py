@@ -7,11 +7,12 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from src_v2.flux.engine import atm_iv, ratio_point
 from src_v2.flux.history import daily_ratio_series
 from src_v2.flux.scanner import scan
 from src_v2.flux.sources.base import FluxSource
 from src_v2.flux.sources.marketdata import MarketDataSource
-from src_v2.backtest.dc_time_machine.trading_calendar import sessions_between
+from src_v2.backtest.dc_time_machine.trading_calendar import sessions_between, trading_days_after
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -35,12 +36,45 @@ def _sr_json(s):
             "drop": round(s.drop, 4), "zscore": round(s.zscore, 2), "flag": s.flag}
 
 
-def create_app(source: FluxSource | None = None) -> Flask:
+def create_app(source: FluxSource | None = None, live_source: FluxSource | None = None) -> Flask:
     if source is None:
         from src_v2.flux.cache import ChainCache
         source = MarketDataSource(cache=ChainCache())   # cache EOD fetches → fewer credits
     src = source
+    live = live_source                                   # TastyTradeLiveSource (None = live off)
     app = Flask(__name__)
+
+    @app.get("/api/live_ratio")
+    def live_ratio():
+        if live is None:
+            return jsonify({"error": "live source not configured (start with --live)"}), 200
+        front = date.fromisoformat(request.args["front"])
+        back = date.fromisoformat(request.args["back"])
+        rd = float(request.args.get("ref_delta", 0.35))
+        try:
+            rp = ratio_point(live.chain(front), live.chain(back), rd)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 200
+        if rp is None:
+            return jsonify({"error": "no live quotes for this pair"}), 200
+        return jsonify(_rp_json(rp))
+
+    @app.get("/api/expirations_iv")
+    def expirations_iv():
+        if live is None:
+            return jsonify({"error": "live source not configured", "expirations": []}), 200
+        ref = date.fromisoformat(request.args.get("ref", date.today().isoformat()))
+        rd = float(request.args.get("ref_delta", 0.35))
+        lo, hi = int(request.args.get("min_dte", 1)), int(request.args.get("max_dte", 15))
+        out = []
+        for e in live.expirations(ref, lo, hi):
+            try:
+                iv = atm_iv(live.chain(e), rd)
+            except Exception:
+                iv = None
+            out.append({"expiry": e.isoformat(), "dte": trading_days_after(ref, e),
+                        "atm_iv": round(iv, 4) if iv is not None else None})
+        return jsonify({"expirations": out})
 
     @app.get("/api/ratio")
     def ratio():
