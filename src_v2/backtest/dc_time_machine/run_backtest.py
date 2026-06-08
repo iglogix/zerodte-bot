@@ -152,7 +152,9 @@ def main(argv: List[str] | None = None) -> int:
     bf.add_argument("--pad", type=int, default=1)
     bf.add_argument("--half-width", type=int, default=200)
     bf.add_argument("--source", choices=["theta", "databento"], default="theta")
-    bf.add_argument("--workers", type=int, default=6)
+    bf.add_argument("--workers", type=int, default=4)
+    bf.add_argument("--oldest-first", action="store_true",
+                    help="default is recent-first so the cross-check window lands fast")
 
     sim = sub.add_parser("simulate")
     sim.add_argument("--cache", required=True)
@@ -171,6 +173,8 @@ def main(argv: List[str] | None = None) -> int:
             import databento as dbn   # local import: only needed for the paid path
             client = dbn.Historical()  # reads DATABENTO_API_KEY from env
         sessions = sessions_between(date.fromisoformat(args.start), date.fromisoformat(args.end))
+        if not args.oldest_first:
+            sessions = sessions[::-1]   # recent-first: warm/fast data + cross-check window land first
         atm_for = atm_from_spy()
         params = DcParams()
         paths = backfill_range(client, sessions, atm_for, params, Path(args.out),

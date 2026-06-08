@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import time
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -24,9 +25,19 @@ QuoteKey = Tuple[str, float, bool]
 QuoteVal = Tuple[float, float]
 
 
-def _http_json(url: str, timeout: int = 180) -> dict:
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return json.load(r)
+def _http_json(url: str, timeout: int = 180, retries: int = 4, backoff: float = 2.0) -> dict:
+    """GET + parse JSON with retry/backoff. Old (cold-storage) dates are slow and the
+    local terminal can transiently error under concurrency, so retry before giving up."""
+    last: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                return json.load(r)
+        except Exception as e:   # URLError/HTTPError/timeout/JSON
+            last = e
+            if attempt < retries - 1:
+                time.sleep(backoff * (attempt + 1))
+    raise last if last else RuntimeError("fetch failed")
 
 
 def _bulk_url(session: date, expiry: date, base: str) -> str:
@@ -95,15 +106,20 @@ def backfill_session_theta(
     session: date, expiries: Iterable[date], atm_strike: float, out_dir: str | Path,
     half_width_pts: int = 200, ref_minute: str = "09:40", base: str = THETA,
     fetch_json: Callable[[str], dict] = _http_json,
-) -> Path:
+) -> Optional[Path]:
     """Fetch each expiry full-chain, center on the data-derived forward, write the panel.
 
     `atm_strike` is only a fallback if the forward cannot be derived from the data.
     """
     expiries = list(expiries)
-    fulls: Dict[date, Dict[QuoteKey, QuoteVal]] = {
-        exp: _parse_bulk(fetch_json(_bulk_url(session, exp, base))) for exp in expiries
-    }
+
+    def _safe(exp: date) -> Dict[QuoteKey, QuoteVal]:
+        try:                                  # a missing expiry (e.g. a 2022 Thursday) or a
+            return _parse_bulk(fetch_json(_bulk_url(session, exp, base)))   # transient error
+        except Exception:                     # must not drop the whole session
+            return {}
+
+    fulls: Dict[date, Dict[QuoteKey, QuoteVal]] = {exp: _safe(exp) for exp in expiries}
     # Center: prefer the session's own 0DTE forward; else the first expiry that yields one.
     center: Optional[float] = None
     if session in fulls:
@@ -117,6 +133,8 @@ def backfill_session_theta(
         center = atm_strike
 
     panel = {exp: _window(full, center, half_width_pts) for exp, full in fulls.items()}
+    if not any(panel.values()):
+        return None   # nothing fetched (terminal overload / all-missing) → leave for resume
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{session.isoformat()}.pkl"
