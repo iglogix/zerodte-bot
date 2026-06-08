@@ -12,6 +12,7 @@ Requires the OPTION.VALUE entitlement (intraday). Flat-rate — no per-query cos
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import urllib.request
 from datetime import date
@@ -119,6 +120,8 @@ def backfill_session_theta(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{session.isoformat()}.pkl"
-    with open(path, "wb") as f:
+    tmp = out_dir / f".{session.isoformat()}.pkl.tmp"   # atomic: write tmp, then rename
+    with open(tmp, "wb") as f:
         pickle.dump(panel, f)
+    os.replace(tmp, path)
     return path
