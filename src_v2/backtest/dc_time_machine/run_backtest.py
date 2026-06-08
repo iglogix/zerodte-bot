@@ -58,33 +58,47 @@ def atm_from_spy(spy_csv: str | Path = "data/spy_daily.csv"):
 
 def backfill_range(client, sessions: List[date], atm_for, params: DcParams,
                    out_dir: str | Path, pad: int = 1, half_width: int = 200,
-                   source: str = "databento") -> List[Path]:
+                   source: str = "databento", workers: int = 1,
+                   skip_existing: bool = True) -> List[Path]:
     """Fetch each session's front/back expiry panels into <out_dir>/<session>.pkl.
 
     source="theta" centers the window on the data-derived forward (no external ATM
     needed) and is flat-rate; "databento" uses the provided client and requires an
-    ATM reference (sessions without one are skipped). Returns the written paths.
+    ATM reference. `workers` parallelizes across sessions (I/O-bound HTTP); each
+    pickle is written atomically per session so the run is resumable via
+    `skip_existing`. Returns the written paths.
     """
-    written: List[Path] = []
-    for s in sessions:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _one(s: date) -> Optional[Path]:
+        dest = out_dir / f"{s.isoformat()}.pkl"
+        if skip_existing and dest.exists():
+            return dest
         atm = atm_for(s) if atm_for else None
         if source != "theta" and atm is None:
-            continue
+            return None
         exps = session_expiries(s, params, pad=pad)
         if not exps:
-            continue
+            return None
         # Prepend the session's own 0DTE panel so settlement() can resolve the front
-        # IC at expiry (parity from the expiry's own last-minute quotes) for any earlier
-        # trade whose front lands on this session.
+        # IC at expiry (parity from the expiry's own last-minute quotes).
         fetch_exps = [s] + exps
-        if source == "theta":
-            from src_v2.backtest.dc_time_machine.theta_backfill import backfill_session_theta
-            path = backfill_session_theta(s, fetch_exps, atm if atm is not None else 0.0,
-                                          out_dir, half_width_pts=half_width)
-        else:
-            path = backfill_session(client, s, fetch_exps, atm, out_dir, half_width_pts=half_width)
-        written.append(path)
-    return written
+        try:
+            if source == "theta":
+                from src_v2.backtest.dc_time_machine.theta_backfill import backfill_session_theta
+                return backfill_session_theta(s, fetch_exps, atm if atm is not None else 0.0,
+                                              out_dir, half_width_pts=half_width)
+            return backfill_session(client, s, fetch_exps, atm, out_dir, half_width_pts=half_width)
+        except Exception as e:   # one bad session must not abort a multi-hour run
+            print(f"  [skip {s}: {type(e).__name__}: {e}]", flush=True)
+            return None
+
+    if workers <= 1:
+        return [p for p in (_one(s) for s in sessions) if p is not None]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return [p for p in ex.map(_one, sessions) if p is not None]
 
 
 def write_trades_csv(trades: List[TradeResult], path: str | Path) -> None:
@@ -138,6 +152,7 @@ def main(argv: List[str] | None = None) -> int:
     bf.add_argument("--pad", type=int, default=1)
     bf.add_argument("--half-width", type=int, default=200)
     bf.add_argument("--source", choices=["theta", "databento"], default="theta")
+    bf.add_argument("--workers", type=int, default=6)
 
     sim = sub.add_parser("simulate")
     sim.add_argument("--cache", required=True)
@@ -159,7 +174,8 @@ def main(argv: List[str] | None = None) -> int:
         atm_for = atm_from_spy()
         params = DcParams()
         paths = backfill_range(client, sessions, atm_for, params, Path(args.out),
-                               pad=args.pad, half_width=args.half_width, source=args.source)
+                               pad=args.pad, half_width=args.half_width, source=args.source,
+                               workers=args.workers)
         print(f"backfilled {len(paths)}/{len(sessions)} sessions → {args.out} (source={args.source})")
         return 0
 
