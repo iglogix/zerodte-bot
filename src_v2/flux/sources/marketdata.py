@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from src_v2.flux.cache import ChainCache
 from src_v2.flux.models import ChainSnapshot, OptionRow
 from src_v2.flux.sources.base import FluxSource
 
@@ -43,13 +44,27 @@ def _default_fetch(token: str) -> Callable[[str], dict]:
 class MarketDataSource(FluxSource):
     def __init__(self, token: Optional[str] = None,
                  fetch_json: Optional[Callable[[str], dict]] = None,
-                 strike_limit: int = 25, underlying: str = "SPX"):
+                 strike_limit: int = 25, underlying: str = "SPX",
+                 cache: Optional["ChainCache"] = None):
         self.token = token or load_token()
         self.strike_limit = strike_limit
         self.underlying = underlying
+        self.cache = cache
         self._fetch = fetch_json or _default_fetch(self.token or "")
 
     def chain(self, expiry: date, on_date: Optional[date] = None) -> ChainSnapshot:
+        # EOD snapshots are immutable → cache them to bound marketdata.app credit spend.
+        # Live snapshots (on_date=None) are never cached.
+        if on_date is not None and self.cache is not None:
+            cached = self.cache.get(self.underlying, expiry, on_date)
+            if cached is not None:
+                return cached
+            snap = self._fetch_chain(expiry, on_date)
+            self.cache.put(snap, on_date)
+            return snap
+        return self._fetch_chain(expiry, on_date)
+
+    def _fetch_chain(self, expiry: date, on_date: Optional[date]) -> ChainSnapshot:
         url = (f"{BASE}/options/chain/{self.underlying}/?expiration={expiry.isoformat()}"
                f"&strikeLimit={self.strike_limit}&columns={COLUMNS}")
         if on_date is not None:
