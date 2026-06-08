@@ -46,11 +46,15 @@ def _http_json(url: str, timeout: int = 180, retries: int = 3, backoff: float = 
     raise last if last else RuntimeError("fetch failed")
 
 
-def _bulk_url(session: date, expiry: date, base: str) -> str:
+DEFAULT_IVL_MS = 600_000   # 10-min bars: 54x faster cold-storage reads than 1-min, and
+                           # ample resolution for a transform that fires over minutes-to-hours.
+
+
+def _bulk_url(session: date, expiry: date, base: str, ivl: int = DEFAULT_IVL_MS) -> str:
     return (f"{base}/v2/bulk_hist/option/quote?root=SPXW"
             f"&exp={expiry.strftime('%Y%m%d')}"
             f"&start_date={session.strftime('%Y%m%d')}&end_date={session.strftime('%Y%m%d')}"
-            f"&ivl=60000&rth=true")
+            f"&ivl={ivl}&rth=true")
 
 
 def _parse_bulk(data: dict) -> Dict[QuoteKey, QuoteVal]:
@@ -101,17 +105,17 @@ def _window(full: Dict[QuoteKey, QuoteVal], center: float, half: float) -> Dict[
 def fetch_expiry_session_theta(
     session: date, expiry: date, atm_strike: float,
     half_width_pts: int = 200, base: str = THETA,
-    fetch_json: Callable[[str], dict] = _http_json,
+    fetch_json: Callable[[str], dict] = _http_json, ivl: int = DEFAULT_IVL_MS,
 ) -> Dict[QuoteKey, QuoteVal]:
     """One bulk call → {(minute, strike, is_call): (bid, ask)} filtered to ±half around atm_strike."""
-    full = _parse_bulk(fetch_json(_bulk_url(session, expiry, base)))
+    full = _parse_bulk(fetch_json(_bulk_url(session, expiry, base, ivl)))
     return _window(full, atm_strike, half_width_pts)
 
 
 def backfill_session_theta(
     session: date, expiries: Iterable[date], atm_strike: float, out_dir: str | Path,
     half_width_pts: int = 200, ref_minute: str = "09:40", base: str = THETA,
-    fetch_json: Callable[[str], dict] = _http_json,
+    fetch_json: Callable[[str], dict] = _http_json, ivl: int = DEFAULT_IVL_MS,
 ) -> Optional[Path]:
     """Fetch each expiry full-chain, center on the data-derived forward, write the panel.
 
@@ -121,7 +125,7 @@ def backfill_session_theta(
 
     def _safe(exp: date) -> Dict[QuoteKey, QuoteVal]:
         try:                                  # a missing expiry (e.g. a 2022 Thursday) or a
-            return _parse_bulk(fetch_json(_bulk_url(session, exp, base)))   # transient error
+            return _parse_bulk(fetch_json(_bulk_url(session, exp, base, ivl)))   # transient error
         except Exception:                     # must not drop the whole session
             return {}
 
