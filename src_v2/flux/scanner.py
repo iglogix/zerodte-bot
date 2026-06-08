@@ -19,16 +19,13 @@ def _prev_session(d: date) -> date:
     return s[-2] if len(s) >= 2 and s[-1] == d else s[-1]
 
 
-def _ratio_on(source, session, front, back, ref_delta):
-    rp = ratio_point(source.chain(front, on_date=session),
-                     source.chain(back, on_date=session), ref_delta)
-    return rp.ratio if rp else None
-
-
 def scan(source: FluxSource, on_date: date, min_dte: int, max_dte: int,
          gaps: List[int], ref_delta: float, by: str = "drop") -> List[ScanRow]:
+    from concurrent.futures import ThreadPoolExecutor
+
     prev = _prev_session(on_date)
-    raw = []
+    pairs = []
+    needed = set()
     for dte in range(min_dte, max_dte + 1):
         front = nth_trading_day_after(on_date, dte)
         if front is None:
@@ -37,12 +34,39 @@ def scan(source: FluxSource, on_date: date, min_dte: int, max_dte: int,
             back = nth_trading_day_after(on_date, dte + gap)
             if back is None:
                 continue
-            today = _ratio_on(source, on_date, front, back, ref_delta)
-            yest = _ratio_on(source, prev, front, back, ref_delta)
-            if today is None or yest is None:
-                continue
-            raw.append({"front": front, "back": back, "gap": gap,
-                        "ratio": today, "ratio_prev": yest})
+            pairs.append((front, back, gap))
+            for sess in (on_date, prev):
+                needed.add((sess, front)); needed.add((sess, back))
+
+    # Pre-fetch every unique (session, expiry) chain once, in parallel & fault-tolerant
+    # (shared expiries across pairs → far fewer fetches; the cache makes repeats instant).
+    def _fetch(key):
+        sess, exp = key
+        try:
+            return key, source.chain(exp, on_date=sess)
+        except Exception:
+            return key, None
+    chains = {}
+    if needed:
+        with ThreadPoolExecutor(max_workers=min(3, len(needed))) as ex:
+            for key, snap in ex.map(_fetch, list(needed)):
+                chains[key] = snap
+
+    def _ratio(sess, front, back):
+        fc, bc = chains.get((sess, front)), chains.get((sess, back))
+        if fc is None or bc is None:
+            return None
+        rp = ratio_point(fc, bc, ref_delta)
+        return rp.ratio if rp else None
+
+    raw = []
+    for front, back, gap in pairs:
+        today = _ratio(on_date, front, back)
+        yest = _ratio(prev, front, back)
+        if today is None or yest is None:
+            continue
+        raw.append({"front": front, "back": back, "gap": gap,
+                    "ratio": today, "ratio_prev": yest})
     ranked = rank_candidates(raw, by=by)
     out: List[ScanRow] = []
     for c in ranked:

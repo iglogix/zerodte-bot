@@ -2,7 +2,7 @@
 """Flask shell: JSON endpoints over the Flux compute layer + the dashboard page."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -11,8 +11,16 @@ from src_v2.flux.history import daily_ratio_series
 from src_v2.flux.scanner import scan
 from src_v2.flux.sources.base import FluxSource
 from src_v2.flux.sources.marketdata import MarketDataSource
+from src_v2.backtest.dc_time_machine.trading_calendar import sessions_between
 
 _STATIC = Path(__file__).parent / "static"
+
+
+def _last_eod_session() -> date:
+    """Most recent NYSE session strictly before today — today's EOD isn't settled yet."""
+    today = date.today()
+    s = sessions_between(today - timedelta(days=12), today - timedelta(days=1))
+    return s[-1] if s else today - timedelta(days=1)
 
 
 def _rp_json(p):
@@ -52,7 +60,7 @@ def create_app(source: FluxSource | None = None) -> Flask:
 
     @app.get("/api/scan")
     def do_scan():
-        on = date.fromisoformat(request.args.get("on_date", date.today().isoformat()))
+        on = date.fromisoformat(request.args.get("on_date", _last_eod_session().isoformat()))
         rd = float(request.args.get("ref_delta", 0.35))
         gaps = [int(x) for x in request.args.get("gaps", "1").split(",")]
         try:

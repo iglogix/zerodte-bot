@@ -43,8 +43,11 @@ async function refresh(){
   {x,y:r.points.map(p=>p.ratio),name:'ratio',yaxis:'y2',line:{color:'#f0883e',width:3}},
  ],{paper_bgcolor:'#0e1117',plot_bgcolor:'#0e1117',font:{color:'#e6e6e6'},margin:{t:20},
     legend:{orientation:'h'},yaxis:{title:'IV'},yaxis2:{title:'ratio',overlaying:'y',side:'right'}});
- const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=0&max_dte=30&gaps=1,2,3&by=drop`).then(r=>r.json());
- $('#scan tbody').innerHTML=(sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('');
+ $('#scan tbody').innerHTML='<tr><td colspan="6" style="color:#9aa4b2">scanning… (first run cold-fetches expiries, ~30–60s; instant once cached)</td></tr>';
+ const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=2&max_dte=15&gaps=1,2&by=drop`).then(r=>r.json());
+ $('#scan tbody').innerHTML = sc.error
+   ? `<tr><td colspan="6" style="color:#f0b72f">scan error: ${sc.error}</td></tr>`
+   : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
 }
 refresh(); setInterval(()=>{if(view==='intraday')refresh();},60000);
 </script></body></html>
