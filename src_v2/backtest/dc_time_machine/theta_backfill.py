@@ -25,18 +25,24 @@ QuoteKey = Tuple[str, float, bool]
 QuoteVal = Tuple[float, float]
 
 
-def _http_json(url: str, timeout: int = 180, retries: int = 4, backoff: float = 2.0) -> dict:
-    """GET + parse JSON with retry/backoff. Old (cold-storage) dates are slow and the
-    local terminal can transiently error under concurrency, so retry before giving up."""
+def _http_json(url: str, timeout: int = 180, retries: int = 3, backoff: float = 1.5) -> dict:
+    """GET + parse JSON. Retries only TRANSIENT errors (connection/timeout/5xx); a 4xx
+    such as 472 means 'no data for this contract' (e.g. a future or non-existent expiry)
+    and is raised immediately so we don't waste backoff on it."""
+    import urllib.error
     last: Optional[Exception] = None
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(url, timeout=timeout) as r:
                 return json.load(r)
-        except Exception as e:   # URLError/HTTPError/timeout/JSON
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500:      # definitive no-data → fail fast, no retry
+                raise
+            last = e                     # 5xx → transient
+        except Exception as e:           # URLError / socket timeout / JSON
             last = e
-            if attempt < retries - 1:
-                time.sleep(backoff * (attempt + 1))
+        if attempt < retries - 1:
+            time.sleep(backoff * (attempt + 1))
     raise last if last else RuntimeError("fetch failed")
 
 
