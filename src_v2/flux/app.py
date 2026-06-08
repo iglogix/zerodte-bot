@@ -12,7 +12,9 @@ from src_v2.flux.history import daily_ratio_series
 from src_v2.flux.scanner import scan
 from src_v2.flux.sources.base import FluxSource
 from src_v2.flux.sources.marketdata import MarketDataSource
-from src_v2.backtest.dc_time_machine.trading_calendar import sessions_between, trading_days_after
+from src_v2.backtest.dc_time_machine.trading_calendar import (
+    nth_trading_day_after, sessions_between, trading_days_after,
+)
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -22,6 +24,18 @@ def _last_eod_session() -> date:
     today = date.today()
     s = sessions_between(today - timedelta(days=12), today - timedelta(days=1))
     return s[-1] if s else today - timedelta(days=1)
+
+
+def _spx_atm_hint(src, expiry: date, fallback: float = 7400.0) -> float:
+    """Rough current SPX level to center the ThetaData strike window — parity off a live
+    marketdata chain; the per-minute IV computation re-derives the exact ATM anyway."""
+    try:
+        from src_v2.flux.iv_compute import parity_spot
+        ch = src.chain(expiry)   # live (on_date=None)
+        spot = parity_spot([(r.strike, r.is_call, r.bid, r.ask) for r in ch.rows])
+        return spot if spot else fallback
+    except Exception:
+        return fallback
 
 
 def _rp_json(p):
@@ -36,13 +50,41 @@ def _sr_json(s):
             "drop": round(s.drop, 4), "zscore": round(s.zscore, 2), "flag": s.flag}
 
 
-def create_app(source: FluxSource | None = None, live_source: FluxSource | None = None) -> Flask:
+def create_app(source: FluxSource | None = None, live_source: FluxSource | None = None,
+               intraday_source=None) -> Flask:
     if source is None:
         from src_v2.flux.cache import ChainCache
         source = MarketDataSource(cache=ChainCache())   # cache EOD fetches → fewer credits
     src = source
     live = live_source                                   # TastyTradeLiveSource (None = live off)
+    intraday = intraday_source                            # ThetaIntradaySource (None = off)
     app = Flask(__name__)
+
+    @app.get("/api/intraday")
+    def intraday_ep():
+        if intraday is None:
+            return jsonify({"error": "intraday source not configured", "points": []}), 200
+        # "Today" = today's live (delayed) intraday; ?session=YYYY-MM-DD replays a past day.
+        session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
+        # accept explicit expiry dates, or resolve from front_dte/gap relative to the session
+        if request.args.get("front") and request.args.get("back"):
+            front = date.fromisoformat(request.args["front"])
+            back = date.fromisoformat(request.args["back"])
+        else:
+            fd, gap = int(request.args.get("front_dte", 9)), int(request.args.get("gap", 1))
+            front = nth_trading_day_after(session, fd)
+            back = nth_trading_day_after(session, fd + gap)
+            if front is None or back is None:
+                return jsonify({"error": "could not resolve expiries", "points": []}), 200
+        rd = float(request.args.get("ref_delta", 0.35))
+        atm = request.args.get("atm")
+        atm = float(atm) if atm else _spx_atm_hint(src, front)
+        try:
+            pts = intraday.intraday(session, front, back, rd, atm)
+        except Exception as e:
+            return jsonify({"error": str(e), "points": []}), 200
+        return jsonify({"points": [_rp_json(p) for p in pts],
+                        "meta": {"session": session.isoformat(), "atm": atm}})
 
     @app.get("/api/live_ratio")
     def live_ratio():

@@ -11,6 +11,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--intraday", choices=["theta", "off"], default="theta",
+                   help="live intraday source (theta = ThetaData stand-in for TT)")
     sc = sub.add_parser("scan")
     sc.add_argument("--on-date", default=date.today().isoformat())
     sc.add_argument("--min-dte", type=int, default=0)
@@ -25,7 +27,11 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.cmd == "serve":
         from src_v2.flux.app import create_app
-        create_app().run(host=args.host, port=args.port, debug=False)
+        intraday_source = None
+        if args.intraday == "theta":
+            from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
+            intraday_source = ThetaIntradaySource()
+        create_app(intraday_source=intraday_source).run(host=args.host, port=args.port, debug=False)
         return 0
     if args.cmd == "scan":
         from src_v2.flux.scanner import scan

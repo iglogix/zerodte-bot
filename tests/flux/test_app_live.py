@@ -40,3 +40,27 @@ def test_live_endpoints_off_when_no_live_source():
     c = create_app().test_client()   # no live_source
     assert "error" in c.get("/api/live_ratio?front=2026-06-17&back=2026-06-18").get_json()
     assert c.get("/api/expirations_iv").get_json()["expirations"] == []
+
+
+class FakeIntraday:
+    def intraday(self, session, front_exp, back_exp, ref_delta, atm_hint):
+        from datetime import datetime, timezone
+        from src_v2.flux.models import RatioPoint
+        return [RatioPoint(datetime(2026, 6, 5, 13, 40, tzinfo=timezone.utc),
+                           front_exp, back_exp, ref_delta, 0.22, 0.20, 1.1),
+                RatioPoint(datetime(2026, 6, 5, 13, 50, tzinfo=timezone.utc),
+                           front_exp, back_exp, ref_delta, 0.23, 0.20, 1.15)]
+
+
+def test_intraday_endpoint_returns_series():
+    c = create_app(intraday_source=FakeIntraday()).test_client()
+    r = c.get("/api/intraday?front=2026-06-17&back=2026-06-18&session=2026-06-05&ref_delta=0.5&atm=7000")
+    assert r.status_code == 200
+    b = r.get_json()
+    assert len(b["points"]) == 2 and b["points"][0]["ratio"] == pytest.approx(1.1)
+    assert b["meta"]["session"] == "2026-06-05"
+
+
+def test_intraday_off_when_not_configured():
+    c = create_app().test_client()
+    assert c.get("/api/intraday?front=2026-06-17&back=2026-06-18").get_json()["points"] == []

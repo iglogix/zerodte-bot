@@ -33,9 +33,13 @@ document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{document.querySelec
 ['#fd','#gap','#rd'].forEach(s=>$(s).onchange=refresh);
 async function refresh(){
  const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value;
- const v=view==='intraday'?'5day':view; // intraday falls back to daily until live poller is wired in serve
- const r=await fetch(`/api/ratio?front_dte=${fd}&gap=${gap}&ref_delta=${rd}&view=${v}`).then(r=>r.json());
- $('#banner').textContent=r.error?('error: '+r.error):(r.meta&&r.meta.front_expiry?`${r.meta.front_expiry} / ${r.meta.back_expiry}  (${view})`:'no data');
+ const url = view==='intraday'
+   ? `/api/intraday?front_dte=${fd}&gap=${gap}&ref_delta=${rd}`      // live 1-min (ThetaData)
+   : `/api/ratio?front_dte=${fd}&gap=${gap}&ref_delta=${rd}&view=${view}`;  // EOD history
+ const r=await fetch(url).then(r=>r.json());
+ const meta=r.meta||{};
+ $('#banner').textContent = r.error ? ('error: '+r.error)
+   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
  const x=r.points.map(p=>p.as_of);
  Plotly.react('chart',[
   {x,y:r.points.map(p=>p.front_iv),name:'front IV',line:{color:'#58a6ff'}},
