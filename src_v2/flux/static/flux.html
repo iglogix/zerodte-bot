@@ -1,0 +1,50 @@
+<!-- src_v2/flux/static/flux.html -->
+<!doctype html><html><head><meta charset="utf-8"><title>Flux — SPX IV term structure</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+ body{font:14px system-ui;margin:0;background:#0e1117;color:#e6e6e6}
+ header{padding:10px 16px;background:#161b22;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+ label{font-size:12px;color:#9aa4b2} select,button{background:#21262d;color:#e6e6e6;border:1px solid #30363d;border-radius:6px;padding:4px 8px}
+ button.active{background:#1f6feb;border-color:#1f6feb}
+ #banner{padding:6px 16px;color:#f0b72f;font-size:12px;min-height:18px}
+ #chart{height:55vh} table{width:100%;border-collapse:collapse;font-size:13px}
+ th,td{padding:6px 10px;border-bottom:1px solid #21262d;text-align:right} th:first-child,td:first-child{text-align:left}
+ tr.flag td{color:#3fb950;font-weight:600} h3{margin:12px 16px 4px}
+</style></head><body>
+<header>
+ <strong>Flux — SPX</strong>
+ <label>front DTE</label><select id="fd">9</select>
+ <label>gap</label><select id="gap"></select>
+ <label>ref Δ</label><select id="rd"><option value="0.35">0.35 (traded)</option><option value="0.5">0.50 (ATM)</option></select>
+ <span><button class="view active" data-v="intraday">1-min</button>
+ <button class="view" data-v="5day">5-day</button>
+ <button class="view" data-v="20day">20-day</button></span>
+</header>
+<div id="banner"></div>
+<div id="chart"></div>
+<h3>Scanner — expiry pairs by ratio drop</h3>
+<table id="scan"><thead><tr><th>front→back</th><th>gap</th><th>ratio</th><th>prev</th><th>drop</th><th>z</th></tr></thead><tbody></tbody></table>
+<script>
+const $=s=>document.querySelector(s);
+for(const e of [3,5,7,9,12,15]){let o=document.createElement('option');o.value=e;o.text=e;if(e==9)o.selected=true;$('#fd').add(o);}
+for(const g of [1,2,3,4]){let o=document.createElement('option');o.value=g;o.text=g;$('#gap').add(o);}
+let view='intraday';
+document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');view=b.dataset.v;refresh();});
+['#fd','#gap','#rd'].forEach(s=>$(s).onchange=refresh);
+async function refresh(){
+ const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value;
+ const v=view==='intraday'?'5day':view; // intraday falls back to daily until live poller is wired in serve
+ const r=await fetch(`/api/ratio?front_dte=${fd}&gap=${gap}&ref_delta=${rd}&view=${v}`).then(r=>r.json());
+ $('#banner').textContent=r.error?('error: '+r.error):(r.meta&&r.meta.front_expiry?`${r.meta.front_expiry} / ${r.meta.back_expiry}  (${view})`:'no data');
+ const x=r.points.map(p=>p.as_of);
+ Plotly.react('chart',[
+  {x,y:r.points.map(p=>p.front_iv),name:'front IV',line:{color:'#58a6ff'}},
+  {x,y:r.points.map(p=>p.back_iv),name:'back IV',line:{color:'#3fb950'}},
+  {x,y:r.points.map(p=>p.ratio),name:'ratio',yaxis:'y2',line:{color:'#f0883e',width:3}},
+ ],{paper_bgcolor:'#0e1117',plot_bgcolor:'#0e1117',font:{color:'#e6e6e6'},margin:{t:20},
+    legend:{orientation:'h'},yaxis:{title:'IV'},yaxis2:{title:'ratio',overlaying:'y',side:'right'}});
+ const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=0&max_dte=30&gaps=1,2,3&by=drop`).then(r=>r.json());
+ $('#scan tbody').innerHTML=(sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('');
+}
+refresh(); setInterval(()=>{if(view==='intraday')refresh();},60000);
+</script></body></html>
