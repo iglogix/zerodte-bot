@@ -57,27 +57,32 @@ def atm_from_spy(spy_csv: str | Path = "data/spy_daily.csv"):
 
 
 def backfill_range(client, sessions: List[date], atm_for, params: DcParams,
-                   out_dir: str | Path, pad: int = 1, half_width: int = 80,
+                   out_dir: str | Path, pad: int = 1, half_width: int = 200,
                    source: str = "databento") -> List[Path]:
     """Fetch each session's front/back expiry panels into <out_dir>/<session>.pkl.
 
-    source="theta" uses the local Theta Terminal (flat-rate, no client); "databento"
-    uses the provided Historical client. Sessions with no ATM reference are skipped.
-    Returns the written pickle paths.
+    source="theta" centers the window on the data-derived forward (no external ATM
+    needed) and is flat-rate; "databento" uses the provided client and requires an
+    ATM reference (sessions without one are skipped). Returns the written paths.
     """
     written: List[Path] = []
     for s in sessions:
-        atm = atm_for(s)
-        if atm is None:
+        atm = atm_for(s) if atm_for else None
+        if source != "theta" and atm is None:
             continue
         exps = session_expiries(s, params, pad=pad)
         if not exps:
             continue
+        # Prepend the session's own 0DTE panel so settlement() can resolve the front
+        # IC at expiry (parity from the expiry's own last-minute quotes) for any earlier
+        # trade whose front lands on this session.
+        fetch_exps = [s] + exps
         if source == "theta":
             from src_v2.backtest.dc_time_machine.theta_backfill import backfill_session_theta
-            path = backfill_session_theta(s, exps, atm, out_dir, half_width_pts=half_width)
+            path = backfill_session_theta(s, fetch_exps, atm if atm is not None else 0.0,
+                                          out_dir, half_width_pts=half_width)
         else:
-            path = backfill_session(client, s, exps, atm, out_dir, half_width_pts=half_width)
+            path = backfill_session(client, s, fetch_exps, atm, out_dir, half_width_pts=half_width)
         written.append(path)
     return written
 
@@ -131,7 +136,7 @@ def main(argv: List[str] | None = None) -> int:
     bf.add_argument("--end", required=True)
     bf.add_argument("--out", default="data/dc_cache")
     bf.add_argument("--pad", type=int, default=1)
-    bf.add_argument("--half-width", type=int, default=80)
+    bf.add_argument("--half-width", type=int, default=200)
     bf.add_argument("--source", choices=["theta", "databento"], default="theta")
 
     sim = sub.add_parser("simulate")

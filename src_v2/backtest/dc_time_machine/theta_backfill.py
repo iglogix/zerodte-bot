@@ -1,10 +1,11 @@
 """ThetaData (Theta Terminal) backfill for the DC backtest.
 
 Uses the local Theta Terminal bulk endpoint to fetch a full-day 1-min NBBO panel
-for ALL strikes of one (session, expiry), then filters to the ATM strike window.
-Output shape matches dc_backfill.backfill_session exactly: one pickle per session,
-{expiry: {(minute, strike, is_call): (bid, ask)}}, so MultiExpiryStore reads it
-unchanged.
+for ALL strikes of one (session, expiry). The window is centered on the parity
+forward DERIVED FROM THE DATA at the entry minute (robust to big gaps), not on an
+external SPY reference, then filtered to ±half_width. Output shape matches
+dc_backfill.backfill_session: one pickle per session, {expiry: {(minute, strike,
+is_call): (bid, ask)}}.
 
 Requires the OPTION.VALUE entitlement (intraday). Flat-rate — no per-query cost.
 """
@@ -15,7 +16,7 @@ import pickle
 import urllib.request
 from datetime import date
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Tuple
+from typing import Callable, Dict, Iterable, Optional, Tuple
 
 THETA = "http://127.0.0.1:25510"
 QuoteKey = Tuple[str, float, bool]
@@ -27,18 +28,15 @@ def _http_json(url: str, timeout: int = 180) -> dict:
         return json.load(r)
 
 
-def fetch_expiry_session_theta(
-    session: date, expiry: date, atm_strike: float,
-    half_width_pts: int = 80, base: str = THETA,
-    fetch_json: Callable[[str], dict] = _http_json,
-) -> Dict[QuoteKey, QuoteVal]:
-    """One bulk call → {(minute_et, strike, is_call): (bid, ask)} for `expiry` on `session`."""
-    lo, hi = atm_strike - half_width_pts, atm_strike + half_width_pts
-    url = (f"{base}/v2/bulk_hist/option/quote?root=SPXW"
-           f"&exp={expiry.strftime('%Y%m%d')}"
-           f"&start_date={session.strftime('%Y%m%d')}&end_date={session.strftime('%Y%m%d')}"
-           f"&ivl=60000&rth=true")
-    data = fetch_json(url)
+def _bulk_url(session: date, expiry: date, base: str) -> str:
+    return (f"{base}/v2/bulk_hist/option/quote?root=SPXW"
+            f"&exp={expiry.strftime('%Y%m%d')}"
+            f"&start_date={session.strftime('%Y%m%d')}&end_date={session.strftime('%Y%m%d')}"
+            f"&ivl=60000&rth=true")
+
+
+def _parse_bulk(data: dict) -> Dict[QuoteKey, QuoteVal]:
+    """Full-chain bulk response → {(minute, strike, is_call): (bid, ask)} (unfiltered)."""
     out: Dict[QuoteKey, QuoteVal] = {}
     fmt = data.get("header", {}).get("format")
     if not fmt:
@@ -47,8 +45,6 @@ def fetch_expiry_session_theta(
     for el in data.get("response", []):
         c = el.get("contract", {})
         strike = c.get("strike", 0) / 1000.0
-        if strike < lo or strike > hi:
-            continue
         is_call = c.get("right") == "C"
         for row in el.get("ticks", []):
             bid, ask = row[i_bid], row[i_ask]
@@ -62,18 +58,64 @@ def fetch_expiry_session_theta(
     return out
 
 
+def _forward_at(panel: Dict[QuoteKey, QuoteVal], minute: str) -> Optional[float]:
+    """Parity forward (strike minimising |call_mid − put_mid|) at `minute`."""
+    strikes = {k[1] for k in panel if k[0] == minute}
+    best = None
+    for K in strikes:
+        c = panel.get((minute, K, True))
+        p = panel.get((minute, K, False))
+        if not c or not p:
+            continue
+        c_mid = (c[0] + c[1]) / 2
+        p_mid = (p[0] + p[1]) / 2
+        diff = abs(c_mid - p_mid)
+        if best is None or diff < best[0]:
+            best = (diff, K + c_mid - p_mid)
+    return best[1] if best else None
+
+
+def _window(full: Dict[QuoteKey, QuoteVal], center: float, half: float) -> Dict[QuoteKey, QuoteVal]:
+    lo, hi = center - half, center + half
+    return {k: v for k, v in full.items() if lo <= k[1] <= hi}
+
+
+def fetch_expiry_session_theta(
+    session: date, expiry: date, atm_strike: float,
+    half_width_pts: int = 200, base: str = THETA,
+    fetch_json: Callable[[str], dict] = _http_json,
+) -> Dict[QuoteKey, QuoteVal]:
+    """One bulk call → {(minute, strike, is_call): (bid, ask)} filtered to ±half around atm_strike."""
+    full = _parse_bulk(fetch_json(_bulk_url(session, expiry, base)))
+    return _window(full, atm_strike, half_width_pts)
+
+
 def backfill_session_theta(
     session: date, expiries: Iterable[date], atm_strike: float, out_dir: str | Path,
-    half_width_pts: int = 80, base: str = THETA,
+    half_width_pts: int = 200, ref_minute: str = "09:40", base: str = THETA,
     fetch_json: Callable[[str], dict] = _http_json,
 ) -> Path:
-    """Fetch each expiry's panel and write {expiry: quotemap} to <out_dir>/<session>.pkl."""
-    panel: Dict[date, Dict[QuoteKey, QuoteVal]] = {}
-    for exp in expiries:
-        panel[exp] = fetch_expiry_session_theta(
-            session, exp, atm_strike, half_width_pts=half_width_pts,
-            base=base, fetch_json=fetch_json,
-        )
+    """Fetch each expiry full-chain, center on the data-derived forward, write the panel.
+
+    `atm_strike` is only a fallback if the forward cannot be derived from the data.
+    """
+    expiries = list(expiries)
+    fulls: Dict[date, Dict[QuoteKey, QuoteVal]] = {
+        exp: _parse_bulk(fetch_json(_bulk_url(session, exp, base))) for exp in expiries
+    }
+    # Center: prefer the session's own 0DTE forward; else the first expiry that yields one.
+    center: Optional[float] = None
+    if session in fulls:
+        center = _forward_at(fulls[session], ref_minute)
+    if center is None:
+        for exp in expiries:
+            center = _forward_at(fulls[exp], ref_minute)
+            if center is not None:
+                break
+    if center is None:
+        center = atm_strike
+
+    panel = {exp: _window(full, center, half_width_pts) for exp, full in fulls.items()}
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{session.isoformat()}.pkl"
