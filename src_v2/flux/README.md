@@ -27,12 +27,16 @@ IV varies by strike (skew), so Flux reads "the" IV at a chosen delta on each exp
 
 ## Data source — marketdata.app
 
-Uses **marketdata.app**, which returns `iv` and `delta` **directly** (no Black–Scholes).
-Token: `MARKET_DATA_TOKEN` from the environment, else `../options_api/.env` (the existing
-repo convention; same token used for SPY candles).
+Uses **marketdata.app**. Token: `MARKET_DATA_TOKEN` from the environment, else
+`../options_api/.env` (the existing repo convention; same token used for SPY candles).
 
+- **IV source:** the **live** feed returns `iv`/`delta` directly; the **historical EOD**
+  feed returns only prices (iv/delta are null). So for historical, Flux **computes IV and
+  delta via Black–Scholes** (`dc_time_machine.iv`) from the bid/ask mid, a put-call-parity
+  spot, and DTE. Live uses the API's IV as-is.
 - **Historical** is **EOD** (`&date=` → one snapshot/day at 16:00 ET) → powers the
-  5/20-day views and the scanner. Fully offline once cached.
+  5/20-day views and the scanner. Fully offline once cached. (Today's EOD doesn't exist
+  yet → that session is skipped, not an error.)
 - **Live** is **delayed/cached** (HTTP 203 on this plan) — fine for an IV ratio, which
   moves slowly.
 - **Cost:** marketdata.app bills **per option returned**, so every request uses

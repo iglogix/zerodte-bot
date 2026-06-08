@@ -28,7 +28,10 @@ def _sr_json(s):
 
 
 def create_app(source: FluxSource | None = None) -> Flask:
-    src = source or MarketDataSource()
+    if source is None:
+        from src_v2.flux.cache import ChainCache
+        source = MarketDataSource(cache=ChainCache())   # cache EOD fetches → fewer credits
+    src = source
     app = Flask(__name__)
 
     @app.get("/api/ratio")
