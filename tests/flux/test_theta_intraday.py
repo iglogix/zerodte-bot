@@ -57,6 +57,41 @@ def test_intraday_drops_opening_auction_bar():
     assert len(pts) == 1 and pts[0].as_of.strftime("%H:%M") == "09:40"   # 09:30 dropped
 
 
+def _counting_fetch(calls):
+    def fetch_json(url):
+        calls["n"] += 1
+        return _panel_for(2.0) if "20260617" in url else _panel_for(0.0)
+    return fetch_json
+
+
+def test_intraday_caches_today_within_ttl():
+    calls = {"n": 0}
+    clk = {"t": 1000.0}
+    src = ThetaIntradaySource(fetch_json=_counting_fetch(calls), ttl_seconds=60,
+                              clock=lambda: clk["t"], today_fn=lambda: date(2026, 6, 5))
+    f, b = date(2026, 6, 17), date(2026, 6, 18)
+    src.intraday(date(2026, 6, 5), f, b, 0.5, 7000.0)
+    assert calls["n"] == 2                      # front + back fetched
+    src.intraday(date(2026, 6, 5), f, b, 0.5, 7000.0)
+    assert calls["n"] == 2                      # within TTL → served from cache
+    clk["t"] += 120
+    src.intraday(date(2026, 6, 5), f, b, 0.5, 7000.0)
+    assert calls["n"] == 4                      # past TTL → refetched
+
+
+def test_intraday_past_session_cached_forever():
+    calls = {"n": 0}
+    clk = {"t": 1000.0}
+    src = ThetaIntradaySource(fetch_json=_counting_fetch(calls), ttl_seconds=1,
+                              clock=lambda: clk["t"], today_fn=lambda: date(2026, 6, 10))
+    f, b = date(2026, 6, 17), date(2026, 6, 18)
+    src.intraday(date(2026, 6, 5), f, b, 0.5, 7000.0)   # session in the past
+    assert calls["n"] == 2
+    clk["t"] += 10_000                           # way past TTL
+    src.intraday(date(2026, 6, 5), f, b, 0.5, 7000.0)
+    assert calls["n"] == 2                        # immutable past session → still cached
+
+
 def test_intraday_series_empty_when_no_data():
     src = ThetaIntradaySource(fetch_json=lambda url: {}, half_width_pts=80)
     pts = src.intraday(session=date(2026, 6, 5), front_exp=date(2026, 6, 17),

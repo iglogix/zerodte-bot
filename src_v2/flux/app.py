@@ -26,18 +26,6 @@ def _last_eod_session() -> date:
     return s[-1] if s else today - timedelta(days=1)
 
 
-def _spx_atm_hint(src, expiry: date, fallback: float = 7400.0) -> float:
-    """Rough current SPX level to center the ThetaData strike window — parity off a live
-    marketdata chain; the per-minute IV computation re-derives the exact ATM anyway."""
-    try:
-        from src_v2.flux.iv_compute import parity_spot
-        ch = src.chain(expiry)   # live (on_date=None)
-        spot = parity_spot([(r.strike, r.is_call, r.bid, r.ask) for r in ch.rows])
-        return spot if spot else fallback
-    except Exception:
-        return fallback
-
-
 def _rp_json(p):
     return {"as_of": p.as_of.isoformat(), "front_iv": p.front_iv,
             "back_iv": p.back_iv, "ratio": p.ratio,
@@ -78,7 +66,7 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
                 return jsonify({"error": "could not resolve expiries", "points": []}), 200
         rd = float(request.args.get("ref_delta", 0.35))
         atm = request.args.get("atm")
-        atm = float(atm) if atm else _spx_atm_hint(src, front)
+        atm = float(atm) if atm else getattr(intraday, "last_spot", 7400.0)
         try:
             pts = intraday.intraday(session, front, back, rd, atm)
         except Exception as e:
