@@ -21,6 +21,10 @@ from src_v2.backtest.dc_time_machine.theta_backfill import (
 
 ET = ZoneInfo("America/New_York")
 QuoteKey = Tuple[str, float, bool]
+# The opening-auction bar (09:30) has stale/wide quotes → a garbage IV/ratio outlier that
+# blows out the chart's autoscale. Skip bars before this time; mid-day points are kept
+# (their spikes are the signal, not noise).
+SKIP_BEFORE = "09:35"
 
 
 def _ts(session: date, minute: str) -> datetime:
@@ -54,6 +58,8 @@ class ThetaIntradaySource:
         Tb = max((back_exp - session).days, 0) / 365.0
         out: List[RatioPoint] = []
         for minute in sorted(set(fm) & set(bm)):
+            if minute < SKIP_BEFORE:          # drop the opening-auction artifact bar
+                continue
             f_rows, _ = compute_iv_rows(fm[minute], Tf, None, self.rate)
             b_rows, _ = compute_iv_rows(bm[minute], Tb, None, self.rate)
             ts = _ts(session, minute)

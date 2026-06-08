@@ -47,6 +47,16 @@ def test_intraday_series_one_point_per_common_minute():
     assert pts[0].as_of < pts[1].as_of         # chronological
 
 
+def test_intraday_drops_opening_auction_bar():
+    # 09:30 = 34200000 ms (opening artifact), 09:40 = 34800000 ms
+    def panel():
+        return _bulk([(7000000, "C", [(34200000, 40, 41), (34800000, 42, 43)]),
+                      (7000000, "P", [(34200000, 40, 41), (34800000, 42, 43)])])
+    src = ThetaIntradaySource(fetch_json=lambda url: panel(), half_width_pts=80)
+    pts = src.intraday(date(2026, 6, 5), date(2026, 6, 17), date(2026, 6, 18), 0.50, 7000.0)
+    assert len(pts) == 1 and pts[0].as_of.strftime("%H:%M") == "09:40"   # 09:30 dropped
+
+
 def test_intraday_series_empty_when_no_data():
     src = ThetaIntradaySource(fetch_json=lambda url: {}, half_width_pts=80)
     pts = src.intraday(session=date(2026, 6, 5), front_exp=date(2026, 6, 17),

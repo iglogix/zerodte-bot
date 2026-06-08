@@ -41,12 +41,19 @@ async function refresh(){
  $('#banner').textContent = r.error ? ('error: '+r.error)
    : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
  const x=r.points.map(p=>p.as_of);
+ const rr=r.points.map(p=>p.ratio).filter(v=>v!=null);
+ // Pin the ratio axis tight to its own data range so intraday moves are pronounced
+ // (otherwise it shares scale with IV / a stray outlier and looks flat).
+ const rmin=rr.length?Math.min(...rr):0.9, rmax=rr.length?Math.max(...rr):1.1;
+ const pad=Math.max(0.003,(rmax-rmin)*0.20);
  Plotly.react('chart',[
   {x,y:r.points.map(p=>p.front_iv),name:'front IV',line:{color:'#58a6ff'}},
   {x,y:r.points.map(p=>p.back_iv),name:'back IV',line:{color:'#3fb950'}},
   {x,y:r.points.map(p=>p.ratio),name:'ratio',yaxis:'y2',line:{color:'#f0883e',width:3}},
- ],{paper_bgcolor:'#0e1117',plot_bgcolor:'#0e1117',font:{color:'#e6e6e6'},margin:{t:20},
-    legend:{orientation:'h'},yaxis:{title:'IV'},yaxis2:{title:'ratio',overlaying:'y',side:'right'}});
+ ],{paper_bgcolor:'#0e1117',plot_bgcolor:'#0e1117',font:{color:'#e6e6e6'},margin:{t:20,r:70},
+    legend:{orientation:'h'},yaxis:{title:'IV',autorange:true},
+    yaxis2:{title:'ratio (F/B)',overlaying:'y',side:'right',range:[rmin-pad,rmax+pad],
+            zeroline:false,tickformat:'.3f'}});
  $('#scan tbody').innerHTML='<tr><td colspan="6" style="color:#9aa4b2">scanning… (first run cold-fetches expiries, ~30–60s; instant once cached)</td></tr>';
  const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=2&max_dte=15&gaps=1,2&by=drop`).then(r=>r.json());
  $('#scan tbody').innerHTML = sc.error
