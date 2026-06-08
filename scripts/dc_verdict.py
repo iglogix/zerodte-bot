@@ -1,13 +1,20 @@
 """DC Time Machine — verdict report generator.
 
-Reads a multi-expiration cache, runs the simulator across a parameter grid and a
-fill-aggressiveness (k) sweep, and prints the headline question for this strategy:
-does the "risk-free transform" survive realistic execution? Also emits the Feb–Apr
-2026 cross-check vs the author's published numbers, and a per-regime breakdown.
+Reads a multi-expiration cache and runs the simulator across the two axes that
+decide whether the "risk-free transform" is actually profitable:
+
+  * delta  — higher delta ⇒ richer front verticals ⇒ the DC banks the wing with
+             less appreciation (more transforms), BUT a narrower risk-free tent
+             ⇒ lower chance of max profit (price stays inside).
+  * fill_k — 0 = mid (optimistic), 1 = full bid/ask cross (conservative). High-vol
+             spreads are wide, so the edge can live entirely in this knob.
+
+For each (delta, k) it reports transform%, max-profit% (of settled transforms),
+win%, profit factor, and NET P&L — the number that integrates the tradeoff.
 
 Usage:
-    .venv/bin/python scripts/dc_verdict.py --cache data/dc_cache_full [--md OUT.md]
-    .venv/bin/python scripts/dc_verdict.py --cache data/dc_cache_full --extra data/dc_cache_smoke data/dc_cache_hivol
+    PYTHONPATH=. .venv/bin/python scripts/dc_verdict.py --cache data/dc_cache_full \
+        --extra data/dc_cache_hivol --md docs/.../verdict.md
 """
 from __future__ import annotations
 
@@ -32,37 +39,45 @@ def summarize(rows) -> Dict:
     losses = [r.pnl for r in real if r.pnl < 0]
     gw, gl = sum(wins), abs(sum(losses))
     settled = [r for r in tr if r.settlement is not None]
-    maxprofit = [r for r in settled if abs(r.pnl - r.bank * 100) < 1e-6]  # landed inside tent
+    # "max profit" = landed inside the tent ⇒ terminal pnl == banked (C-D)*100
+    maxp = [r for r in settled if abs(r.pnl - r.bank * 100) < 1.0]
     return {
         "n": len(real), "transformed": len(tr),
-        "transform_rate": len(tr) / len(real) if real else 0.0,
+        "tr_rate": len(tr) / len(real) if real else 0.0,
         "win_rate": len(wins) / len(real) if real else 0.0,
         "total": sum(r.pnl for r in real),
         "pf": gw / gl if gl else float("inf"),
-        "avg_win": gw / len(wins) if wins else 0.0,
-        "avg_loss": -gl / len(losses) if losses else 0.0,
-        "maxprofit_rate": len(maxprofit) / len(settled) if settled else 0.0,
+        "maxp_rate": len(maxp) / len(settled) if settled else 0.0,
+        "settled": len(settled),
     }
 
 
-def run_grid(store: MultiExpiryStore, sessions: List[date],
-             lo: Optional[date] = None, hi: Optional[date] = None,
-             fdtes=(3, 5, 7, 9), ks=(0.0, 0.5, 1.0), filt="always") -> Dict:
+def run_grid(store, sessions, lo=None, hi=None, front_dte=9,
+             deltas=(0.30, 0.35, 0.40, 0.45), ks=(0.0, 0.5, 1.0), filt="always"):
     sub = [s for s in sessions if (lo is None or s >= lo) and (hi is None or s <= hi)]
     out = {}
-    for fdte in fdtes:
+    for dlt in deltas:
         for k in ks:
-            p = DcParams(front_dte=fdte, fill_k=k, entry_filter=filt)
-            rows = [run_session(store, p, s) for s in sub]
-            out[(fdte, k)] = summarize(rows)
+            p = DcParams(front_dte=front_dte, fill_k=k, target_delta=dlt, entry_filter=filt)
+            out[(dlt, k)] = summarize([run_session(store, p, s) for s in sub])
     return out, len(sub)
 
 
 def _fmt(s: Dict) -> str:
-    pf = "inf" if s["pf"] == float("inf") else f"{s['pf']:.2f}"
-    return (f"n={s['n']:4d} tr%={s['transform_rate']*100:4.0f} win%={s['win_rate']*100:4.0f} "
-            f"PF={pf:>5} tot=${s['total']:8.0f} avgW=${s['avg_win']:6.0f} avgL=${s['avg_loss']:6.0f} "
-            f"maxP%={s['maxprofit_rate']*100:3.0f}")
+    pf = "inf " if s["pf"] == float("inf") else f"{s['pf']:.2f}"
+    return (f"n={s['n']:3d} tr%={s['tr_rate']*100:3.0f} maxP%={s['maxp_rate']*100:3.0f} "
+            f"win%={s['win_rate']*100:3.0f} PF={pf:>5} NET=${s['total']:8.0f}")
+
+
+def _table(grid, deltas, ks, P):
+    P("```")
+    P(f"{'':12s} " + "  ".join(f"k={k:<28.2f}" for k in ks))
+    for dlt in deltas:
+        for i, k in enumerate(ks):
+            tag = f"delta={dlt:.2f}" if i == 0 else " " * 11
+            P(f"{tag}  {_fmt(grid[(dlt, k)])}")
+        P("")
+    P("```")
 
 
 def main():
@@ -70,55 +85,49 @@ def main():
     ap.add_argument("--cache", required=True)
     ap.add_argument("--extra", nargs="*", default=[])
     ap.add_argument("--md", default=None)
+    ap.add_argument("--front-dte", type=int, default=9)
     args = ap.parse_args()
 
-    caches = [args.cache] + args.extra
-    # Merge sessions from all caches into one store view by preloading dicts.
     merged: Dict[date, dict] = {}
-    for c in caches:
-        store = MultiExpiryStore(cache_dir=c)
+    for c in [args.cache] + args.extra:
+        st = MultiExpiryStore(cache_dir=c)
         for s in _sessions(c):
-            store.load_session(s)
-            merged.setdefault(s, store._panel)
+            st.load_session(s)
+            merged.setdefault(s, st._panel)
     store = MultiExpiryStore(preloaded=merged)
     sessions = sorted(merged)
     if not sessions:
-        print("No sessions in cache(s).")
+        print("No sessions.")
         return
 
-    lines = []
+    lines: List[str] = []
     def P(x=""):
         print(x); lines.append(x)
 
-    P(f"# DC Time Machine — verdict\n")
-    P(f"Cache(s): {', '.join(caches)}")
-    P(f"Sessions: {len(sessions)}  [{sessions[0]} .. {sessions[-1]}]\n")
+    deltas = (0.30, 0.35, 0.40, 0.45)
+    ks = (0.0, 0.5, 1.0)
 
-    P("## Fill-aggressiveness sweep (favorite config family), ALL sessions")
-    P("k=0 is mid (optimistic); k=1 is full bid/ask cross (conservative). The verdict")
-    P("lives in how the edge changes across k.\n")
-    grid, n = run_grid(store, sessions)
-    P("```")
-    for fdte in (3, 5, 7, 9):
-        for k in (0.0, 0.5, 1.0):
-            P(f"front_dte={fdte} k={k:.2f}: {_fmt(grid[(fdte, k)])}")
-        P("")
-    P("```")
+    P("# DC Time Machine — backtest verdict\n")
+    P(f"Cache(s): {', '.join([args.cache] + args.extra)}")
+    P(f"Sessions: {len(sessions)}  [{sessions[0]} .. {sessions[-1]}], front_dte={args.front_dte}\n")
+    P("Each cell: n trades · tr%=transform rate · maxP%=max-profit hit (of settled "
+      "transforms) · win% · PF · NET $ total. k=0 mid → k=1 full spread cross.\n")
 
-    # Cross-check window
+    P("## All sessions — delta × fill_k")
+    grid, n = run_grid(store, sessions, front_dte=args.front_dte, deltas=deltas, ks=ks)
+    _table(grid, deltas, ks, P)
+
     lo, hi = date(2026, 2, 1), date(2026, 4, 30)
     if any(lo <= s <= hi for s in sessions):
-        P("## His-numbers cross-check (Feb–Apr 2026)")
-        P("Author published: ~106 trades, ~63% win, ~25% max-profit-hit (3 months).\n")
-        cc, ncc = run_grid(store, sessions, lo, hi, fdtes=(7, 9), ks=(0.0, 0.5, 1.0))
-        P("```")
-        for fdte in (7, 9):
-            for k in (0.0, 0.5, 1.0):
-                P(f"front_dte={fdte} k={k:.2f}: {_fmt(cc[(fdte, k)])}")
-            P("")
-        P("```")
+        nwin = sum(1 for s in sessions if lo <= s <= hi)
+        P(f"## His-numbers cross-check — Feb–Apr 2026 ({nwin} sessions)")
+        P("Author published (3 months): ~106 trades, ~63% win, ~25% max-profit-hit.\n")
+        cc, _ = run_grid(store, sessions, lo, hi, front_dte=args.front_dte, deltas=deltas, ks=ks)
+        _table(cc, deltas, ks, P)
 
     if args.md:
+        import os
+        os.makedirs(os.path.dirname(args.md), exist_ok=True)
         with open(args.md, "w") as f:
             f.write("\n".join(lines) + "\n")
         print(f"\n[wrote {args.md}]")
