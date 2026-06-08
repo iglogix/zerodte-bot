@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from src_v2.flux.engine import atm_iv, ratio_point
 from src_v2.flux.history import daily_ratio_series
+from src_v2.flux.orders import build_dc_order, select_dc_strikes
 from src_v2.flux.scanner import scan
 from src_v2.flux.sources.base import FluxSource
 from src_v2.flux.sources.marketdata import MarketDataSource
@@ -30,6 +31,14 @@ def _rp_json(p):
     return {"as_of": p.as_of.isoformat(), "front_iv": p.front_iv,
             "back_iv": p.back_iv, "ratio": p.ratio,
             "front_expiry": p.front_expiry.isoformat(), "back_expiry": p.back_expiry.isoformat()}
+
+
+def _ticket_json(t):
+    return {"kind": t.kind, "price": t.price, "price_effect": t.price_effect,
+            "est_cost": t.est_cost, "note": t.note,
+            "legs": [{"osi": l.osi, "expiry": l.expiry.isoformat(), "strike": l.strike,
+                      "is_call": l.is_call, "action": l.action, "qty": l.quantity}
+                     for l in t.legs]}
 
 
 def _sr_json(s):
@@ -73,6 +82,39 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
             return jsonify({"error": str(e), "points": []}), 200
         return jsonify({"points": [_rp_json(p) for p in pts],
                         "meta": {"session": session.isoformat(), "atm": atm}})
+
+    @app.get("/api/dc_order")
+    def dc_order():
+        if intraday is None:
+            return jsonify({"error": "intraday source not configured"}), 200
+        session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
+        if request.args.get("front") and request.args.get("back"):
+            front = date.fromisoformat(request.args["front"])
+            back = date.fromisoformat(request.args["back"])
+        else:
+            fd, gap = int(request.args.get("front_dte", 9)), int(request.args.get("gap", 1))
+            front = nth_trading_day_after(session, fd)
+            back = nth_trading_day_after(session, fd + gap)
+        if front is None or back is None:
+            return jsonify({"error": "could not resolve expiries"}), 200
+        td = float(request.args.get("target_delta", 0.35))
+        qty = int(request.args.get("qty", 1))
+        try:
+            fchain = intraday.latest_chain(session, front)
+            bchain = intraday.latest_chain(session, back)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 200
+        kp, kc = request.args.get("k_put"), request.args.get("k_call")
+        if kp and kc:
+            kp, kc = float(kp), float(kc)
+        else:
+            kp, kc = select_dc_strikes(fchain, td)
+        if kp is None or kc is None:
+            return jsonify({"error": "no strikes (no live chain)"}), 200
+        ticket = build_dc_order(fchain, bchain, kp, kc, qty)
+        if ticket is None:
+            return jsonify({"error": "could not price DC (missing leg quotes)"}), 200
+        return jsonify({"ticket": _ticket_json(ticket), "mode": "manual"})
 
     @app.get("/api/live_ratio")
     def live_ratio():

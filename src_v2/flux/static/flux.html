@@ -13,24 +13,31 @@
 </style></head><body>
 <header>
  <strong>Flux — SPX</strong>
- <label>front DTE</label><select id="fd">9</select>
+ <label>front DTE</label><select id="fd"></select>
  <label>gap</label><select id="gap"></select>
  <label>ref Δ</label><select id="rd"><option value="0.35">0.35 (traded)</option><option value="0.5">0.50 (ATM)</option></select>
  <span><button class="view active" data-v="intraday">1-min</button>
  <button class="view" data-v="5day">5-day</button>
  <button class="view" data-v="20day">20-day</button></span>
+ <button id="builddc" style="background:#1f6feb;border-color:#1f6feb">Build DC ticket</button>
 </header>
 <div id="banner"></div>
 <div id="chart"></div>
-<h3>Scanner — expiry pairs by ratio drop</h3>
+<div id="dcpanel" style="margin:8px 16px"></div>
+<h3>Scanner — expiry pairs by ratio drop <button id="scanbtn" style="font-size:11px;padding:2px 8px">↻ scan</button></h3>
 <table id="scan"><thead><tr><th>front→back</th><th>gap</th><th>ratio</th><th>prev</th><th>drop</th><th>z</th></tr></thead><tbody></tbody></table>
 <script>
 const $=s=>document.querySelector(s);
 for(const e of [3,5,7,9,12,15]){let o=document.createElement('option');o.value=e;o.text=e;if(e==9)o.selected=true;$('#fd').add(o);}
 for(const g of [1,2,3,4]){let o=document.createElement('option');o.value=g;o.text=g;$('#gap').add(o);}
 let view='intraday';
+// View switches and control changes redraw the CHART ONLY — the scanner (slow) runs only
+// on load and on the ↻ scan button, so switching intervals is instant.
 document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');view=b.dataset.v;refresh();});
-['#fd','#gap','#rd'].forEach(s=>$(s).onchange=refresh);
+['#fd','#gap','#rd'].forEach(s=>$(s).onchange=()=>{$('#dcpanel').innerHTML='';refresh();});
+$('#scanbtn').onclick=runScan;
+$('#builddc').onclick=buildDC;
+
 async function refresh(){
  const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value;
  const url = view==='intraday'
@@ -43,8 +50,7 @@ async function refresh(){
    : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
  const x=r.points.map(p=>p.as_of);
  const rr=r.points.map(p=>p.ratio).filter(v=>v!=null);
- // Pin the ratio axis tight to its own data range so intraday moves are pronounced
- // (otherwise it shares scale with IV / a stray outlier and looks flat).
+ // Pin the ratio axis tight to its own data range so intraday moves are pronounced.
  const rmin=rr.length?Math.min(...rr):0.9, rmax=rr.length?Math.max(...rr):1.1;
  const pad=Math.max(0.003,(rmax-rmin)*0.20);
  Plotly.react('chart',[
@@ -55,11 +61,29 @@ async function refresh(){
     legend:{orientation:'h'},yaxis:{title:'IV',autorange:true},
     yaxis2:{title:'ratio (F/B)',overlaying:'y',side:'right',range:[rmin-pad,rmax+pad],
             zeroline:false,tickformat:'.3f'}});
+}
+
+async function runScan(){
+ const rd=$('#rd').value;
  $('#scan tbody').innerHTML='<tr><td colspan="6" style="color:#9aa4b2">scanning… (first run cold-fetches expiries, ~30–60s; instant once cached)</td></tr>';
  const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=2&max_dte=15&gaps=1,2&by=drop`).then(r=>r.json());
  $('#scan tbody').innerHTML = sc.error
    ? `<tr><td colspan="6" style="color:#f0b72f">scan error: ${sc.error}</td></tr>`
    : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
 }
-refresh(); setInterval(()=>{if(view==='intraday')refresh();},60000);
+
+async function buildDC(){
+ const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value;
+ $('#dcpanel').innerHTML='<span style="color:#9aa4b2">building DC ticket…</span>';
+ const r=await fetch(`/api/dc_order?front_dte=${fd}&gap=${gap}&target_delta=${rd}`).then(r=>r.json());
+ if(r.error){$('#dcpanel').innerHTML=`<span style="color:#f0b72f">DC: ${r.error}</span>`;return;}
+ const t=r.ticket;
+ const legs=t.legs.map(l=>`<tr><td>${l.action}</td><td>${l.qty}</td><td>${l.is_call?'C':'P'} ${l.strike} ${l.expiry}</td><td style="color:#9aa4b2">${l.osi}</td></tr>`).join('');
+ $('#dcpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
+   <b>${t.note}</b> — <span style="color:#f0883e">${t.price_effect} limit ${t.price.toFixed(2)}</span> (est $${t.est_cost.toFixed(0)}) · mode: <b>${r.mode}</b>
+   <table style="margin-top:6px"><thead><tr><th>action</th><th>qty</th><th>leg</th><th>OSI</th></tr></thead><tbody>${legs}</tbody></table>
+   <div style="color:#9aa4b2;font-size:11px;margin-top:4px">manual ticket — enter these 4 legs as ONE combo order at the net ${t.price_effect.toLowerCase()} limit shown.</div></div>`;
+}
+
+refresh(); runScan(); setInterval(()=>{if(view==='intraday')refresh();},60000);  // interval = chart only
 </script></body></html>

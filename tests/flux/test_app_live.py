@@ -64,3 +64,21 @@ def test_intraday_endpoint_returns_series():
 def test_intraday_off_when_not_configured():
     c = create_app().test_client()
     assert c.get("/api/intraday?front=2026-06-17&back=2026-06-18").get_json()["points"] == []
+
+
+class FakeIntradayChains:
+    def latest_chain(self, session, expiry, atm_hint=None):
+        rich = 2.0 if expiry.day % 2 == 0 else 0.0   # back (even day) richer than front
+        return ChainSnapshot("SPX", expiry, datetime(2026, 6, 8, tzinfo=timezone.utc),
+                             (OptionRow(7040, True, 29 + rich, 31 + rich, 0.18, 0.35),
+                              OptionRow(6960, False, 29 + rich, 31 + rich, 0.18, -0.35)))
+
+
+def test_dc_order_endpoint_builds_ticket():
+    c = create_app(intraday_source=FakeIntradayChains()).test_client()
+    r = c.get("/api/dc_order?front=2026-06-17&back=2026-06-18&target_delta=0.35&qty=2")
+    assert r.status_code == 200
+    t = r.get_json()["ticket"]
+    assert t["price_effect"] == "Debit" and t["price"] == pytest.approx(4.0)   # (32+32)-(30+30)
+    assert len(t["legs"]) == 4 and all(l["qty"] == 2 for l in t["legs"])
+    assert r.get_json()["mode"] == "manual"

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time as _time
 from datetime import date, datetime, time
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from src_v2.flux.engine import ratio_point
@@ -71,12 +71,38 @@ class ThetaIntradaySource:
         self._cache[key] = (self._clock(), series)
         return series
 
+    def _fetch_panel(self, session: date, expiry: date, atm_hint: float):
+        """Day's 1-min panel for one expiry, cached (TTL today / forever for past) so the
+        intraday series, latest_chain, and the DC order all share one fetch."""
+        key = ("panel", session, expiry)
+        hit = self._cache.get(key)
+        if hit is not None:
+            ts, panel = hit
+            if session < self._today() or (self._clock() - ts) < self.ttl_seconds:
+                return panel
+        panel = fetch_expiry_session_theta(session, expiry, atm_hint,
+                                            self.half_width_pts, self.base, self.fetch_json)
+        self._cache[key] = (self._clock(), panel)
+        return panel
+
+    def latest_chain(self, session: date, expiry: date,
+                     atm_hint: Optional[float] = None) -> ChainSnapshot:
+        """Most recent (non-opening) minute's chain for `expiry`, with BS iv/delta — used to
+        pick DC strikes and price the order. Reuses the cached panel."""
+        panel = self._fetch_panel(session, expiry, atm_hint or self.last_spot)
+        bm = _by_minute(panel)
+        minutes = [m for m in sorted(bm) if m >= SKIP_BEFORE]
+        if not minutes:
+            return ChainSnapshot("SPX", expiry, _ts(session, "16:00"), ())
+        m = minutes[-1]
+        T = max((expiry - session).days, 0) / 365.0
+        rows, _ = compute_iv_rows(bm[m], T, None, self.rate)
+        return ChainSnapshot("SPX", expiry, _ts(session, m), tuple(rows))
+
     def _build(self, session: date, front_exp: date, back_exp: date,
                ref_delta: float, atm_hint: float) -> List[RatioPoint]:
-        f_panel = fetch_expiry_session_theta(session, front_exp, atm_hint,
-                                             self.half_width_pts, self.base, self.fetch_json)
-        b_panel = fetch_expiry_session_theta(session, back_exp, atm_hint,
-                                             self.half_width_pts, self.base, self.fetch_json)
+        f_panel = self._fetch_panel(session, front_exp, atm_hint)
+        b_panel = self._fetch_panel(session, back_exp, atm_hint)
         fm, bm = _by_minute(f_panel), _by_minute(b_panel)
         # Update the self-correcting hint from a mid-session parity spot (so the next fetch
         # centers correctly without any external spot lookup).
