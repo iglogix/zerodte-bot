@@ -42,8 +42,8 @@ def _by_minute(panel: Dict[QuoteKey, Tuple[float, float]]):
 
 class ThetaIntradaySource:
     def __init__(self, base: str = THETA, fetch_json: Callable[[str], dict] = _http_json,
-                 half_width_pts: int = 300, rate: float = RATE,
-                 ttl_seconds: float = 60.0, clock: Callable[[], float] = _time.time,
+                 half_width_pts: int = 150, rate: float = RATE,
+                 ttl_seconds: float = 120.0, clock: Callable[[], float] = _time.time,
                  today_fn: Callable[[], date] = date.today, default_spot: float = 7400.0,
                  ivl_ms: int = 60_000):
         self.base = base
@@ -69,7 +69,10 @@ class ThetaIntradaySource:
             ts, series = hit
             if session < self._today() or (self._clock() - ts) < self.ttl_seconds:
                 return series
-        series = self._build(session, front_exp, back_exp, ref_delta, atm_hint)
+        # Incremental: reuse already-computed minutes (their IV never changes); only the
+        # few new minutes since the last build get inverted. Keeps live refreshes ~fetch-cost.
+        prior = hit[1] if hit is not None else []
+        series = self._build(session, front_exp, back_exp, ref_delta, atm_hint, prior=prior)
         self._cache[key] = (self._clock(), series)
         return series
 
@@ -103,7 +106,10 @@ class ThetaIntradaySource:
         return ChainSnapshot("SPX", expiry, _ts(session, m), tuple(rows))
 
     def _build(self, session: date, front_exp: date, back_exp: date,
-               ref_delta: float, atm_hint: float) -> List[RatioPoint]:
+               ref_delta: float, atm_hint: float,
+               prior: Optional[List[RatioPoint]] = None) -> List[RatioPoint]:
+        prior = prior or []
+        done = {rp.as_of.strftime("%H:%M") for rp in prior}   # minutes already inverted
         f_panel = self._fetch_panel(session, front_exp, atm_hint)
         b_panel = self._fetch_panel(session, back_exp, atm_hint)
         fm, bm = _by_minute(f_panel), _by_minute(b_panel)
@@ -116,9 +122,9 @@ class ThetaIntradaySource:
                 self.last_spot = sp
         Tf = max((front_exp - session).days, 0) / 365.0
         Tb = max((back_exp - session).days, 0) / 365.0
-        out: List[RatioPoint] = []
+        out: List[RatioPoint] = list(prior)
         for minute in sorted(set(fm) & set(bm)):
-            if minute < SKIP_BEFORE:          # drop the opening-auction artifact bar
+            if minute < SKIP_BEFORE or minute in done:   # skip opening artifact + done minutes
                 continue
             f_rows, _ = compute_iv_rows(fm[minute], Tf, None, self.rate)
             b_rows, _ = compute_iv_rows(bm[minute], Tb, None, self.rate)
@@ -128,4 +134,5 @@ class ThetaIntradaySource:
             if rp is not None:
                 out.append(RatioPoint(ts, front_exp, back_exp, ref_delta,
                                       rp.front_iv, rp.back_iv, rp.ratio))
+        out.sort(key=lambda rp: rp.as_of)
         return out
