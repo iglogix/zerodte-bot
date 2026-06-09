@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    from dotenv import load_dotenv
+    load_dotenv()                    # so --mode sandbox|live can read TT credentials from .env
     args = build_parser().parse_args(argv)
     if args.cmd == "serve":
         from src_v2.flux.app import create_app
