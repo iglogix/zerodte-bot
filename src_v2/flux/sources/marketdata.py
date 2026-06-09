@@ -79,7 +79,11 @@ class MarketDataSource(FluxSource):
             if cached is not None:
                 return cached
             snap = self._fetch_chain(expiry, on_date)
-            self.cache.put(snap, on_date)
+            # Only cache NON-EMPTY snapshots. An empty chain for a recent session means
+            # marketdata.app hasn't settled it yet (transient) — caching it would pin a stale
+            # "no data" and make the scanner skip that session for good.
+            if snap.rows:
+                self.cache.put(snap, on_date)
             return snap
         return self._fetch_chain(expiry, on_date)
 
