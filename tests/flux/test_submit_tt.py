@@ -35,6 +35,13 @@ class FakeClient:
         self.legs.append((osi, action, quantity, limit))
         return self._id()
 
+    async def get_listed_chain(self, symbol):
+        # SPY lists 734/750 on two Fridays near the ticket's Jun-22/23 expiries
+        def s(exp, k, cp):
+            return f"{symbol:<6}{exp.replace('-','')[2:]}{cp}{int(k*1000):08d}"
+        return {exp: {k: {"call": s(exp, k, "C"), "put": s(exp, k, "P")} for k in (734.0, 750.0)}
+                for exp in ("2026-06-19", "2026-06-26")}
+
 
 def test_combo_sends_one_complex_order():
     c = FakeClient()
@@ -71,17 +78,19 @@ def test_broker_error_surfaces_as_not_ok():
     assert res.ok is False and "buying power" in res.detail
 
 
-def test_spy_proxy_routes_spy_symbols_at_scaled_price():
+def test_spy_proxy_routes_listed_spy_symbols_at_scaled_price():
     c = FakeClient()
     res = TastyTradeSubmitter("sandbox", c, proxy="spy").submit(_ticket(), "combo")
     assert res.ok and "SPY proxy" in res.detail
     osis = [osi for (osi, _a, _q) in c.complex[0][0]]
-    assert all(osi.startswith("SPY ") for osi in osis)     # SPXW → SPY
+    assert all(osi.startswith("SPY ") for osi in osis)     # snapped to listed SPY contracts
+    assert "SPY   260619" in osis[0] or "SPY   260626" in osis[0]   # real listed Fridays
     assert c.complex[0][1] == 0.4                          # net limit 4.0 ÷ 10
 
 
-def test_spy_proxy_legin_uses_spy_legs():
+def test_spy_proxy_legin_uses_listed_spy_legs():
     c = FakeClient()
     res = TastyTradeSubmitter("sandbox", c, proxy="spy").submit(_ticket(), "legin")
     assert res.ok and len(res.order_ids) == 4
     assert all(osi.startswith("SPY ") for (osi, _a, _q, _l) in c.legs)
+    assert {osi[6:12] for (osi, _a, _q, _l) in c.legs} == {"260619", "260626"}  # both expiries

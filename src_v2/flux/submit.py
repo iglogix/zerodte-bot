@@ -69,35 +69,54 @@ class TastyTradeSubmitter(OrderSubmitter):
         self.loop = loop              # persistent background loop the client lives on
         self.proxy = proxy            # "spy" → submit a SPY proxy (cert has no SPXW)
 
+    async def _spy_listed(self, ticket: OrderTicket) -> OrderTicket:
+        """Scale to SPY (÷10) then snap onto SPY's actually-listed expiries/strikes so cert
+        accepts it. Raises if SPY has no usable 2-expiry calendar."""
+        from src_v2.flux.orders import spy_proxy, snap_spy_to_listed
+        snapped = snap_spy_to_listed(spy_proxy(ticket), await self.client.get_listed_chain("SPY"))
+        if snapped is None:
+            raise RuntimeError("no listed SPY expiries/strikes to snap the proxy to")
+        return snapped
+
+    def preview_proxy(self, ticket: OrderTicket) -> "OrderTicket | None":
+        """The snapped proxy ticket that WOULD be submitted (for UI display). None if no proxy."""
+        if self.proxy != "spy":
+            return None
+        import asyncio
+        try:
+            if self.loop is not None:
+                return asyncio.run_coroutine_threadsafe(self._spy_listed(ticket), self.loop).result(timeout=30)
+            return asyncio.run(self._spy_listed(ticket))
+        except Exception:
+            return None
+
     def submit(self, ticket: OrderTicket, execution: str = "combo") -> SubmitResult:
         if self.mode == "manual":
             return SubmitResult(False, [], "manual mode — submission disabled")
         import asyncio
 
-        proxied = ""
-        if self.proxy == "spy":
-            from src_v2.flux.orders import spy_proxy
-            ticket = spy_proxy(ticket)
-            proxied = " [SPY proxy]"
-
-        async def _do() -> List[str]:
+        async def _do():
+            t = ticket
+            proxied = ""
+            if self.proxy == "spy":
+                t = await self._spy_listed(ticket)
+                proxied = " [SPY proxy]"
             if execution == "legin":
                 ids: List[str] = []
-                for group in legin_groups(ticket):         # buy longs first, then sell shorts
+                for group in legin_groups(t):              # buy longs first, then sell shorts
                     for leg in group:
                         r = await self.client.place_option_limit(
                             leg.osi, leg.action, leg.quantity, leg.limit)
                         ids.append(r["order_id"])
-                return ids
-            r = await self.client.place_complex_order(
-                combo_legs(ticket), ticket.price, ticket.price_effect)
-            return [r["order_id"]]
+                return ids, proxied
+            r = await self.client.place_complex_order(combo_legs(t), t.price, t.price_effect)
+            return [r["order_id"]], proxied
 
         try:
             if self.loop is not None:
-                ids = asyncio.run_coroutine_threadsafe(_do(), self.loop).result(timeout=60)
+                ids, proxied = asyncio.run_coroutine_threadsafe(_do(), self.loop).result(timeout=60)
             else:
-                ids = asyncio.run(_do())
+                ids, proxied = asyncio.run(_do())
             return SubmitResult(True, ids, f"{execution}: {len(ids)} order(s) in {self.mode}{proxied}")
         except Exception as e:
             return SubmitResult(False, [], f"broker error: {e}")

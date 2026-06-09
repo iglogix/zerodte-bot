@@ -126,9 +126,10 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         if err:
             return jsonify({"error": err}), 200
         out = {"ticket": _ticket_json(ticket), "mode": submit_mode, "proxy": submit_proxy}
-        if submit_proxy == "spy":                          # show what cert will actually receive
-            from src_v2.flux.orders import spy_proxy
-            out["proxy_ticket"] = _ticket_json(spy_proxy(ticket))
+        if submit_proxy == "spy" and sub is not None:      # show what cert will actually receive
+            pt = sub.preview_proxy(ticket)                 # snapped to listed SPY contracts
+            if pt is not None:
+                out["proxy_ticket"] = _ticket_json(pt)
         return jsonify(out)
 
     @app.post("/api/dc_submit")

@@ -3,7 +3,9 @@ from datetime import date, datetime, timezone
 import pytest
 
 from src_v2.flux.models import ChainSnapshot, OptionRow
-from src_v2.flux.orders import select_dc_strikes, build_dc_order, spy_proxy, OrderLeg
+from src_v2.flux.orders import (
+    select_dc_strikes, build_dc_order, spy_proxy, snap_spy_to_listed, OrderLeg,
+)
 
 
 def _chain(expiry, rows):
@@ -74,3 +76,34 @@ def test_spy_proxy_maps_strikes_limits_and_root():
     assert putleg.osi == "SPY   260617P00696000"
     # each leg's mid also scaled (front put K6960 mid 30 → 3.0)
     assert putleg.limit == pytest.approx(3.0)
+
+
+def _spy_chain():
+    """SPY lists Fridays only here: 696/700 strikes, two expiries a week apart."""
+    def syms(exp, k, cp):
+        return f"SPY   {exp.replace('-','')[2:]}{cp}{int(k*1000):08d}"
+    out = {}
+    for exp in ("2026-06-19", "2026-06-26"):
+        out[exp] = {k: {"call": syms(exp, k, "C"), "put": syms(exp, k, "P")}
+                    for k in (696.0, 700.0, 705.0)}
+    return out
+
+
+def test_snap_spy_to_listed_uses_real_contracts():
+    t = build_dc_order(_front(), _back(), k_put=6960.0, k_call=7040.0, qty=1)  # 696/704 after ÷10
+    snapped = snap_spy_to_listed(spy_proxy(t), _spy_chain())
+    assert snapped is not None
+    # two distinct LISTED expiries (Fri+Fri a week apart), not the synthesized Jun-17/18
+    exps = sorted({l.expiry.isoformat() for l in snapped.legs})
+    assert exps == ["2026-06-19", "2026-06-26"]
+    # call 704 snaps to nearest listed (705); put 696 is listed exactly
+    assert {l.strike for l in snapped.legs if l.is_call} == {705.0}
+    assert {l.strike for l in snapped.legs if not l.is_call} == {696.0}
+    # legs carry the broker symbol verbatim
+    assert all(l.osi.startswith("SPY ") for l in snapped.legs)
+    assert any(l.osi == "SPY   260619P00696000" for l in snapped.legs)
+
+
+def test_snap_returns_none_when_under_two_expiries():
+    one = {"2026-06-19": {696.0: {"call": "c", "put": "p"}}}
+    assert snap_spy_to_listed(spy_proxy(build_dc_order(_front(), _back(), 6960.0, 7040.0)), one) is None

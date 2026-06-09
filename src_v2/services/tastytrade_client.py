@@ -1044,6 +1044,30 @@ class TastyTradeClient:
             logger.info("Iron condor order placed successfully: order_id=%s", order_id)
             return {"order_id": order_id}
 
+    async def get_listed_chain(self, symbol: str) -> Dict[str, Dict[float, Dict[str, str]]]:
+        """All listed expirations/strikes for `symbol` from the TRADING env (so the returned
+        broker symbols are tradeable there). {exp_iso: {strike: {"call": sym, "put": sym}}}.
+        Instrument metadata is available in cert even though live quotes are not."""
+        async with self._http.get(
+            f"{self.base_url}/option-chains/{symbol}/nested", headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        out: Dict[str, Dict[float, Dict[str, str]]] = {}
+        for chain in data.get("data", {}).get("items", []):
+            for expn in chain.get("expirations", []):
+                exp = expn.get("expiration-date", "")
+                strikes: Dict[float, Dict[str, str]] = {}
+                for s in expn.get("strikes", []):
+                    k = float(s.get("strike-price", 0) or 0)
+                    call = (s.get("call") or "").strip()
+                    put = (s.get("put") or "").strip()
+                    if call or put:
+                        strikes[k] = {"call": call, "put": put}
+                if exp and strikes:
+                    out[exp] = strikes
+        return out
+
     async def place_complex_order(self, leg_specs, price: float, price_effect: str = "Debit",
                                   tif: str = "Day") -> Dict[str, Any]:
         """Submit one complex (multi-leg, possibly multi-expiry) limit order.

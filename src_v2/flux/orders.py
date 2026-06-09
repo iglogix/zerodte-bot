@@ -20,10 +20,11 @@ class OrderLeg:
     quantity: int
     limit: float = 0.0  # this leg's mid (used by leg-in execution to price each leg)
     root: str = "SPXW"  # underlying root for the OSI symbol (SPY for the cert proxy)
+    symbol: str = ""    # explicit broker symbol override (snapped to a listed contract)
 
     @property
     def osi(self) -> str:
-        return format_osi(self.expiry, self.strike, self.is_call, root=self.root)
+        return self.symbol or format_osi(self.expiry, self.strike, self.is_call, root=self.root)
 
     @property
     def is_long(self) -> bool:
@@ -96,3 +97,49 @@ def spy_proxy(ticket: OrderTicket) -> OrderTicket:
         kind=ticket.kind, legs=legs, price=round(ticket.price / 10.0, 2),
         price_effect=ticket.price_effect, est_cost=round(ticket.est_cost / 10.0, 2),
         note=f"SPY proxy: {kp:.0f}P / {kc:.0f}C x{qty} (of {ticket.note})")
+
+
+def snap_spy_to_listed(ticket: OrderTicket, chain: dict) -> Optional[OrderTicket]:
+    """Snap a SPY-proxy ticket onto real listed expirations/strikes so the broker accepts it.
+
+    `chain` = {exp_iso: {strike_float: {"call": sym, "put": sym}}} from the trading env.
+    Picks the listed expiration nearest each original leg expiry (front/back must differ),
+    and the nearest strike present in BOTH for puts and for calls. Each leg gets the exact
+    broker `symbol`. Returns None if the chain can't support a 2-expiry calendar."""
+    exps = sorted(chain)                                   # ISO strings sort chronologically
+    if len(exps) < 2:
+        return None
+
+    def _ord(s: str) -> int:
+        return date.fromisoformat(s).toordinal()
+
+    leg_exps = sorted({l.expiry.isoformat() for l in ticket.legs})
+    front = min(exps, key=lambda e: abs(_ord(e) - _ord(leg_exps[0])))
+    back = min(exps, key=lambda e: abs(_ord(e) - _ord(leg_exps[-1])))
+    if back == front:
+        later = [e for e in exps if e > front]
+        if not later:
+            return None
+        back = later[0]
+
+    common = sorted(set(chain[front]) & set(chain[back]))  # strikes in both expiries
+    if not common:
+        return None
+    kp = next(l.strike for l in ticket.legs if not l.is_call)
+    kc = next(l.strike for l in ticket.legs if l.is_call)
+    sp = min(common, key=lambda k: abs(k - kp))
+    sc = min(common, key=lambda k: abs(k - kc))
+
+    new = []
+    for l in ticket.legs:
+        exp_str = front if l.expiry.isoformat() == leg_exps[0] else back
+        k = sc if l.is_call else sp
+        sym = chain[exp_str][k]["call" if l.is_call else "put"]
+        if not sym:
+            return None
+        new.append(replace(l, expiry=date.fromisoformat(exp_str), strike=float(k), symbol=sym))
+    qty = ticket.legs[0].quantity if ticket.legs else 1
+    return OrderTicket(
+        kind=ticket.kind, legs=tuple(new), price=ticket.price,
+        price_effect=ticket.price_effect, est_cost=ticket.est_cost,
+        note=f"SPY proxy (listed): {sp:.0f}P/{sc:.0f}C {front}+{back} x{qty}")
