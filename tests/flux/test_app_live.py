@@ -160,10 +160,13 @@ def test_orders_off_without_broker():
 def test_transform_order_builds_credit_ticket():
     c = create_app(intraday_source=FakeTransformChains()).test_client()
     q = "front=2026-06-22&back=2026-06-23&k_put=7335&k_call=7505&wing=25"
-    t = c.get(f"/api/transform_order?{q}").get_json()["ticket"]
+    t = c.get(f"/api/transform_order?{q}").get_json()["ticket"]   # default fill = cross
     assert t["kind"] == "transform" and t["price_effect"] == "Credit"
-    assert t["price"] == pytest.approx(64.0)               # (40+40) − (8+8)
+    assert t["price"] == pytest.approx(60.0)               # cross: backs@bid (39+39) − wings@ask (9+9)
     assert len(t["legs"]) == 4
+    # mid fill is the optimistic target
+    t_mid = c.get(f"/api/transform_order?{q}&fill=mid").get_json()["ticket"]
+    assert t_mid["price"] == pytest.approx(64.0)
 
 
 def test_transform_submit_routes_through_submitter():

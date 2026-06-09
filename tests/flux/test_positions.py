@@ -54,15 +54,17 @@ def _chain(expiry, rows):
 def test_build_transform_order_sells_backs_buys_wings():
     dc = DoubleCalendar("SPXW", date(2026, 6, 22), date(2026, 6, 23), 7335.0, 7505.0, 1)
     wing = 25.0
-    # back chain: backs worth mid 40 each ; front chain: wings cost mid 8 each
+    # backs: bid 39 / mid 40 ; wings: ask 9 / mid 8
     back = _chain(date(2026, 6, 23), [
         OptionRow(7335, False, 39, 41, 0.18, -0.35), OptionRow(7505, True, 39, 41, 0.18, 0.35)])
     front = _chain(date(2026, 6, 22), [
         OptionRow(7310, False, 7, 9, 0.18, -0.20), OptionRow(7530, True, 7, 9, 0.18, 0.20)])
-    t = build_transform_order(dc, wing, front, back)
+    t = build_transform_order(dc, wing, front, back)          # default fill = cross
     assert t.kind == "transform" and t.price_effect == "Credit"
-    # credit = (40 + 40) − (8 + 8) = 64
-    assert t.price == pytest.approx(64.0)
+    # cross credit = backs@bid (39+39) − wings@ask (9+9) = 60
+    assert t.price == pytest.approx(60.0)
+    # mid credit = (40+40) − (8+8) = 64 — the price-improvement target
+    assert build_transform_order(dc, wing, front, back, fill="mid").price == pytest.approx(64.0)
     acts = {(l.expiry, l.is_call, round(l.strike), l.action) for l in t.legs}
     assert (date(2026, 6, 23), False, 7335, "Sell to Close") in acts    # sell back put
     assert (date(2026, 6, 23), True, 7505, "Sell to Close") in acts     # sell back call
@@ -128,3 +130,17 @@ def test_analyze_transform_none_risk_free_when_debit_too_high():
     front, back = _analysis_chains()
     rows, w_star = analyze_transform(dc, 100.0, front, back)
     assert w_star is None and all(not r.risk_free for r in rows)
+
+
+def test_analyze_transform_buffer_tightens_w_star():
+    dc = DoubleCalendar("SPXW", date(2026, 6, 22), date(2026, 6, 23), 7335.0, 7505.0, 1)
+    front, back = _analysis_chains()
+    # floors at D=35 are W5=4, W10=3, W15=1, W20=-2 → W*=15 at buffer 0
+    _, w0 = analyze_transform(dc, 35.0, front, back, buffer=0.0)
+    assert w0 == 15
+    # require a 2.0 cushion → only W5(4) and W10(3) qualify → W*=10
+    _, w2 = analyze_transform(dc, 35.0, front, back, buffer=2.0)
+    assert w2 == 10
+    # require 5.0 cushion → none clear → None
+    _, w5 = analyze_transform(dc, 35.0, front, back, buffer=5.0)
+    assert w5 is None

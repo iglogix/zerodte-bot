@@ -28,7 +28,8 @@
 <h3>Scanner — expiry pairs by ratio drop<span id="scansess" style="color:#9aa4b2;font-weight:normal"></span> <button id="scanbtn" style="font-size:11px;padding:2px 8px">↻ scan</button></h3>
 <table id="scan"><thead><tr><th>front→back</th><th>gap</th><th>ratio</th><th>prev</th><th>drop</th><th>z</th></tr></thead><tbody></tbody></table>
 <h3>Open double calendars <button id="posbtn" style="font-size:11px;padding:2px 8px">↻ positions</button>
-  <label style="margin-left:8px" title="IC wing width W (points). The transform buys front wings at K_put−W / K_call+W. Default 5 = the backtested value (front_dte=9, wing=5).">wing</label><input id="wing" type="number" min="0" value="5" style="width:54px" title="IC wing width in points — backtested at 5"></h3>
+  <label style="margin-left:8px" title="IC wing width W (points). The transform buys front wings at K_put−W / K_call+W. Default 5 = the backtested value (front_dte=9, wing=5).">wing</label><input id="wing" type="number" min="0" value="5" style="width:54px" title="IC wing width in points — backtested at 5">
+  <label style="margin-left:8px" title="Required cushion ($/share) above break-even at CROSS fill. A wing is risk-free only if floor ≥ buffer. Raise it to demand margin over slippage.">buffer</label><input id="buffer" type="number" min="0" step="0.05" value="0" style="width:54px" title="cushion over break-even at cross fill ($/share)"></h3>
 <div id="ordpanel" style="margin:8px 16px"></div>
 <div id="pospanel" style="margin:8px 16px"></div>
 <div id="xfpanel" style="margin:8px 16px"></div>
@@ -131,7 +132,8 @@ function xfQuery(d){
  return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&entry_debit=${d.entry_debit}&wing=${wing}`;
 }
 function anQuery(d){
- return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&entry_debit=${d.entry_debit}`;
+ const buffer=Math.max(0,+$('#buffer').value||0);
+ return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&entry_debit=${d.entry_debit}&buffer=${buffer}`;
 }
 async function loadOrders(){
  const r=await fetch('/api/orders').then(r=>r.json());
@@ -161,9 +163,10 @@ async function analyzeTransform(d){
  const rows=a.rows.map(w=>`<tr class="anrow${w.wing===star?' flag':''}" style="cursor:pointer" data-w="${w.wing}" title="click to build this transform">
    <td>${w.wing}${w.wing===star?' ★':''}</td><td>${w.credit.toFixed(2)}</td><td>${w.banked.toFixed(2)}</td>
    <td style="color:${w.floor>=0?'#3fb950':'#f85149'}">${w.floor.toFixed(2)}</td><td>${w.ceiling.toFixed(2)}</td><td>${w.risk_free?'✓':''}</td></tr>`).join('');
- const star_txt = star!=null ? `<b style="color:#3fb950">W*=${star}</b> (worst case ≈ 0, max upside)` : '<b style="color:#f0b72f">none yet — DC not profitable enough to transform risk-free</b>';
+ const buf=a.buffer||0;
+ const star_txt = star!=null ? `<b style="color:#3fb950">W*=${star}</b> (floor ≈ buffer, max upside)` : '<b style="color:#f0b72f">none — DC not profitable enough to clear cross+buffer yet</b>';
  $('#xfpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
-   <b>Transform frontier</b> — entry debit ${a.entry_debit.toFixed(2)} · ×${a.qty} · max risk-free wing: ${star_txt}
+   <b>Transform frontier</b> <span style="color:#9aa4b2;font-size:11px">(credit @ CROSS fill)</span> — entry debit ${a.entry_debit.toFixed(2)} · ×${a.qty} · buffer ${buf.toFixed(2)} · max risk-free wing: ${star_txt}
    <table style="margin-top:6px"><thead><tr><th>wing</th><th>credit</th><th>banked (C−D)</th><th>floor (worst)</th><th>ceiling (best)</th><th>risk-free</th></tr></thead><tbody>${rows}</tbody></table>
    <div style="color:#9aa4b2;font-size:11px;margin-top:4px">value ×100×qty = $. Floor = worst case (deep ITM through a wing); ceiling = settles between the shorts. Click a wing to build that transform.</div>
    <div id="xfticket" style="margin-top:8px"></div></div>`;

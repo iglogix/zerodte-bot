@@ -126,13 +126,15 @@ def _quote(chain: ChainSnapshot, strike: float, is_call: bool, which: str) -> Op
 
 def analyze_transform(dc: DoubleCalendar, entry_debit: float,
                       front_chain: ChainSnapshot, back_chain: ChainSnapshot,
-                      max_wing: Optional[float] = None):
+                      max_wing: Optional[float] = None, buffer: float = 0.0):
     """Sweep listed wings W and report the risk-free frontier of the transform.
 
     For each W with both K_put−W and K_call+W listed on the front chain, the achievable
-    credit is C(W) = (back_put_bid + back_call_bid) − (put_wing_ask + call_wing_ask). The
-    resulting front IC has worst-case floor = (C−D) − W and best-case ceiling = (C−D).
-    Returns (rows sorted by wing, max_risk_free_wing) — W* is the widest wing with floor ≥ 0."""
+    credit is C(W) = (back_put_bid + back_call_bid) − (put_wing_ask + call_wing_ask) — i.e.
+    the CROSS-fill credit (= the backtest's k=1 net combo credit). The resulting front IC has
+    worst-case floor = (C−D) − W and best-case ceiling = (C−D). `buffer` is the required
+    cushion ($/share) over break-even: a wing is risk_free iff floor ≥ buffer, and W* is the
+    widest such wing. buffer=0 = bare break-even at cross."""
     bpb = _quote(back_chain, dc.k_put, False, "bid")
     bcb = _quote(back_chain, dc.k_call, True, "bid")
     if bpb is None or bcb is None:
@@ -152,9 +154,10 @@ def analyze_transform(dc: DoubleCalendar, entry_debit: float,
             continue
         credit = backs - (pw + cw)
         banked = credit - entry_debit
+        floor = banked - w
         rows.append(WingRow(wing=w, credit=round(credit, 2), banked=round(banked, 2),
-                            floor=round(banked - w, 2), ceiling=round(banked, 2),
-                            risk_free=(banked - w) >= 0))
+                            floor=round(floor, 2), ceiling=round(banked, 2),
+                            risk_free=floor >= buffer))
     max_rf = max((r.wing for r in rows if r.risk_free), default=None)
     return rows, max_rf
 
@@ -166,20 +169,38 @@ def _mid(chain: ChainSnapshot, strike: float, is_call: bool) -> Optional[float]:
     return None
 
 
+def _legpx(chain: ChainSnapshot, strike: float, is_call: bool, side: str, fill: str
+          ) -> Optional[float]:
+    """Per-leg price. fill='cross' = worst realistic (sell @ bid, buy @ ask); 'mid' = mid."""
+    for r in chain.rows:
+        if r.strike == strike and r.is_call == is_call:
+            if fill == "mid":
+                return (r.bid + r.ask) / 2.0
+            return r.bid if side == "sell" else r.ask
+    return None
+
+
 def build_transform_order(dc: DoubleCalendar, wing: float,
                           front_chain: ChainSnapshot, back_chain: ChainSnapshot,
-                          entry_debit: float = 0.0) -> Optional[OrderTicket]:
+                          entry_debit: float = 0.0, fill: str = "cross") -> Optional[OrderTicket]:
     """Transform: SELL the back P/C @ K (the longs), BUY front wings @ K_put−W / K_call+W.
-    Priced at mids (like the entry ticket). The note reports the true worst-case floor using
-    the entry debit D: banked = credit − D, floor = banked − wing; risk-free iff floor ≥ 0."""
+
+    Priced at CROSS by default (sell @ bid, buy @ ask) so the submitted limit matches the
+    risk-free guarantee the analyzer computes — you can only fill at this credit or better.
+    The note reports the mid credit as the price-improvement target, plus banked = credit − D
+    and floor = banked − wing (risk-free iff floor ≥ 0)."""
     pw_k, cw_k = dc.k_put - wing, dc.k_call + wing
-    bp = _mid(back_chain, dc.k_put, False)     # sell back put
-    bc = _mid(back_chain, dc.k_call, True)     # sell back call
-    pw = _mid(front_chain, pw_k, False)        # buy put wing
-    cw = _mid(front_chain, cw_k, True)         # buy call wing
+    bp = _legpx(back_chain, dc.k_put, False, "sell", fill)     # sell back put
+    bc = _legpx(back_chain, dc.k_call, True, "sell", fill)     # sell back call
+    pw = _legpx(front_chain, pw_k, False, "buy", fill)         # buy put wing
+    cw = _legpx(front_chain, cw_k, True, "buy", fill)          # buy call wing
     if None in (bp, bc, pw, cw):
         return None
-    credit = transform_credit(bp, bc, pw, cw)  # (backs) − (wings), at mids here
+    credit = transform_credit(bp, bc, pw, cw)                  # at the chosen fill (limit price)
+    # mid credit shown as the upside if the combo gets price improvement
+    mids = [_mid(back_chain, dc.k_put, False), _mid(back_chain, dc.k_call, True),
+            _mid(front_chain, pw_k, False), _mid(front_chain, cw_k, True)]
+    credit_mid = (mids[0] + mids[1]) - (mids[2] + mids[3]) if None not in mids else credit
     legs = (
         OrderLeg(dc.back_expiry, dc.k_put, False, "Sell to Close", dc.qty, round(bp, 2), root=dc.root),
         OrderLeg(dc.back_expiry, dc.k_call, True, "Sell to Close", dc.qty, round(bc, 2), root=dc.root),
@@ -193,5 +214,6 @@ def build_transform_order(dc: DoubleCalendar, wing: float,
     return OrderTicket(
         kind="transform", legs=legs, price=round(abs(credit), 2), price_effect=effect,
         est_cost=round(credit * 100 * dc.qty, 2),
-        note=(f"Transform {dc.k_put:.0f}P/{dc.k_call:.0f}C W{wing:.0f} → {effect} {abs(credit):.2f}"
-              f" | banked {banked:+.2f} | floor {floor:+.2f} ({tag})"))
+        note=(f"Transform {dc.k_put:.0f}P/{dc.k_call:.0f}C W{wing:.0f} [{fill}] → {effect} "
+              f"{abs(credit):.2f} (mid {credit_mid:+.2f}) | banked {banked:+.2f} | "
+              f"floor {floor:+.2f} ({tag})"))

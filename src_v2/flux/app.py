@@ -210,6 +210,7 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         qty = max(1, int(request.args.get("qty", 1)))
         wing = float(request.args.get("wing", 5.0))
         entry_debit = float(request.args.get("entry_debit", 0.0))
+        fill = request.args.get("fill", "cross")     # cross = honest limit; mid = optimistic
         session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
         try:
             fchain = intraday.latest_chain(session, front)
@@ -217,7 +218,7 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         except Exception as e:
             return None, str(e)
         dc = DoubleCalendar(root, front, back, k_put, k_call, qty, entry_debit)
-        ticket = build_transform_order(dc, wing, fchain, bchain, entry_debit)
+        ticket = build_transform_order(dc, wing, fchain, bchain, entry_debit, fill)
         if ticket is None:
             return None, "could not price transform (missing wing/back quotes)"
         return ticket, None
@@ -251,6 +252,7 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         root = request.args.get("root", "SPXW")
         qty = max(1, int(request.args.get("qty", 1)))
         entry_debit = float(request.args.get("entry_debit", 0.0))
+        buffer = float(request.args.get("buffer", 0.0))
         max_wing = request.args.get("max_wing")
         max_wing = float(max_wing) if max_wing else None
         session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
@@ -260,8 +262,9 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         except Exception as e:
             return jsonify({"error": str(e), "rows": []}), 200
         dc = DoubleCalendar(root, front, back, k_put, k_call, qty, entry_debit)
-        rows, max_rf = analyze_transform(dc, entry_debit, fchain, bchain, max_wing)
-        return jsonify({"entry_debit": entry_debit, "qty": qty, "max_risk_free_wing": max_rf,
+        rows, max_rf = analyze_transform(dc, entry_debit, fchain, bchain, max_wing, buffer)
+        return jsonify({"entry_debit": entry_debit, "qty": qty, "buffer": buffer,
+                        "max_risk_free_wing": max_rf,
                         "rows": [{"wing": r.wing, "credit": r.credit, "banked": r.banked,
                                   "floor": r.floor, "ceiling": r.ceiling,
                                   "risk_free": r.risk_free} for r in rows]})
