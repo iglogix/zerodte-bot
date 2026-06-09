@@ -55,7 +55,7 @@ async function refresh(){
  const r=await fetch(url).then(r=>r.json());
  const meta=r.meta||{};
  $('#banner').textContent = r.error ? ('error: '+r.error)
-   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
+   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · session ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · F/B ${meta.front_expiry}→${meta.back_expiry}`:'');
  const x=r.points.map(p=>p.as_of);
  const rr=r.points.map(p=>p.ratio).filter(v=>v!=null);
  // Pin the ratio axis tight to its own data range so intraday moves are pronounced.

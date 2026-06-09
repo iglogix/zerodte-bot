@@ -120,9 +120,12 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
                 if cand:
                     session, pts, fell_back = s, cand, True
                     break
+        fe, be = _expiries(session)        # the expiry pair the chart actually compares
         return jsonify({"points": [_rp_json(p) for p in pts],
                         "meta": {"session": session.isoformat(), "atm": atm,
-                                 "fell_back": fell_back}})
+                                 "fell_back": fell_back,
+                                 "front_expiry": fe.isoformat() if fe else None,
+                                 "back_expiry": be.isoformat() if be else None}})
 
     def _make_dc_ticket():
         """Build the DC ticket from request args → (ticket, error_str)."""
