@@ -85,13 +85,13 @@ async function buildDC(){
  if(r.error){$('#dcpanel').innerHTML=`<span style="color:#f0b72f">DC: ${r.error}</span>`;return;}
  const t=r.ticket, manual=(r.mode==='manual');
  const legs=t.legs.map(l=>`<tr><td>${l.action}</td><td>${l.qty}</td><td>${l.is_call?'C':'P'} ${l.strike} ${l.expiry}</td><td style="color:#9aa4b2">${l.osi}</td></tr>`).join('');
- // Submit controls only when the server is running with --mode sandbox|live.
- const submitUI = manual
-   ? `<div style="color:#9aa4b2;font-size:11px;margin-top:6px">manual ticket — enter these 4 legs as ONE combo order at the net ${t.price_effect.toLowerCase()} limit shown. (start <code>flux serve --mode sandbox|live</code> to submit from here)</div>`
-   : `<div style="margin-top:8px;display:flex;gap:10px;align-items:center">
+ // Submit + combo are ALWAYS shown; in manual mode the button is disabled (can't fire).
+ const btnStyle = manual ? 'background:#30363d;border-color:#30363d;color:#8b949e;cursor:not-allowed'
+                         : 'background:#da3633;border-color:#da3633';
+ const submitUI = `<div style="margin-top:8px;display:flex;gap:10px;align-items:center">
         <label title="checked = ONE atomic combo order; unchecked = leg-in (buy longs, then sell shorts)"><input type="checkbox" id="combo" checked> combo</label>
-        <button id="submitdc" style="background:#da3633;border-color:#da3633">Submit to ${r.mode}</button>
-        <span id="submitmsg" style="color:#9aa4b2;font-size:12px"></span>
+        <button id="submitdc" ${manual?'disabled':''} style="${btnStyle}">${manual?'Submit (manual — disabled)':'Submit to '+r.mode}</button>
+        <span id="submitmsg" style="color:#9aa4b2;font-size:12px">${manual?'restart <code>flux serve --mode sandbox|live</code> to enable':''}</span>
       </div>`;
  $('#dcpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
    <b>${t.note}</b> — <span style="color:#f0883e">${t.price_effect} limit ${t.price.toFixed(2)}</span> (est $${t.est_cost.toFixed(0)}) · mode: <b>${r.mode}</b>
