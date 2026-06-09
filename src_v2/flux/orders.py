@@ -3,7 +3,7 @@ suggested net limit from the mids. Pure/testable; the Flask layer turns an Order
 into a manual ticket or (in a non-manual mode) a TastyTrade complex order."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Tuple
 
@@ -19,10 +19,11 @@ class OrderLeg:
     action: str        # "Sell to Open" | "Buy to Open" | "Sell to Close" | "Buy to Close"
     quantity: int
     limit: float = 0.0  # this leg's mid (used by leg-in execution to price each leg)
+    root: str = "SPXW"  # underlying root for the OSI symbol (SPY for the cert proxy)
 
     @property
     def osi(self) -> str:
-        return format_osi(self.expiry, self.strike, self.is_call)
+        return format_osi(self.expiry, self.strike, self.is_call, root=self.root)
 
     @property
     def is_long(self) -> bool:
@@ -78,3 +79,20 @@ def build_dc_order(front_chain: ChainSnapshot, back_chain: ChainSnapshot,
         price_effect="Debit" if debit >= 0 else "Credit",
         est_cost=round(debit * 100 * qty, 2),
         note=f"DC {front_chain.expiry}/{back_chain.expiry} {k_put:.0f}P / {k_call:.0f}C x{qty}")
+
+
+def spy_proxy(ticket: OrderTicket) -> OrderTicket:
+    """Map an SPX/SPXW ticket to a SPY-equivalent proxy (SPY ≈ SPX/10) for the TastyTrade
+    cert env, which doesn't list SPXW. Strikes ÷10 → nearest $1 (a real SPY strike); each
+    leg's mid and the net limit ÷10. Same expiries/actions/structure, root → SPY."""
+    legs = tuple(
+        replace(l, strike=float(round(l.strike / 10.0)), limit=round(l.limit / 10.0, 2),
+                root="SPY")
+        for l in ticket.legs)
+    kp = next((l.strike for l in legs if not l.is_call), 0.0)
+    kc = next((l.strike for l in legs if l.is_call), 0.0)
+    qty = legs[0].quantity if legs else 1
+    return OrderTicket(
+        kind=ticket.kind, legs=legs, price=round(ticket.price / 10.0, 2),
+        price_effect=ticket.price_effect, est_cost=round(ticket.est_cost / 10.0, 2),
+        note=f"SPY proxy: {kp:.0f}P / {kc:.0f}C x{qty} (of {ticket.note})")

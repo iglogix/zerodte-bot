@@ -57,6 +57,7 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
     intraday = intraday_source                            # ThetaIntradaySource (None = off)
     sub = submitter                                       # OrderSubmitter (None/manual = no submit)
     submit_mode = sub.mode if sub is not None else "manual"
+    submit_proxy = getattr(sub, "proxy", None)            # "spy" → cert proxy (no SPXW)
     app = Flask(__name__)
 
     @app.get("/api/intraday")
@@ -124,7 +125,11 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         ticket, err = _make_dc_ticket()
         if err:
             return jsonify({"error": err}), 200
-        return jsonify({"ticket": _ticket_json(ticket), "mode": submit_mode})
+        out = {"ticket": _ticket_json(ticket), "mode": submit_mode, "proxy": submit_proxy}
+        if submit_proxy == "spy":                          # show what cert will actually receive
+            from src_v2.flux.orders import spy_proxy
+            out["proxy_ticket"] = _ticket_json(spy_proxy(ticket))
+        return jsonify(out)
 
     @app.post("/api/dc_submit")
     def dc_submit():

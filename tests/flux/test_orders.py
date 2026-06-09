@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from src_v2.flux.models import ChainSnapshot, OptionRow
-from src_v2.flux.orders import select_dc_strikes, build_dc_order, OrderLeg
+from src_v2.flux.orders import select_dc_strikes, build_dc_order, spy_proxy, OrderLeg
 
 
 def _chain(expiry, rows):
@@ -59,3 +59,18 @@ def test_order_leg_osi_encodes_expiry_strike_right():
 
 def test_build_dc_order_none_when_strike_missing():
     assert build_dc_order(_front(), _back(), k_put=9999.0, k_call=7040.0) is None
+
+
+def test_spy_proxy_maps_strikes_limits_and_root():
+    t = build_dc_order(_front(), _back(), k_put=6960.0, k_call=7040.0, qty=2)
+    p = spy_proxy(t)
+    # strikes ÷10 → nearest $1; same expiries/actions/qty preserved
+    assert {l.strike for l in p.legs} == {696.0, 704.0}
+    assert p.price == pytest.approx(0.4)          # 4.0 ÷ 10
+    assert p.est_cost == pytest.approx(80.0)      # 800 ÷ 10
+    assert all(l.root == "SPY" for l in p.legs) and all(l.quantity == 2 for l in p.legs)
+    # OSI now SPY, not SPXW
+    putleg = next(l for l in p.legs if not l.is_call and l.action.startswith("Sell"))
+    assert putleg.osi == "SPY   260617P00696000"
+    # each leg's mid also scaled (front put K6960 mid 30 → 3.0)
+    assert putleg.limit == pytest.approx(3.0)

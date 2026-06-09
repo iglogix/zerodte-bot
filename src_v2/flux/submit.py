@@ -63,15 +63,22 @@ class TastyTradeSubmitter(OrderSubmitter):
     """Real broker submission via the bot's TastyTrade client. Only constructed in
     sandbox/live (serve --mode). NOTE: needs an authenticated client; the async/session
     integration must be validated live (it has never placed a real order in tests)."""
-    def __init__(self, mode: str, client, loop=None):
+    def __init__(self, mode: str, client, loop=None, proxy: str | None = None):
         super().__init__(mode)
         self.client = client          # an authenticated TastyTradeClient for `mode`
         self.loop = loop              # persistent background loop the client lives on
+        self.proxy = proxy            # "spy" → submit a SPY proxy (cert has no SPXW)
 
     def submit(self, ticket: OrderTicket, execution: str = "combo") -> SubmitResult:
         if self.mode == "manual":
             return SubmitResult(False, [], "manual mode — submission disabled")
         import asyncio
+
+        proxied = ""
+        if self.proxy == "spy":
+            from src_v2.flux.orders import spy_proxy
+            ticket = spy_proxy(ticket)
+            proxied = " [SPY proxy]"
 
         async def _do() -> List[str]:
             if execution == "legin":
@@ -91,7 +98,7 @@ class TastyTradeSubmitter(OrderSubmitter):
                 ids = asyncio.run_coroutine_threadsafe(_do(), self.loop).result(timeout=60)
             else:
                 ids = asyncio.run(_do())
-            return SubmitResult(True, ids, f"{execution}: {len(ids)} order(s) in {self.mode}")
+            return SubmitResult(True, ids, f"{execution}: {len(ids)} order(s) in {self.mode}{proxied}")
         except Exception as e:
             return SubmitResult(False, [], f"broker error: {e}")
 
@@ -108,4 +115,5 @@ def make_tt_submitter(mode: str) -> "TastyTradeSubmitter":
     threading.Thread(target=loop.run_forever, daemon=True).start()
     client = TastyTradeClient(mode=mode)
     asyncio.run_coroutine_threadsafe(client.connect(), loop).result(timeout=30)
-    return TastyTradeSubmitter(mode, client, loop)
+    proxy = "spy" if mode == "sandbox" else None   # cert has no SPXW → submit a SPY proxy
+    return TastyTradeSubmitter(mode, client, loop, proxy=proxy)

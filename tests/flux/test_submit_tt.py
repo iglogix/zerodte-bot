@@ -69,3 +69,19 @@ def test_broker_error_surfaces_as_not_ok():
             raise RuntimeError("rejected: insufficient buying power")
     res = TastyTradeSubmitter("sandbox", Boom()).submit(_ticket(), "combo")
     assert res.ok is False and "buying power" in res.detail
+
+
+def test_spy_proxy_routes_spy_symbols_at_scaled_price():
+    c = FakeClient()
+    res = TastyTradeSubmitter("sandbox", c, proxy="spy").submit(_ticket(), "combo")
+    assert res.ok and "SPY proxy" in res.detail
+    osis = [osi for (osi, _a, _q) in c.complex[0][0]]
+    assert all(osi.startswith("SPY ") for osi in osis)     # SPXW → SPY
+    assert c.complex[0][1] == 0.4                          # net limit 4.0 ÷ 10
+
+
+def test_spy_proxy_legin_uses_spy_legs():
+    c = FakeClient()
+    res = TastyTradeSubmitter("sandbox", c, proxy="spy").submit(_ticket(), "legin")
+    assert res.ok and len(res.order_ids) == 4
+    assert all(osi.startswith("SPY ") for (osi, _a, _q, _l) in c.legs)
