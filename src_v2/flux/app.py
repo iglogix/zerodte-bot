@@ -209,14 +209,15 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         root = request.args.get("root", "SPXW")
         qty = max(1, int(request.args.get("qty", 1)))
         wing = float(request.args.get("wing", 5.0))
+        entry_debit = float(request.args.get("entry_debit", 0.0))
         session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
         try:
             fchain = intraday.latest_chain(session, front)
             bchain = intraday.latest_chain(session, back)
         except Exception as e:
             return None, str(e)
-        dc = DoubleCalendar(root, front, back, k_put, k_call, qty)
-        ticket = build_transform_order(dc, wing, fchain, bchain)
+        dc = DoubleCalendar(root, front, back, k_put, k_call, qty, entry_debit)
+        ticket = build_transform_order(dc, wing, fchain, bchain, entry_debit)
         if ticket is None:
             return None, "could not price transform (missing wing/back quotes)"
         return ticket, None
@@ -232,7 +233,38 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         return jsonify({"mode": submit_mode, "dcs": [
             {"root": d.root, "front_expiry": d.front_expiry.isoformat(),
              "back_expiry": d.back_expiry.isoformat(), "k_put": d.k_put,
-             "k_call": d.k_call, "qty": d.qty} for d in dcs]})
+             "k_call": d.k_call, "qty": d.qty, "entry_debit": d.entry_debit} for d in dcs]})
+
+    @app.get("/api/transform_analysis")
+    def transform_analysis():
+        """Risk-free wing frontier for a DC: sweep listed wings → credit/banked/floor/ceiling."""
+        from src_v2.flux.positions import DoubleCalendar, analyze_transform
+        if intraday is None:
+            return jsonify({"error": "intraday source not configured", "rows": []}), 200
+        try:
+            front = date.fromisoformat(request.args["front"])
+            back = date.fromisoformat(request.args["back"])
+            k_put = float(request.args["k_put"])
+            k_call = float(request.args["k_call"])
+        except (KeyError, ValueError):
+            return jsonify({"error": "needs front, back, k_put, k_call", "rows": []}), 200
+        root = request.args.get("root", "SPXW")
+        qty = max(1, int(request.args.get("qty", 1)))
+        entry_debit = float(request.args.get("entry_debit", 0.0))
+        max_wing = request.args.get("max_wing")
+        max_wing = float(max_wing) if max_wing else None
+        session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
+        try:
+            fchain = intraday.latest_chain(session, front)
+            bchain = intraday.latest_chain(session, back)
+        except Exception as e:
+            return jsonify({"error": str(e), "rows": []}), 200
+        dc = DoubleCalendar(root, front, back, k_put, k_call, qty, entry_debit)
+        rows, max_rf = analyze_transform(dc, entry_debit, fchain, bchain, max_wing)
+        return jsonify({"entry_debit": entry_debit, "qty": qty, "max_risk_free_wing": max_rf,
+                        "rows": [{"wing": r.wing, "credit": r.credit, "banked": r.banked,
+                                  "floor": r.floor, "ceiling": r.ceiling,
+                                  "risk_free": r.risk_free} for r in rows]})
 
     @app.get("/api/orders")
     def orders_ep():

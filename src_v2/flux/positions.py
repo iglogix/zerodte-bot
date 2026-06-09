@@ -23,6 +23,7 @@ class _Leg:
     is_call: bool
     direction: str     # "Long" | "Short"
     qty: int
+    open_price: float = 0.0   # avg open price per share (cost basis)
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,18 @@ class DoubleCalendar:
     k_put: float
     k_call: float
     qty: int
+    entry_debit: float = 0.0   # net debit paid to open ($/share): longs − shorts; 0 if unknown
+
+
+@dataclass(frozen=True)
+class WingRow:
+    """One candidate wing W for transforming a DC. All $/share unless noted."""
+    wing: float
+    credit: float        # achievable transform credit: backs @ bid − wings @ ask
+    banked: float        # credit − entry_debit (cash net of the sunk DC debit)
+    floor: float         # banked − wing  → worst-case terminal P&L (deep ITM through a wing)
+    ceiling: float       # banked         → best case (settles between the short strikes)
+    risk_free: bool      # floor ≥ 0
 
 
 def parse_option_symbol(sym: str) -> Optional[tuple]:
@@ -61,7 +74,8 @@ def _legs(positions: List[dict]) -> List[_Leg]:
         direction = p.get("direction", "")
         if qty == 0 or direction not in ("Long", "Short"):
             continue
-        out.append(_Leg(root, expiry, strike, is_call, direction, qty))
+        out.append(_Leg(root, expiry, strike, is_call, direction, qty,
+                        float(p.get("avg_open_price", 0) or 0)))
     return out
 
 
@@ -79,9 +93,17 @@ def _calendars(legs: List[_Leg], is_call: bool):
     return out
 
 
+def _open(legs: List[_Leg], root, expiry, strike, is_call) -> float:
+    for l in legs:
+        if l.root == root and l.expiry == expiry and l.strike == strike and l.is_call == is_call:
+            return l.open_price
+    return 0.0
+
+
 def detect_double_calendars(positions: List[dict]) -> List[DoubleCalendar]:
     """Find DCs in open positions: a put-calendar and a call-calendar that share root +
-    front expiry + back expiry. K_put and K_call may differ (delta-selected DC)."""
+    front expiry + back expiry. K_put and K_call may differ (delta-selected DC). entry_debit
+    is reconstructed from cost basis: (long backs) − (short fronts); 0 if cost basis absent."""
     legs = _legs(positions)
     puts = _calendars(legs, is_call=False)
     calls = _calendars(legs, is_call=True)
@@ -89,8 +111,52 @@ def detect_double_calendars(positions: List[dict]) -> List[DoubleCalendar]:
     for proot, kp, pf, pb, pq in puts:
         for croot, kc, cf, cb, cq in calls:
             if proot == croot and pf == cf and pb == cb:
-                out.append(DoubleCalendar(proot, pf, pb, kp, kc, min(pq, cq)))
+                debit = ((_open(legs, proot, pb, kp, False) + _open(legs, croot, cb, kc, True))
+                         - (_open(legs, proot, pf, kp, False) + _open(legs, croot, cf, kc, True)))
+                out.append(DoubleCalendar(proot, pf, pb, kp, kc, min(pq, cq), round(debit, 2)))
     return out
+
+
+def _quote(chain: ChainSnapshot, strike: float, is_call: bool, which: str) -> Optional[float]:
+    for r in chain.rows:
+        if r.strike == strike and r.is_call == is_call:
+            return r.bid if which == "bid" else r.ask
+    return None
+
+
+def analyze_transform(dc: DoubleCalendar, entry_debit: float,
+                      front_chain: ChainSnapshot, back_chain: ChainSnapshot,
+                      max_wing: Optional[float] = None):
+    """Sweep listed wings W and report the risk-free frontier of the transform.
+
+    For each W with both K_put−W and K_call+W listed on the front chain, the achievable
+    credit is C(W) = (back_put_bid + back_call_bid) − (put_wing_ask + call_wing_ask). The
+    resulting front IC has worst-case floor = (C−D) − W and best-case ceiling = (C−D).
+    Returns (rows sorted by wing, max_risk_free_wing) — W* is the widest wing with floor ≥ 0."""
+    bpb = _quote(back_chain, dc.k_put, False, "bid")
+    bcb = _quote(back_chain, dc.k_call, True, "bid")
+    if bpb is None or bcb is None:
+        return [], None
+    backs = bpb + bcb
+    put_strikes = {r.strike for r in front_chain.rows if not r.is_call}
+    call_strikes = {r.strike for r in front_chain.rows if r.is_call}
+    cand = sorted({dc.k_put - kp for kp in put_strikes
+                   if kp < dc.k_put and (dc.k_call + (dc.k_put - kp)) in call_strikes})
+    rows: List[WingRow] = []
+    for w in cand:
+        if max_wing is not None and w > max_wing:
+            continue
+        pw = _quote(front_chain, dc.k_put - w, False, "ask")
+        cw = _quote(front_chain, dc.k_call + w, True, "ask")
+        if pw is None or cw is None:
+            continue
+        credit = backs - (pw + cw)
+        banked = credit - entry_debit
+        rows.append(WingRow(wing=w, credit=round(credit, 2), banked=round(banked, 2),
+                            floor=round(banked - w, 2), ceiling=round(banked, 2),
+                            risk_free=(banked - w) >= 0))
+    max_rf = max((r.wing for r in rows if r.risk_free), default=None)
+    return rows, max_rf
 
 
 def _mid(chain: ChainSnapshot, strike: float, is_call: bool) -> Optional[float]:
@@ -101,12 +167,11 @@ def _mid(chain: ChainSnapshot, strike: float, is_call: bool) -> Optional[float]:
 
 
 def build_transform_order(dc: DoubleCalendar, wing: float,
-                          front_chain: ChainSnapshot, back_chain: ChainSnapshot
-                          ) -> Optional[OrderTicket]:
+                          front_chain: ChainSnapshot, back_chain: ChainSnapshot,
+                          entry_debit: float = 0.0) -> Optional[OrderTicket]:
     """Transform: SELL the back P/C @ K (the longs), BUY front wings @ K_put−W / K_call+W.
-    Priced at mids (like the entry ticket). Net is a credit when the wings cost less than the
-    backs fetch. Risk-free iff (credit − original_debit) ≥ wing — we surface credit vs wing
-    (original debit isn't in the position feed)."""
+    Priced at mids (like the entry ticket). The note reports the true worst-case floor using
+    the entry debit D: banked = credit − D, floor = banked − wing; risk-free iff floor ≥ 0."""
     pw_k, cw_k = dc.k_put - wing, dc.k_call + wing
     bp = _mid(back_chain, dc.k_put, False)     # sell back put
     bc = _mid(back_chain, dc.k_call, True)     # sell back call
@@ -114,7 +179,7 @@ def build_transform_order(dc: DoubleCalendar, wing: float,
     cw = _mid(front_chain, cw_k, True)         # buy call wing
     if None in (bp, bc, pw, cw):
         return None
-    credit = transform_credit(bp, bc, pw, cw)  # (back bids/mids) − (wing asks/mids)
+    credit = transform_credit(bp, bc, pw, cw)  # (backs) − (wings), at mids here
     legs = (
         OrderLeg(dc.back_expiry, dc.k_put, False, "Sell to Close", dc.qty, round(bp, 2), root=dc.root),
         OrderLeg(dc.back_expiry, dc.k_call, True, "Sell to Close", dc.qty, round(bc, 2), root=dc.root),
@@ -122,9 +187,11 @@ def build_transform_order(dc: DoubleCalendar, wing: float,
         OrderLeg(dc.front_expiry, cw_k, True, "Buy to Open", dc.qty, round(cw, 2), root=dc.root),
     )
     effect = "Credit" if credit >= 0 else "Debit"
-    covers = "covers wing" if credit >= wing else "below wing"
+    banked = credit - entry_debit
+    floor = banked - wing
+    tag = "RISK-FREE" if floor >= 0 else f"floor {floor:+.2f}"
     return OrderTicket(
         kind="transform", legs=legs, price=round(abs(credit), 2), price_effect=effect,
         est_cost=round(credit * 100 * dc.qty, 2),
-        note=(f"Transform {dc.k_put:.0f}P/{dc.k_call:.0f}C wing {wing:.0f} → "
-              f"{effect} {abs(credit):.2f} ({covers})"))
+        note=(f"Transform {dc.k_put:.0f}P/{dc.k_call:.0f}C W{wing:.0f} → {effect} {abs(credit):.2f}"
+              f" | banked {banked:+.2f} | floor {floor:+.2f} ({tag})"))

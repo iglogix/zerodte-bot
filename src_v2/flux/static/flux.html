@@ -128,7 +128,10 @@ async function buildDC(){
 // ---- Open double calendars → transform ----
 function xfQuery(d){
  const wing=Math.max(0,+$('#wing').value||5);
- return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&wing=${wing}`;
+ return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&entry_debit=${d.entry_debit}&wing=${wing}`;
+}
+function anQuery(d){
+ return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&entry_debit=${d.entry_debit}`;
 }
 async function loadOrders(){
  const r=await fetch('/api/orders').then(r=>r.json());
@@ -144,15 +147,34 @@ async function loadPositions(){
  if(r.error){$('#pospanel').innerHTML=`<span style="color:#9aa4b2">${r.error}</span>`;return;}
  if(!(r.dcs||[]).length){$('#pospanel').innerHTML='<span style="color:#9aa4b2">no open double calendars detected</span>';return;}
  $('#pospanel').innerHTML=r.dcs.map((d,i)=>`<div style="border:1px solid #30363d;border-radius:8px;padding:8px;margin-bottom:6px;background:#161b22">
-   <b>${d.root}</b> ${d.front_expiry} / ${d.back_expiry} — ${d.k_put}P / ${d.k_call}C ×${d.qty}
-   <button class="xfbtn" data-i="${i}" style="margin-left:10px">Build transform</button></div>`).join('');
- document.querySelectorAll('.xfbtn').forEach(b=>b.onclick=()=>buildTransform(r.dcs[+b.dataset.i]));
+   <b>${d.root}</b> ${d.front_expiry} / ${d.back_expiry} — ${d.k_put}P / ${d.k_call}C ×${d.qty} · entry debit <b>${(d.entry_debit||0).toFixed(2)}</b>
+   <button class="anbtn" data-i="${i}" style="margin-left:10px;background:#1f6feb;border-color:#1f6feb">Analyze wings</button></div>`).join('');
+ document.querySelectorAll('.anbtn').forEach(b=>b.onclick=()=>analyzeTransform(r.dcs[+b.dataset.i]));
 }
-async function buildTransform(d){
- $('#xfpanel').innerHTML='<span style="color:#9aa4b2">building transform…</span>';
+// Risk-free wing frontier: floor=(C−D)−W (worst case), ceiling=C−D (best). ★ = widest risk-free W*.
+async function analyzeTransform(d){
+ $('#xfpanel').innerHTML='<span style="color:#9aa4b2">analyzing wings…</span>';
+ const a=await fetch(`/api/transform_analysis?${anQuery(d)}`).then(r=>r.json());
+ if(a.error){$('#xfpanel').innerHTML=`<span style="color:#f0b72f">analysis: ${a.error}</span>`;return;}
+ if(!(a.rows||[]).length){$('#xfpanel').innerHTML='<span style="color:#9aa4b2">no listed wings to price</span>';return;}
+ const star=a.max_risk_free_wing;
+ const rows=a.rows.map(w=>`<tr class="anrow${w.wing===star?' flag':''}" style="cursor:pointer" data-w="${w.wing}" title="click to build this transform">
+   <td>${w.wing}${w.wing===star?' ★':''}</td><td>${w.credit.toFixed(2)}</td><td>${w.banked.toFixed(2)}</td>
+   <td style="color:${w.floor>=0?'#3fb950':'#f85149'}">${w.floor.toFixed(2)}</td><td>${w.ceiling.toFixed(2)}</td><td>${w.risk_free?'✓':''}</td></tr>`).join('');
+ const star_txt = star!=null ? `<b style="color:#3fb950">W*=${star}</b> (worst case ≈ 0, max upside)` : '<b style="color:#f0b72f">none yet — DC not profitable enough to transform risk-free</b>';
+ $('#xfpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
+   <b>Transform frontier</b> — entry debit ${a.entry_debit.toFixed(2)} · ×${a.qty} · max risk-free wing: ${star_txt}
+   <table style="margin-top:6px"><thead><tr><th>wing</th><th>credit</th><th>banked (C−D)</th><th>floor (worst)</th><th>ceiling (best)</th><th>risk-free</th></tr></thead><tbody>${rows}</tbody></table>
+   <div style="color:#9aa4b2;font-size:11px;margin-top:4px">value ×100×qty = $. Floor = worst case (deep ITM through a wing); ceiling = settles between the shorts. Click a wing to build that transform.</div>
+   <div id="xfticket" style="margin-top:8px"></div></div>`;
+ $('#xfpanel').querySelectorAll('tr.anrow').forEach(tr=>tr.onclick=()=>{$('#wing').value=tr.dataset.w; buildTransform(d, $('#xfticket'));});
+}
+async function buildTransform(d, box){
+ box=box||$('#xfpanel');
+ box.innerHTML='<span style="color:#9aa4b2">building transform…</span>';
  const r=await fetch(`/api/transform_order?${xfQuery(d)}`).then(r=>r.json());
- if(r.error){$('#xfpanel').innerHTML=`<span style="color:#f0b72f">transform: ${r.error}</span>`;return;}
- renderTicket($('#xfpanel'), r, ()=>xfQuery(d), '/api/transform_submit');
+ if(r.error){box.innerHTML=`<span style="color:#f0b72f">transform: ${r.error}</span>`;return;}
+ renderTicket(box, r, ()=>xfQuery(d), '/api/transform_submit');
 }
 $('#posbtn').onclick=loadPositions;
 

@@ -1088,6 +1088,7 @@ class TastyTradeClient:
                 "quantity": abs(int(float(item.get("quantity", 0) or 0))),
                 "direction": item.get("quantity-direction", ""),
                 "instrument_type": item.get("instrument-type", ""),
+                "avg_open_price": float(item.get("average-open-price", 0) or 0),
             })
         return out
 
