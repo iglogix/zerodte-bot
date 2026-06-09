@@ -64,3 +64,43 @@ def test_tt_latest_chain_is_live_today_priced_from_tt_quotes():
 def test_tt_latest_chain_past_delegates_to_seed():
     snap = _src().latest_chain(date(2026, 6, 5), FRONT)
     assert snap.as_of.astimezone(ET).strftime("%H:%M") == "16:00"   # the seed's chain
+
+
+def test_guard_retries_then_succeeds():
+    calls = {"n": 0}
+    def flaky(exp):
+        calls["n"] += 1
+        if calls["n"] <= 2:                       # first two attempts fail
+            raise RuntimeError("DXLink dropped")
+        return _chain_fn(exp)
+    src = TastyTradeIntradaySource(chain_fn=flaky, seed=_Seed(), today_fn=lambda: TODAY,
+                                   now_fn=lambda: datetime(2026, 6, 9, 15, 4, tzinfo=ET),
+                                   retries=3, sleep_fn=lambda s: None)   # don't actually sleep
+    snap = src.latest_chain(TODAY, FRONT)
+    assert snap.rows and calls["n"] == 3          # retried past the two failures
+
+
+def test_guard_falls_back_to_last_good_chain_on_total_failure():
+    state = {"ok": True}
+    def sometimes(exp):
+        if not state["ok"]:
+            raise RuntimeError("DXLink wedged")
+        return _chain_fn(exp)
+    src = TastyTradeIntradaySource(chain_fn=sometimes, seed=_Seed(), today_fn=lambda: TODAY,
+                                   now_fn=lambda: datetime(2026, 6, 9, 15, 4, tzinfo=ET),
+                                   retries=1, chain_ttl=0.0, sleep_fn=lambda s: None)
+    good = src.latest_chain(TODAY, FRONT)
+    assert good.rows                              # first fetch succeeds → cached
+    state["ok"] = False
+    stale = src.latest_chain(TODAY, FRONT)        # now failing → serve last good (non-empty)
+    assert stale.rows == good.rows                # chart doesn't blank out
+
+
+def test_intraday_keeps_morning_when_live_fetch_fails():
+    def dead(exp):
+        raise RuntimeError("no broker")
+    src = TastyTradeIntradaySource(chain_fn=dead, seed=_Seed(), today_fn=lambda: TODAY,
+                                   now_fn=lambda: datetime(2026, 6, 9, 15, 4, tzinfo=ET),
+                                   retries=1, sleep_fn=lambda s: None)
+    pts = src.intraday(TODAY, FRONT, BACK, 0.50, 7000.0)   # live dead → still returns seeded morning
+    assert [p.as_of.astimezone(ET).strftime("%H:%M") for p in pts] == ["09:40", "09:50"]

@@ -29,31 +29,56 @@ class TastyTradeIntradaySource:
     def __init__(self, chain_fn: ChainFn, seed=None, rate: float = RATE,
                  clock: Callable[[], float] = _time.time, today_fn: Callable[[], date] = date.today,
                  now_fn: Optional[Callable[[], datetime]] = None,
-                 chain_ttl: float = 15.0, default_spot: float = 7400.0):
+                 chain_ttl: float = 15.0, default_spot: float = 7400.0,
+                 retries: int = 2, retry_backoff: float = 0.5,
+                 sleep_fn: Callable[[float], None] = _time.sleep):
         self.chain_fn = chain_fn
         self.seed = seed                  # morning backfill source (past minutes); None = pure TT
         self.rate = rate
         self._clock = clock
         self._today = today_fn
         self._now = now_fn or (lambda: datetime.now(ET))   # wall-clock for the live minute
+        self.retries = retries            # guard: re-fetch on a DXLink hiccup (empty/raise)
+        self.retry_backoff = retry_backoff
+        self._sleep = sleep_fn
         self.chain_ttl = chain_ttl        # dedupe live fetches within one refresh cycle
         self.last_spot = default_spot
         self._acc: Dict[tuple, Dict[str, RatioPoint]] = {}   # series accumulators (per pair/day)
         self._seeded: set = set()
         self._chain_cache: Dict[date, tuple] = {}            # expiry -> (ts, ChainSnapshot)
 
-    def _live_chain(self, expiry: date) -> ChainSnapshot:
-        hit = self._chain_cache.get(expiry)
-        if hit is not None and (self._clock() - hit[0]) < self.chain_ttl:
-            return hit[1]
+    def _fetch_chain_once(self, expiry: date) -> Optional[ChainSnapshot]:
         raw = self.chain_fn(expiry) or []
         price_rows = [(float(o["strike"]), o["option_type"] == "call", float(o["bid"]), float(o["ask"]))
                       for o in raw if (o.get("bid") or 0) > 0 and (o.get("ask") or 0) > 0]
+        if not price_rows:                # REST chain came back but DXLink enrichment was empty
+            return None
         T = max((expiry - self._today()).days, 0) / 365.0
         rows, spot = compute_iv_rows(price_rows, T, None, self.rate)
         if spot:
             self.last_spot = spot
-        snap = ChainSnapshot("SPX", expiry, datetime.now(timezone.utc), tuple(rows))
+        return ChainSnapshot("SPX", expiry, datetime.now(timezone.utc), tuple(rows)) if rows else None
+
+    def _live_chain(self, expiry: date) -> ChainSnapshot:
+        hit = self._chain_cache.get(expiry)
+        if hit is not None and (self._clock() - hit[0]) < self.chain_ttl:
+            return hit[1]
+        # Reconnect guard: a DXLink hiccup shows up as a raise or an empty enrichment. Retry with
+        # backoff (a fresh fetch re-subscribes); on total failure serve the last good chain (stale
+        # but non-broken) so the live chart never blanks out.
+        snap = None
+        for attempt in range(self.retries + 1):
+            try:
+                snap = self._fetch_chain_once(expiry)
+            except Exception:
+                snap = None
+            if snap is not None:
+                break
+            if attempt < self.retries:
+                self._sleep(self.retry_backoff * (attempt + 1))
+        if snap is None:
+            return hit[1] if hit is not None else ChainSnapshot(
+                "SPX", expiry, datetime.now(timezone.utc), ())
         self._chain_cache[expiry] = (self._clock(), snap)
         return snap
 

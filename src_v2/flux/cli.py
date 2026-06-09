@@ -11,9 +11,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--intraday", choices=["theta", "tt", "off"], default="theta",
-                   help="live intraday source: theta (ThetaData), tt (TastyTrade broker prices "
-                        "— needs --mode sandbox|live; Theta seeds the morning), off")
+    s.add_argument("--intraday", choices=["theta", "tt", "off"], default="tt",
+                   help="live intraday source: tt (default; TastyTrade broker prices — needs "
+                        "--mode sandbox|live, else falls back to Theta; Theta seeds the morning), "
+                        "theta (ThetaData), off")
     s.add_argument("--mode", choices=["manual", "sandbox", "live"], default="manual",
                    help="manual (default) builds tickets only; sandbox/live can SUBMIT to TastyTrade")
     sc = sub.add_parser("scan")
