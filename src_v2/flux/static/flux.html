@@ -38,24 +38,29 @@ const $=s=>document.querySelector(s);
 for(const e of [3,5,7,9,12,15]){let o=document.createElement('option');o.value=e;o.text=e;if(e==9)o.selected=true;$('#fd').add(o);}
 for(const g of [1,2,3,4]){let o=document.createElement('option');o.value=g;o.text=g;$('#gap').add(o);}
 let view='intraday';
+let pinnedPair=null;   // {front,back} when a scanner row pins the chart to an explicit pair
 // View switches and control changes redraw the CHART ONLY — the scanner (slow) runs only
 // on load and on the ↻ scan button, so switching intervals is instant.
-document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');view=b.dataset.v;refresh();});
-['#fd','#gap','#rd'].forEach(s=>$(s).onchange=()=>{$('#dcpanel').innerHTML='';refresh();});
+document.querySelectorAll('.view').forEach(b=>b.onclick=()=>{document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');view=b.dataset.v;if(view!=='intraday')pinnedPair=null;refresh();});
+// front DTE / gap define an implicit pair → changing them resets a pinned pair.
+['#fd','#gap'].forEach(s=>$(s).onchange=()=>{pinnedPair=null;$('#dcpanel').innerHTML='';refresh();});
+$('#rd').onchange=()=>{$('#dcpanel').innerHTML='';refresh();};   // delta is orthogonal — keep pin
 $('#qty').onchange=()=>{$('#dcpanel').innerHTML='';};   // stale ticket → rebuild for new size
 $('#scanbtn').onclick=runScan;
 $('#builddc').onclick=buildDC;
 
 async function refresh(){
  const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value;
+ // A pinned pair (from a scanner click) overrides DTE/gap with explicit expiries (intraday only).
+ const pair = (pinnedPair && view==='intraday') ? `front=${pinnedPair.front}&back=${pinnedPair.back}` : `front_dte=${fd}&gap=${gap}`;
  const url = view==='intraday'
-   ? `/api/intraday?front_dte=${fd}&gap=${gap}&ref_delta=${rd}`      // live 1-min (ThetaData)
+   ? `/api/intraday?${pair}&ref_delta=${rd}`                         // live 1-min (ThetaData)
    : `/api/ratio?front_dte=${fd}&gap=${gap}&ref_delta=${rd}&view=${view}`;  // EOD history
  $('#banner').textContent = view==='intraday' ? 'loading intraday… (first load ~30-50s cold; instant once cached)' : 'loading…';
  const r=await fetch(url).then(r=>r.json());
  const meta=r.meta||{};
  $('#banner').textContent = r.error ? ('error: '+r.error)
-   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · session ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · F/B ${meta.front_expiry}→${meta.back_expiry}`:'');
+   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · session ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · F/B ${meta.front_expiry}→${meta.back_expiry}`:'') + (pinnedPair&&view==='intraday'?' · 📌 from scan (change DTE/gap to reset)':'');
  const x=r.points.map(p=>p.as_of);
  const rr=r.points.map(p=>p.ratio).filter(v=>v!=null);
  // Pin the ratio axis tight to its own data range so intraday moves are pronounced.
@@ -78,7 +83,17 @@ async function runScan(){
  if(sc.session) $('#scansess').textContent=` — EOD ${sc.session}`;
  $('#scan tbody').innerHTML = sc.error
    ? `<tr><td colspan="6" style="color:#f0b72f">scan error: ${sc.error}</td></tr>`
-   : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
+   : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="scanrow ${s.flag?'flag':''}" data-f="${s.front_expiry}" data-b="${s.back_expiry}" style="cursor:pointer" title="click → 1-min chart for ${s.front_expiry}/${s.back_expiry}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
+ document.querySelectorAll('#scan tbody tr.scanrow').forEach(tr=>tr.onclick=()=>pinPair(tr.dataset.f, tr.dataset.b));
+}
+
+// Click a scanner pair → pin the 1-min chart to those exact expiries (today's session).
+function pinPair(front, back){
+ pinnedPair={front,back};
+ document.querySelectorAll('.view').forEach(x=>x.classList.toggle('active', x.dataset.v==='intraday'));
+ view='intraday'; $('#dcpanel').innerHTML='';
+ refresh();
+ document.getElementById('chart').scrollIntoView({behavior:'smooth',block:'center'});
 }
 
 function dcQuery(){
