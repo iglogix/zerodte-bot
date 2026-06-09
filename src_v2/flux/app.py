@@ -48,13 +48,15 @@ def _sr_json(s):
 
 
 def create_app(source: FluxSource | None = None, live_source: FluxSource | None = None,
-               intraday_source=None) -> Flask:
+               intraday_source=None, submitter=None) -> Flask:
     if source is None:
         from src_v2.flux.cache import ChainCache
         source = MarketDataSource(cache=ChainCache())   # cache EOD fetches → fewer credits
     src = source
     live = live_source                                   # TastyTradeLiveSource (None = live off)
     intraday = intraday_source                            # ThetaIntradaySource (None = off)
+    sub = submitter                                       # OrderSubmitter (None/manual = no submit)
+    submit_mode = sub.mode if sub is not None else "manual"
     app = Flask(__name__)
 
     @app.get("/api/intraday")
@@ -83,10 +85,11 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         return jsonify({"points": [_rp_json(p) for p in pts],
                         "meta": {"session": session.isoformat(), "atm": atm}})
 
-    @app.get("/api/dc_order")
-    def dc_order():
+    def _make_dc_ticket():
+        """Build the DC ticket from request args → (ticket, error_str)."""
+        from dataclasses import replace
         if intraday is None:
-            return jsonify({"error": "intraday source not configured"}), 200
+            return None, "intraday source not configured"
         session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
         if request.args.get("front") and request.args.get("back"):
             front = date.fromisoformat(request.args["front"])
@@ -96,25 +99,49 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
             front = nth_trading_day_after(session, fd)
             back = nth_trading_day_after(session, fd + gap)
         if front is None or back is None:
-            return jsonify({"error": "could not resolve expiries"}), 200
+            return None, "could not resolve expiries"
         td = float(request.args.get("target_delta", 0.35))
-        qty = int(request.args.get("qty", 1))
+        qty = max(1, int(request.args.get("qty", 1)))
         try:
             fchain = intraday.latest_chain(session, front)
             bchain = intraday.latest_chain(session, back)
         except Exception as e:
-            return jsonify({"error": str(e)}), 200
+            return None, str(e)
         kp, kc = request.args.get("k_put"), request.args.get("k_call")
-        if kp and kc:
-            kp, kc = float(kp), float(kc)
-        else:
-            kp, kc = select_dc_strikes(fchain, td)
+        kp, kc = (float(kp), float(kc)) if (kp and kc) else select_dc_strikes(fchain, td)
         if kp is None or kc is None:
-            return jsonify({"error": "no strikes (no live chain)"}), 200
+            return None, "no strikes (no live chain)"
         ticket = build_dc_order(fchain, bchain, kp, kc, qty)
         if ticket is None:
-            return jsonify({"error": "could not price DC (missing leg quotes)"}), 200
-        return jsonify({"ticket": _ticket_json(ticket), "mode": "manual"})
+            return None, "could not price DC (missing leg quotes)"
+        lim = request.args.get("limit")          # optional user-edited net limit
+        if lim:
+            ticket = replace(ticket, price=float(lim), est_cost=round(float(lim) * 100 * qty, 2))
+        return ticket, None
+
+    @app.get("/api/dc_order")
+    def dc_order():
+        ticket, err = _make_dc_ticket()
+        if err:
+            return jsonify({"error": err}), 200
+        return jsonify({"ticket": _ticket_json(ticket), "mode": submit_mode})
+
+    @app.post("/api/dc_submit")
+    def dc_submit():
+        if sub is None or sub.mode == "manual":
+            return jsonify({"ok": False, "detail":
+                            "submission disabled — manual mode (start serve with --mode sandbox|live)"}), 200
+        ticket, err = _make_dc_ticket()
+        if err:
+            return jsonify({"ok": False, "detail": err}), 200
+        execution = request.args.get("execution", "combo")
+        try:
+            res = sub.submit(ticket, execution)
+        except Exception as e:
+            return jsonify({"ok": False, "detail": f"submit error: {e}"}), 200
+        return jsonify({"ok": res.ok, "order_ids": res.order_ids,
+                        "detail": res.detail, "mode": sub.mode, "execution": execution,
+                        "ticket": _ticket_json(ticket)})
 
     @app.get("/api/live_ratio")
     def live_ratio():

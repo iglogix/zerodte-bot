@@ -13,6 +13,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--intraday", choices=["theta", "off"], default="theta",
                    help="live intraday source (theta = ThetaData stand-in for TT)")
+    s.add_argument("--mode", choices=["manual", "sandbox", "live"], default="manual",
+                   help="manual (default) builds tickets only; sandbox/live can SUBMIT to TastyTrade")
     sc = sub.add_parser("scan")
     sc.add_argument("--on-date", default=date.today().isoformat())
     sc.add_argument("--min-dte", type=int, default=0)
@@ -31,7 +33,16 @@ def main(argv=None) -> int:
         if args.intraday == "theta":
             from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
             intraday_source = ThetaIntradaySource()
-        create_app(intraday_source=intraday_source).run(host=args.host, port=args.port, debug=False)
+        submitter = None
+        if args.mode != "manual":          # only connect a broker when explicitly asked to submit
+            from src_v2.flux.submit import make_tt_submitter
+            try:
+                submitter = make_tt_submitter(args.mode)
+                print(f"[flux] order submission ENABLED — mode={args.mode}")
+            except Exception as e:
+                print(f"[flux] submission DISABLED (broker connect failed: {e}); serving manual")
+        create_app(intraday_source=intraday_source, submitter=submitter).run(
+            host=args.host, port=args.port, debug=False)
         return 0
     if args.cmd == "scan":
         from src_v2.flux.scanner import scan

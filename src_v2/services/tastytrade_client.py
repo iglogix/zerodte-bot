@@ -1044,6 +1044,43 @@ class TastyTradeClient:
             logger.info("Iron condor order placed successfully: order_id=%s", order_id)
             return {"order_id": order_id}
 
+    async def place_complex_order(self, leg_specs, price: float, price_effect: str = "Debit",
+                                  tif: str = "Day") -> Dict[str, Any]:
+        """Submit one complex (multi-leg, possibly multi-expiry) limit order.
+
+        leg_specs: iterable of (osi_symbol, action, quantity). Each leg's OSI carries its own
+        expiry, so calendars/diagonals work. price = net limit ($/share, positive)."""
+        legs = [self._build_leg(osi, action, int(qty)) for (osi, action, qty) in leg_specs]
+        payload = {"time-in-force": tif, "order-type": "Limit",
+                   "price": str(round(abs(float(price)), 2)), "price-effect": price_effect,
+                   "legs": legs}
+        async with self._http.post(
+            f"{self.base_url}/accounts/{self.account_number}/orders",
+            headers=self._headers(), json=payload,
+        ) as resp:
+            if resp.status >= 400:
+                logger.error("Complex order rejected (%s): %s", resp.status, await resp.text())
+            resp.raise_for_status()
+            data = await resp.json()
+            return {"order_id": str(data["data"]["order"]["id"])}
+
+    async def place_option_limit(self, osi: str, action: str, quantity: int, limit: float,
+                                 tif: str = "Day") -> Dict[str, Any]:
+        """Single-leg option limit order (for leg-in execution). Buy → Debit, Sell → Credit."""
+        effect = "Debit" if action.startswith("Buy") else "Credit"
+        payload = {"time-in-force": tif, "order-type": "Limit",
+                   "price": str(round(abs(float(limit)), 2)), "price-effect": effect,
+                   "legs": [self._build_leg(osi, action, int(quantity))]}
+        async with self._http.post(
+            f"{self.base_url}/accounts/{self.account_number}/orders",
+            headers=self._headers(), json=payload,
+        ) as resp:
+            if resp.status >= 400:
+                logger.error("Single-leg order rejected (%s): %s", resp.status, await resp.text())
+            resp.raise_for_status()
+            data = await resp.json()
+            return {"order_id": str(data["data"]["order"]["id"])}
+
     async def _place_credit_spread(self, order: Dict[str, Any]) -> Dict[str, Any]:
         qty = order.get("quantity", 1)
 

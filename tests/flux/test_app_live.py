@@ -82,3 +82,25 @@ def test_dc_order_endpoint_builds_ticket():
     assert t["price_effect"] == "Debit" and t["price"] == pytest.approx(4.0)   # (32+32)-(30+30)
     assert len(t["legs"]) == 4 and all(l["qty"] == 2 for l in t["legs"])
     assert r.get_json()["mode"] == "manual"
+
+
+def test_dc_submit_refused_in_manual():
+    c = create_app(intraday_source=FakeIntradayChains()).test_client()   # no submitter → manual
+    b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=combo").get_json()
+    assert b["ok"] is False and "manual" in b["detail"].lower()
+
+
+def test_dc_submit_combo_in_sandbox_passes_qty():
+    from src_v2.flux.submit import MockSubmitter
+    s = MockSubmitter("sandbox")
+    c = create_app(intraday_source=FakeIntradayChains(), submitter=s).test_client()
+    b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=combo&qty=3").get_json()
+    assert b["ok"] and b["execution"] == "combo" and len(b["order_ids"]) == 1
+    assert s.calls[-1][0].legs[0].quantity == 3        # qty propagated to the ticket
+
+
+def test_dc_submit_legin_places_four():
+    from src_v2.flux.submit import MockSubmitter
+    c = create_app(intraday_source=FakeIntradayChains(), submitter=MockSubmitter("live")).test_client()
+    b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=legin").get_json()
+    assert b["ok"] and len(b["order_ids"]) == 4 and b["mode"] == "live"

@@ -18,10 +18,15 @@ class OrderLeg:
     is_call: bool
     action: str        # "Sell to Open" | "Buy to Open" | "Sell to Close" | "Buy to Close"
     quantity: int
+    limit: float = 0.0  # this leg's mid (used by leg-in execution to price each leg)
 
     @property
     def osi(self) -> str:
         return format_osi(self.expiry, self.strike, self.is_call)
+
+    @property
+    def is_long(self) -> bool:
+        return self.action.startswith("Buy")
 
 
 @dataclass(frozen=True)
@@ -63,10 +68,10 @@ def build_dc_order(front_chain: ChainSnapshot, back_chain: ChainSnapshot,
         return None
     debit = (bp + bc) - (fp + fc)
     legs = (
-        OrderLeg(front_chain.expiry, k_put, False, "Sell to Open", qty),
-        OrderLeg(back_chain.expiry, k_put, False, "Buy to Open", qty),
-        OrderLeg(front_chain.expiry, k_call, True, "Sell to Open", qty),
-        OrderLeg(back_chain.expiry, k_call, True, "Buy to Open", qty),
+        OrderLeg(front_chain.expiry, k_put, False, "Sell to Open", qty, round(fp, 2)),
+        OrderLeg(back_chain.expiry, k_put, False, "Buy to Open", qty, round(bp, 2)),
+        OrderLeg(front_chain.expiry, k_call, True, "Sell to Open", qty, round(fc, 2)),
+        OrderLeg(back_chain.expiry, k_call, True, "Buy to Open", qty, round(bc, 2)),
     )
     return OrderTicket(
         kind="double_calendar", legs=legs, price=round(debit, 2),
