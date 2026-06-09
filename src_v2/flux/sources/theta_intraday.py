@@ -44,10 +44,12 @@ class ThetaIntradaySource:
     def __init__(self, base: str = THETA, fetch_json: Callable[[str], dict] = _http_json,
                  half_width_pts: int = 300, rate: float = RATE,
                  ttl_seconds: float = 60.0, clock: Callable[[], float] = _time.time,
-                 today_fn: Callable[[], date] = date.today, default_spot: float = 7400.0):
+                 today_fn: Callable[[], date] = date.today, default_spot: float = 7400.0,
+                 ivl_ms: int = 60_000):
         self.base = base
         self.fetch_json = fetch_json
         self.half_width_pts = half_width_pts   # wide enough that a rough hint still covers ATM
+        self.ivl_ms = ivl_ms                   # 60_000 = true 1-min bars (the live cockpit)
         self.rate = rate
         self.ttl_seconds = ttl_seconds
         self._clock = clock
@@ -81,7 +83,8 @@ class ThetaIntradaySource:
             if session < self._today() or (self._clock() - ts) < self.ttl_seconds:
                 return panel
         panel = fetch_expiry_session_theta(session, expiry, atm_hint,
-                                            self.half_width_pts, self.base, self.fetch_json)
+                                            self.half_width_pts, self.base, self.fetch_json,
+                                            ivl=self.ivl_ms)
         self._cache[key] = (self._clock(), panel)
         return panel
 
