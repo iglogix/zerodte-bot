@@ -58,9 +58,11 @@ def main(argv=None) -> int:
                     return asyncio.run_coroutine_threadsafe(
                         client.get_option_chain("SPX", exp), loop).result(timeout=60)
 
-                intraday_source = TastyTradeIntradaySource(chain_fn=_chain_fn,
-                                                           seed=ThetaIntradaySource())
-                print("[flux] intraday = TastyTrade live (broker prices) + Theta morning seed")
+                # 5-min Theta seed for the morning (granularity the history doesn't need at 1-min)
+                # → much lighter cold load; the live tail stays 1-min from TT.
+                intraday_source = TastyTradeIntradaySource(
+                    chain_fn=_chain_fn, seed=ThetaIntradaySource(ivl_ms=300_000))
+                print("[flux] intraday = TastyTrade live (broker prices) + Theta 5-min morning seed")
             else:
                 intraday_source = ThetaIntradaySource()
                 print("[flux] --intraday tt needs --mode sandbox|live; falling back to Theta")

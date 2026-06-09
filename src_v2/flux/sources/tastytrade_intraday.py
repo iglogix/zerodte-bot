@@ -13,6 +13,7 @@ TT client's get_option_chain on its event loop) so the source is fully unit-test
 """
 from __future__ import annotations
 
+import threading
 import time as _time
 from datetime import date, datetime, timezone
 from typing import Callable, Dict, List, Optional
@@ -31,7 +32,7 @@ class TastyTradeIntradaySource:
                  now_fn: Optional[Callable[[], datetime]] = None,
                  chain_ttl: float = 15.0, default_spot: float = 7400.0,
                  retries: int = 2, retry_backoff: float = 0.5,
-                 sleep_fn: Callable[[float], None] = _time.sleep):
+                 sleep_fn: Callable[[float], None] = _time.sleep, seed_async: bool = True):
         self.chain_fn = chain_fn
         self.seed = seed                  # morning backfill source (past minutes); None = pure TT
         self.rate = rate
@@ -41,8 +42,10 @@ class TastyTradeIntradaySource:
         self.retries = retries            # guard: re-fetch on a DXLink hiccup (empty/raise)
         self.retry_backoff = retry_backoff
         self._sleep = sleep_fn
+        self.seed_async = seed_async      # seed the morning off-thread so first paint isn't blocked
         self.chain_ttl = chain_ttl        # dedupe live fetches within one refresh cycle
         self.last_spot = default_spot
+        self._lock = threading.Lock()
         self._acc: Dict[tuple, Dict[str, RatioPoint]] = {}   # series accumulators (per pair/day)
         self._seeded: set = set()
         self._chain_cache: Dict[date, tuple] = {}            # expiry -> (ts, ChainSnapshot)
@@ -77,6 +80,15 @@ class TastyTradeIntradaySource:
             if attempt < self.retries:
                 self._sleep(self.retry_backoff * (attempt + 1))
         if snap is None:
+            # TT is down → fall back to a REAL chain from the seed (Theta) before serving stale,
+            # so prices stay live. Not cached (it's not TT) → the next call retries TT.
+            if self.seed is not None:
+                try:
+                    tsnap = self.seed.latest_chain(self._today(), expiry)
+                    if tsnap is not None and tsnap.rows:
+                        return tsnap
+                except Exception:
+                    pass
             return hit[1] if hit is not None else ChainSnapshot(
                 "SPX", expiry, datetime.now(timezone.utc), ())
         self._chain_cache[expiry] = (self._clock(), snap)
@@ -88,6 +100,20 @@ class TastyTradeIntradaySource:
             return self.seed.latest_chain(session, expiry, atm_hint)
         return self._live_chain(expiry)
 
+    def _merge_seed(self, key, pts) -> None:
+        """Merge morning seed points WITHOUT clobbering live points already present."""
+        with self._lock:
+            acc = self._acc.setdefault(key, {})
+            for rp in pts:
+                acc.setdefault(rp.as_of.astimezone(ET).strftime("%H:%M"), rp)
+
+    def _run_seed(self, key, session, front_exp, back_exp, ref_delta, atm_hint) -> None:
+        try:
+            pts = self.seed.intraday(session, front_exp, back_exp, ref_delta, atm_hint)
+        except Exception:
+            pts = []
+        self._merge_seed(key, pts)
+
     def intraday(self, session: date, front_exp: date, back_exp: date,
                  ref_delta: float, atm_hint: float) -> List[RatioPoint]:
         # Past sessions aren't live → serve from the seed (or empty if none).
@@ -95,22 +121,28 @@ class TastyTradeIntradaySource:
             return self.seed.intraday(session, front_exp, back_exp, ref_delta, atm_hint) if self.seed else []
 
         key = (session, front_exp, back_exp, round(ref_delta, 3))
-        acc = self._acc.setdefault(key, {})
-        if key not in self._seeded:               # one-time morning backfill (immutable past minutes)
-            self._seeded.add(key)
-            if self.seed is not None:
-                try:
-                    for rp in self.seed.intraday(session, front_exp, back_exp, ref_delta, atm_hint):
-                        acc[rp.as_of.astimezone(ET).strftime("%H:%M")] = rp
-                except Exception:
-                    pass
-        try:                                       # append/refresh the current live minute from TT
+        with self._lock:
+            self._acc.setdefault(key, {})
+            first = key not in self._seeded
+            if first:
+                self._seeded.add(key)
+        if first and self.seed is not None:        # one-time morning backfill (immutable past minutes)
+            if self.seed_async:                    # off-thread → first paint isn't blocked by the seed
+                threading.Thread(target=self._run_seed, daemon=True,
+                                 args=(key, session, front_exp, back_exp, ref_delta, atm_hint)).start()
+            else:
+                self._run_seed(key, session, front_exp, back_exp, ref_delta, atm_hint)
+        try:                                       # append/refresh the current live minute (TT, Theta fallback)
             rp = ratio_point(self._live_chain(front_exp), self._live_chain(back_exp), ref_delta)
             if rp is not None:
                 minute = self._now().strftime("%H:%M")
                 if minute >= SKIP_BEFORE:
-                    acc[minute] = RatioPoint(_ts(session, minute), front_exp, back_exp, ref_delta,
-                                             rp.front_iv, rp.back_iv, rp.ratio)
+                    with self._lock:
+                        self._acc[key][minute] = RatioPoint(
+                            _ts(session, minute), front_exp, back_exp, ref_delta,
+                            rp.front_iv, rp.back_iv, rp.ratio)
         except Exception:
             pass
-        return [acc[m] for m in sorted(acc)]
+        with self._lock:
+            acc = self._acc.get(key, {})
+            return [acc[m] for m in sorted(acc)]
