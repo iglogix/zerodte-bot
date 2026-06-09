@@ -48,6 +48,49 @@ be filled at/near mid — which is a discretionary-execution skill, not a given.
    Apr-2025 tariff week**), eating the entire transform margin precisely when the
    opportunity appears.
 
+## Addendum (2026-06-09): the catastrophic-loss columns are two artifacts — the honest result is ~flat
+
+A follow-up review of the `k≥0.5` columns in #2 found the large losses are **measurement
+artifacts**, not the strategy. Corrected, the picture is a **near-zero edge**, not a blow-up
+— which *strengthens* the NO-GO reasoning (no clear edge) while **retracting the "loses
+heavily" magnitude**. Reproduce: `PYTHONPATH=. .venv/bin/python scripts/dc_slippage_audit.py`.
+
+**Artifact 1 — stale cache quotes inflate the cross-fill cost.** The transform's 4-leg
+bid/ask slippage `S_t` (the credit lost mid→cross) head-lined at **$647/contract**, but that
+mean is dragged up by a few sessions with **16–38%-of-mid** quotes (e.g. a $9.50 spread on a
+$54 option) — thin/stale ThetaData snapshots, not executable markets:
+
+| `S_t` (transform slippage) | $/contract |
+|---|---|
+| raw mean (inflated) | ~~$647~~ |
+| median | $380 |
+| clean sessions only (<\$5/sh) | $325 |
+| at realistic 1.5% SPX spreads | **~$171** |
+
+Per-leg spreads are bimodal: median **3.8% of mid**, with 14/48 legs ≤2% (real SPX) and
+10/48 legs >10% (stale). Defensible full-cross slippage is **~$170–325/contract** —
+*comparable to* the **DC's profit at transform (~$157/contract, ≈16% of debit)**, not 4× it.
+
+**Artifact 2 — the stop was marked at the adverse fill.** The simulator evaluated the mental
+stop on the DC's *cross-fill* close value, so the DC looked instantly ~20% underwater and
+stopped on bar 1 — that, not transform losses, produced the −$28k at `k≥0.5` (67–72 of 72
+trades "stopped"). A mental stop should be monitored at mid and only pay the spread on action.
+
+**The clean estimate** — stop monitored at **mid**, spreads **capped at 2% of mid**, only the
+transform pays the spread (`k_tx`):
+
+| transform fill | transforms | total P&L (72 trades) | avg/trade |
+|---|---|---|---|
+| mid (k=0) | 13 | +$1,325 | +$18.4 |
+| half-spread (0.5) | 3 | +$367 | +$5.1 |
+| full cross (capped) | 0 | +$125 | +$1.7 |
+
+So with sane bookkeeping the strategy is **roughly flat**: a small positive that needs
+near-mid transform fills (+$18/tr) and decays to ~0 at full cross — where essentially **no
+transform clears `C ≥ D+W`**, so it just holds the DC to EOD (≈ breakeven). ~8 option-leg
+round-trip commissions would push it negative. **Verdict unchanged (NO-GO); reasoning
+corrected: a near-zero, fill-and-cost-dependent edge — not a heavy loser.**
+
 ## Why "risk-free" is misleading in practice
 
 The transform *is* risk-free by construction (the floor `C−D−W ≥ 0` is asserted on every
