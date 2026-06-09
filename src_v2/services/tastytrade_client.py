@@ -1044,6 +1044,26 @@ class TastyTradeClient:
             logger.info("Iron condor order placed successfully: order_id=%s", order_id)
             return {"order_id": order_id}
 
+    async def get_positions(self) -> List[Dict[str, Any]]:
+        """Open positions for the trading account, normalized to
+        {symbol, quantity, direction, instrument_type}. Quantity is absolute; direction is
+        Long/Short/Zero."""
+        async with self._http.get(
+            f"{self.base_url}/accounts/{self.account_number}/positions",
+            headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        out: List[Dict[str, Any]] = []
+        for item in data.get("data", {}).get("items", []):
+            out.append({
+                "symbol": item.get("symbol", ""),
+                "quantity": abs(int(float(item.get("quantity", 0) or 0))),
+                "direction": item.get("quantity-direction", ""),
+                "instrument_type": item.get("instrument-type", ""),
+            })
+        return out
+
     async def get_listed_chain(self, symbol: str) -> Dict[str, Dict[float, Dict[str, str]]]:
         """All listed expirations/strikes for `symbol` from the TRADING env (so the returned
         broker symbols are tradeable there). {exp_iso: {strike: {"call": sym, "put": sym}}}.

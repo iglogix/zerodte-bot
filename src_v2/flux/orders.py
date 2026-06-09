@@ -103,43 +103,50 @@ def snap_spy_to_listed(ticket: OrderTicket, chain: dict) -> Optional[OrderTicket
     """Snap a SPY-proxy ticket onto real listed expirations/strikes so the broker accepts it.
 
     `chain` = {exp_iso: {strike_float: {"call": sym, "put": sym}}} from the trading env.
-    Picks the listed expiration nearest each original leg expiry (front/back must differ),
-    and the nearest strike present in BOTH for puts and for calls. Each leg gets the exact
-    broker `symbol`. Returns None if the chain can't support a 2-expiry calendar."""
+    Each DISTINCT original leg expiry maps to the nearest listed expiry (kept distinct), and
+    each (side, strike) group snaps to the nearest strike listed in ALL of that group's target
+    expiries — so a calendar's shared strike stays shared, while a transform's four strikes
+    each snap independently. Every leg gets the exact broker `symbol`. None if unsupportable."""
+    from collections import defaultdict
+
     exps = sorted(chain)                                   # ISO strings sort chronologically
-    if len(exps) < 2:
+    orig_exps = sorted({l.expiry.isoformat() for l in ticket.legs})
+    if len(exps) < len(orig_exps):
         return None
 
     def _ord(s: str) -> int:
         return date.fromisoformat(s).toordinal()
 
-    leg_exps = sorted({l.expiry.isoformat() for l in ticket.legs})
-    front = min(exps, key=lambda e: abs(_ord(e) - _ord(leg_exps[0])))
-    back = min(exps, key=lambda e: abs(_ord(e) - _ord(leg_exps[-1])))
-    if back == front:
-        later = [e for e in exps if e > front]
-        if not later:
+    exp_map, used = {}, set()                              # original expiry → listed expiry (distinct)
+    for oe in orig_exps:
+        cand = sorted(exps, key=lambda e: (abs(_ord(e) - _ord(oe)), e))
+        pick = next((e for e in cand if e not in used), None)
+        if pick is None:
             return None
-        back = later[0]
+        exp_map[oe], _ = pick, used.add(pick)
 
-    common = sorted(set(chain[front]) & set(chain[back]))  # strikes in both expiries
-    if not common:
-        return None
-    kp = next(l.strike for l in ticket.legs if not l.is_call)
-    kc = next(l.strike for l in ticket.legs if l.is_call)
-    sp = min(common, key=lambda k: abs(k - kp))
-    sc = min(common, key=lambda k: abs(k - kc))
-
-    new = []
+    groups = defaultdict(list)                             # (is_call, strike) → legs sharing it
     for l in ticket.legs:
-        exp_str = front if l.expiry.isoformat() == leg_exps[0] else back
-        k = sc if l.is_call else sp
-        sym = chain[exp_str][k]["call" if l.is_call else "put"]
-        if not sym:
+        groups[(l.is_call, l.strike)].append(l)
+
+    new, snapped_note = [], []
+    for (is_call, strike), gl in sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        tes = {exp_map[l.expiry.isoformat()] for l in gl}
+        common = set.intersection(*[set(chain[te]) for te in tes]) if tes else set()
+        if not common:
             return None
-        new.append(replace(l, expiry=date.fromisoformat(exp_str), strike=float(k), symbol=sym))
+        k = min(common, key=lambda x: abs(x - strike))
+        snapped_note.append(f"{k:.0f}{'C' if is_call else 'P'}")
+        for l in gl:
+            te = exp_map[l.expiry.isoformat()]
+            sym = chain[te][k]["call" if is_call else "put"]
+            if not sym:
+                return None
+            new.append(replace(l, expiry=date.fromisoformat(te), strike=float(k), symbol=sym))
+
     qty = ticket.legs[0].quantity if ticket.legs else 1
+    spans = "+".join(sorted(set(exp_map.values())))
     return OrderTicket(
         kind=ticket.kind, legs=tuple(new), price=ticket.price,
         price_effect=ticket.price_effect, est_cost=ticket.est_cost,
-        note=f"SPY proxy (listed): {sp:.0f}P/{sc:.0f}C {front}+{back} x{qty}")
+        note=f"SPY proxy (listed): {'/'.join(snapped_note)} {spans} x{qty}")

@@ -104,3 +104,57 @@ def test_dc_submit_legin_places_four():
     c = create_app(intraday_source=FakeIntradayChains(), submitter=MockSubmitter("live")).test_client()
     b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=legin").get_json()
     assert b["ok"] and len(b["order_ids"]) == 4 and b["mode"] == "live"
+
+
+class FakeTransformChains:
+    """Backs (7335/7505) and wings (7310/7530, wing=25) priced on every expiry."""
+    def latest_chain(self, session, expiry, atm_hint=None):
+        rows = (OptionRow(7335, False, 39, 41, 0.18, -0.35), OptionRow(7505, True, 39, 41, 0.18, 0.35),
+                OptionRow(7310, False, 7, 9, 0.18, -0.20), OptionRow(7530, True, 7, 9, 0.18, 0.20))
+        return ChainSnapshot("SPX", expiry, datetime(2026, 6, 8, tzinfo=timezone.utc), rows)
+
+
+class FakeDcSubmitter:
+    """MockSubmitter-like, plus open_double_calendars()."""
+    def __init__(self, mode="live"):
+        self.mode = mode
+        self.calls = []
+
+    def open_double_calendars(self):
+        from src_v2.flux.positions import DoubleCalendar
+        return [DoubleCalendar("SPXW", date(2026, 6, 22), date(2026, 6, 23), 7335.0, 7505.0, 1)]
+
+    def submit(self, ticket, execution="combo"):
+        from src_v2.flux.submit import SubmitResult
+        self.calls.append((ticket, execution))
+        n = len(ticket.legs) if execution == "legin" else 1
+        return SubmitResult(True, [f"MOCK-{i+1}" for i in range(n)], f"mock {execution}")
+
+
+def test_positions_lists_detected_dcs():
+    c = create_app(submitter=FakeDcSubmitter()).test_client()
+    dcs = c.get("/api/positions").get_json()["dcs"]
+    assert len(dcs) == 1 and dcs[0]["k_put"] == 7335.0 and dcs[0]["k_call"] == 7505.0
+    assert dcs[0]["front_expiry"] == "2026-06-22"
+
+
+def test_positions_off_without_broker():
+    assert "error" in create_app().test_client().get("/api/positions").get_json()
+
+
+def test_transform_order_builds_credit_ticket():
+    c = create_app(intraday_source=FakeTransformChains()).test_client()
+    q = "front=2026-06-22&back=2026-06-23&k_put=7335&k_call=7505&wing=25"
+    t = c.get(f"/api/transform_order?{q}").get_json()["ticket"]
+    assert t["kind"] == "transform" and t["price_effect"] == "Credit"
+    assert t["price"] == pytest.approx(64.0)               # (40+40) − (8+8)
+    assert len(t["legs"]) == 4
+
+
+def test_transform_submit_routes_through_submitter():
+    s = FakeDcSubmitter("sandbox")
+    c = create_app(intraday_source=FakeTransformChains(), submitter=s).test_client()
+    q = "front=2026-06-22&back=2026-06-23&k_put=7335&k_call=7505&wing=25&execution=combo"
+    b = c.post(f"/api/transform_submit?{q}").get_json()
+    assert b["ok"] and b["execution"] == "combo"
+    assert s.calls[-1][0].kind == "transform"

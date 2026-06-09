@@ -27,6 +27,10 @@
 <div id="dcpanel" style="margin:8px 16px"></div>
 <h3>Scanner — expiry pairs by ratio drop <button id="scanbtn" style="font-size:11px;padding:2px 8px">↻ scan</button></h3>
 <table id="scan"><thead><tr><th>front→back</th><th>gap</th><th>ratio</th><th>prev</th><th>drop</th><th>z</th></tr></thead><tbody></tbody></table>
+<h3>Open double calendars <button id="posbtn" style="font-size:11px;padding:2px 8px">↻ positions</button>
+  <label style="margin-left:8px">wing</label><input id="wing" type="number" min="0" value="25" style="width:54px"></h3>
+<div id="pospanel" style="margin:8px 16px"></div>
+<div id="xfpanel" style="margin:8px 16px"></div>
 <script>
 const $=s=>document.querySelector(s);
 for(const e of [3,5,7,9,12,15]){let o=document.createElement('option');o.value=e;o.text=e;if(e==9)o.selected=true;$('#fd').add(o);}
@@ -79,42 +83,68 @@ function dcQuery(){
  return `front_dte=${fd}&gap=${gap}&target_delta=${rd}&qty=${qty}`;
 }
 
+// Shared ticket+submit renderer for both DC entry and transform. queryFn() rebuilds the
+// args; submitUrl is the POST endpoint. Submit + combo always show; disabled in manual.
+function renderTicket(box, r, queryFn, submitUrl){
+ const t=r.ticket, manual=(r.mode==='manual');
+ const legs=t.legs.map(l=>`<tr><td>${l.action}</td><td>${l.qty}</td><td>${l.is_call?'C':'P'} ${l.strike} ${l.expiry}</td><td style="color:#9aa4b2">${(l.osi||'').trim()}</td></tr>`).join('');
+ const btnStyle = manual ? 'background:#30363d;border-color:#30363d;color:#8b949e;cursor:not-allowed'
+                         : 'background:#da3633;border-color:#da3633';
+ const proxyNote = (r.proxy==='spy' && r.proxy_ticket)
+   ? `<div style="color:#58a6ff;font-size:11px;margin-top:6px">↳ sandbox submits a <b>SPY proxy</b>: ${r.proxy_ticket.note} — net ${r.proxy_ticket.price_effect} ${r.proxy_ticket.price.toFixed(2)} · ${r.proxy_ticket.legs.map(l=>l.osi.trim()).join(', ')}</div>`
+   : '';
+ box.innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
+   <b>${t.note}</b> — <span style="color:#f0883e">${t.price_effect} limit ${t.price.toFixed(2)}</span> (est $${t.est_cost.toFixed(0)}) · mode: <b>${r.mode}</b>
+   <table style="margin-top:6px"><thead><tr><th>action</th><th>qty</th><th>leg</th><th>OSI</th></tr></thead><tbody>${legs}</tbody></table>
+   <div style="margin-top:8px;display:flex;gap:10px;align-items:center">
+     <label title="checked = ONE atomic combo order; unchecked = leg-in (buy longs, then sell shorts)"><input type="checkbox" class="combo" checked> combo</label>
+     <button class="submitbtn" ${manual?'disabled':''} style="${btnStyle}">${manual?'Submit (manual — disabled)':'Submit to '+r.mode}</button>
+     <span class="submitmsg" style="color:#9aa4b2;font-size:12px">${manual?'restart <code>flux serve --mode sandbox|live</code> to enable':''}</span>
+   </div>${proxyNote}</div>`;
+ if(!manual) box.querySelector('.submitbtn').onclick=()=>submitTicket(box,r,queryFn,submitUrl);
+}
+
+async function submitTicket(box, r, queryFn, submitUrl){
+ const t=r.ticket, exec=box.querySelector('.combo').checked?'combo':'legin';
+ const how=exec==='combo'?'ONE atomic combo order':`${t.legs.length} leg-in orders (buy longs first, then sell shorts)`;
+ if(!confirm(`Submit ${t.note} to ${r.mode.toUpperCase()} as ${how}?\nNet ${t.price_effect} ${t.price.toFixed(2)} (est $${t.est_cost.toFixed(0)}).`)) return;
+ const btn=box.querySelector('.submitbtn'); btn.disabled=true; box.querySelector('.submitmsg').textContent='submitting…';
+ const res=await fetch(`${submitUrl}?${queryFn()}&execution=${exec}`,{method:'POST'}).then(r=>r.json());
+ btn.disabled=false;
+ box.querySelector('.submitmsg').innerHTML = res.ok
+   ? `<span style="color:#3fb950">✓ ${res.detail} — ids: ${res.order_ids.join(', ')}</span>`
+   : `<span style="color:#f85149">✗ ${res.detail}</span>`;
+}
+
 async function buildDC(){
  $('#dcpanel').innerHTML='<span style="color:#9aa4b2">building DC ticket…</span>';
  const r=await fetch(`/api/dc_order?${dcQuery()}`).then(r=>r.json());
  if(r.error){$('#dcpanel').innerHTML=`<span style="color:#f0b72f">DC: ${r.error}</span>`;return;}
- const t=r.ticket, manual=(r.mode==='manual');
- const legs=t.legs.map(l=>`<tr><td>${l.action}</td><td>${l.qty}</td><td>${l.is_call?'C':'P'} ${l.strike} ${l.expiry}</td><td style="color:#9aa4b2">${l.osi}</td></tr>`).join('');
- // Submit + combo are ALWAYS shown; in manual mode the button is disabled (can't fire).
- const btnStyle = manual ? 'background:#30363d;border-color:#30363d;color:#8b949e;cursor:not-allowed'
-                         : 'background:#da3633;border-color:#da3633';
- // sandbox submits a SPY proxy (cert lists no SPXW) — show what cert will actually receive.
- const proxyNote = (r.proxy==='spy' && r.proxy_ticket)
-   ? `<div style="color:#58a6ff;font-size:11px;margin-top:6px">↳ sandbox submits a <b>SPY proxy</b> (÷10): ${r.proxy_ticket.note} — net ${r.proxy_ticket.price_effect} ${r.proxy_ticket.price.toFixed(2)} · ${r.proxy_ticket.legs.map(l=>l.osi.trim()).join(', ')}</div>`
-   : '';
- const submitUI = `<div style="margin-top:8px;display:flex;gap:10px;align-items:center">
-        <label title="checked = ONE atomic combo order; unchecked = leg-in (buy longs, then sell shorts)"><input type="checkbox" id="combo" checked> combo</label>
-        <button id="submitdc" ${manual?'disabled':''} style="${btnStyle}">${manual?'Submit (manual — disabled)':'Submit to '+r.mode}</button>
-        <span id="submitmsg" style="color:#9aa4b2;font-size:12px">${manual?'restart <code>flux serve --mode sandbox|live</code> to enable':''}</span>
-      </div>${proxyNote}`;
- $('#dcpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:10px;background:#161b22">
-   <b>${t.note}</b> — <span style="color:#f0883e">${t.price_effect} limit ${t.price.toFixed(2)}</span> (est $${t.est_cost.toFixed(0)}) · mode: <b>${r.mode}</b>
-   <table style="margin-top:6px"><thead><tr><th>action</th><th>qty</th><th>leg</th><th>OSI</th></tr></thead><tbody>${legs}</tbody></table>
-   ${submitUI}</div>`;
- if(!manual) $('#submitdc').onclick=()=>submitDC(r.mode,t);
+ renderTicket($('#dcpanel'), r, dcQuery, '/api/dc_submit');
 }
 
-async function submitDC(mode,t){
- const exec=$('#combo').checked?'combo':'legin';
- const how=exec==='combo'?'ONE atomic combo order':'4 leg-in orders (buy longs first, then sell shorts)';
- if(!confirm(`Submit ${t.note} to ${mode.toUpperCase()} as ${how}?\nNet ${t.price_effect} limit ${t.price.toFixed(2)} (est $${t.est_cost.toFixed(0)}).`)) return;
- const btn=$('#submitdc'); btn.disabled=true; $('#submitmsg').textContent='submitting…';
- const r=await fetch(`/api/dc_submit?${dcQuery()}&execution=${exec}`,{method:'POST'}).then(r=>r.json());
- btn.disabled=false;
- $('#submitmsg').innerHTML = r.ok
-   ? `<span style="color:#3fb950">✓ ${r.detail} — ids: ${r.order_ids.join(', ')}</span>`
-   : `<span style="color:#f85149">✗ ${r.detail}</span>`;
+// ---- Open double calendars → transform ----
+function xfQuery(d){
+ const wing=Math.max(0,+$('#wing').value||25);
+ return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&wing=${wing}`;
 }
+async function loadPositions(){
+ $('#pospanel').innerHTML='<span style="color:#9aa4b2">loading positions…</span>'; $('#xfpanel').innerHTML='';
+ const r=await fetch('/api/positions').then(r=>r.json());
+ if(r.error){$('#pospanel').innerHTML=`<span style="color:#9aa4b2">${r.error}</span>`;return;}
+ if(!(r.dcs||[]).length){$('#pospanel').innerHTML='<span style="color:#9aa4b2">no open double calendars detected</span>';return;}
+ $('#pospanel').innerHTML=r.dcs.map((d,i)=>`<div style="border:1px solid #30363d;border-radius:8px;padding:8px;margin-bottom:6px;background:#161b22">
+   <b>${d.root}</b> ${d.front_expiry} / ${d.back_expiry} — ${d.k_put}P / ${d.k_call}C ×${d.qty}
+   <button class="xfbtn" data-i="${i}" style="margin-left:10px">Build transform</button></div>`).join('');
+ document.querySelectorAll('.xfbtn').forEach(b=>b.onclick=()=>buildTransform(r.dcs[+b.dataset.i]));
+}
+async function buildTransform(d){
+ $('#xfpanel').innerHTML='<span style="color:#9aa4b2">building transform…</span>';
+ const r=await fetch(`/api/transform_order?${xfQuery(d)}`).then(r=>r.json());
+ if(r.error){$('#xfpanel').innerHTML=`<span style="color:#f0b72f">transform: ${r.error}</span>`;return;}
+ renderTicket($('#xfpanel'), r, ()=>xfQuery(d), '/api/transform_submit');
+}
+$('#posbtn').onclick=loadPositions;
 
-refresh(); runScan(); setInterval(()=>{if(view==='intraday')refresh();},60000);  // interval = chart only
+refresh(); runScan(); loadPositions(); setInterval(()=>{if(view==='intraday')refresh();},60000);  // interval = chart only
 </script></body></html>

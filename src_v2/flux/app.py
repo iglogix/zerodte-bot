@@ -120,24 +120,20 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
             ticket = replace(ticket, price=float(lim), est_cost=round(float(lim) * 100 * qty, 2))
         return ticket, None
 
-    @app.get("/api/dc_order")
-    def dc_order():
-        ticket, err = _make_dc_ticket()
-        if err:
-            return jsonify({"error": err}), 200
+    def _order_json(ticket):
+        """Ticket + mode, plus the snapped SPY-proxy preview when sandbox uses one."""
         out = {"ticket": _ticket_json(ticket), "mode": submit_mode, "proxy": submit_proxy}
         if submit_proxy == "spy" and sub is not None:      # show what cert will actually receive
             pt = sub.preview_proxy(ticket)                 # snapped to listed SPY contracts
             if pt is not None:
                 out["proxy_ticket"] = _ticket_json(pt)
-        return jsonify(out)
+        return out
 
-    @app.post("/api/dc_submit")
-    def dc_submit():
+    def _submit_response(make_ticket):
         if sub is None or sub.mode == "manual":
             return jsonify({"ok": False, "detail":
                             "submission disabled — manual mode (start serve with --mode sandbox|live)"}), 200
-        ticket, err = _make_dc_ticket()
+        ticket, err = make_ticket()
         if err:
             return jsonify({"ok": False, "detail": err}), 200
         execution = request.args.get("execution", "combo")
@@ -148,6 +144,68 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
         return jsonify({"ok": res.ok, "order_ids": res.order_ids,
                         "detail": res.detail, "mode": sub.mode, "execution": execution,
                         "ticket": _ticket_json(ticket)})
+
+    @app.get("/api/dc_order")
+    def dc_order():
+        ticket, err = _make_dc_ticket()
+        if err:
+            return jsonify({"error": err}), 200
+        return jsonify(_order_json(ticket))
+
+    @app.post("/api/dc_submit")
+    def dc_submit():
+        return _submit_response(_make_dc_ticket)
+
+    def _make_transform_ticket():
+        """Build the transform ticket from request args → (ticket, error_str)."""
+        from src_v2.flux.positions import DoubleCalendar, build_transform_order
+        if intraday is None:
+            return None, "intraday source not configured"
+        try:
+            front = date.fromisoformat(request.args["front"])
+            back = date.fromisoformat(request.args["back"])
+            k_put = float(request.args["k_put"])
+            k_call = float(request.args["k_call"])
+        except (KeyError, ValueError):
+            return None, "transform needs front, back, k_put, k_call"
+        root = request.args.get("root", "SPXW")
+        qty = max(1, int(request.args.get("qty", 1)))
+        wing = float(request.args.get("wing", 5.0))
+        session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
+        try:
+            fchain = intraday.latest_chain(session, front)
+            bchain = intraday.latest_chain(session, back)
+        except Exception as e:
+            return None, str(e)
+        dc = DoubleCalendar(root, front, back, k_put, k_call, qty)
+        ticket = build_transform_order(dc, wing, fchain, bchain)
+        if ticket is None:
+            return None, "could not price transform (missing wing/back quotes)"
+        return ticket, None
+
+    @app.get("/api/positions")
+    def positions_ep():
+        if sub is None or not hasattr(sub, "open_double_calendars"):
+            return jsonify({"error": "open positions need --mode sandbox|live", "dcs": []}), 200
+        try:
+            dcs = sub.open_double_calendars()
+        except Exception as e:
+            return jsonify({"error": str(e), "dcs": []}), 200
+        return jsonify({"mode": submit_mode, "dcs": [
+            {"root": d.root, "front_expiry": d.front_expiry.isoformat(),
+             "back_expiry": d.back_expiry.isoformat(), "k_put": d.k_put,
+             "k_call": d.k_call, "qty": d.qty} for d in dcs]})
+
+    @app.get("/api/transform_order")
+    def transform_order():
+        ticket, err = _make_transform_ticket()
+        if err:
+            return jsonify({"error": err}), 200
+        return jsonify(_order_json(ticket))
+
+    @app.post("/api/transform_submit")
+    def transform_submit():
+        return _submit_response(_make_transform_ticket)
 
     @app.get("/api/live_ratio")
     def live_ratio():
