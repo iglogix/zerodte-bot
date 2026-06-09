@@ -83,8 +83,9 @@ async function runScan(){
  if(sc.session) $('#scansess').textContent=` — EOD ${sc.session}`;
  $('#scan tbody').innerHTML = sc.error
    ? `<tr><td colspan="6" style="color:#f0b72f">scan error: ${sc.error}</td></tr>`
-   : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="scanrow ${s.flag?'flag':''}" data-f="${s.front_expiry}" data-b="${s.back_expiry}" style="cursor:pointer" title="click → 1-min chart for ${s.front_expiry}/${s.back_expiry}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
+   : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="scanrow ${s.flag?'flag':''}" data-f="${s.front_expiry}" data-b="${s.back_expiry}" style="cursor:pointer" title="click → 1-min chart with ${s.front_expiry}/${s.back_expiry}"><td><span class="warm" data-k="${s.front_expiry}|${s.back_expiry}" style="color:#9aa4b2"></span>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
  document.querySelectorAll('#scan tbody tr.scanrow').forEach(tr=>tr.onclick=()=>pinPair(tr.dataset.f, tr.dataset.b));
+ preloadElevated(sc.rows||[]);   // warm the 1-min cache for backwardated (ratio>1) entry candidates
 }
 
 // Click a scanner pair → pin the 1-min chart to those exact expiries (today's session).
@@ -94,6 +95,23 @@ function pinPair(front, back){
  view='intraday'; $('#dcpanel').innerHTML='';
  refresh();
  document.getElementById('chart').scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+// Background-warm the 1-min cache for the top backwardated pairs (ratio>1 = DC entry signal).
+// SEQUENTIAL + capped: Theta serializes requests, so warming a few at a time avoids starving
+// the live chart's refreshes. Cancelable if a newer scan supersedes us. ● = ready (instant click).
+let preloadToken=0;
+async function preloadElevated(rows){
+ const my=++preloadToken, rd=$('#rd').value;
+ const pairs=rows.filter(s=>s.ratio>1).slice(0,3);          // top 3 elevated-ratio pairs
+ for(const s of pairs){
+   if(my!==preloadToken) return;                            // a newer scan ran → stop
+   const dot=document.querySelector(`#scan span.warm[data-k="${s.front_expiry}|${s.back_expiry}"]`);
+   if(dot){dot.textContent='⏳ '; dot.title='warming 1-min chart…';}
+   try{ await fetch(`/api/intraday?front=${s.front_expiry}&back=${s.back_expiry}&ref_delta=${rd}`); }catch(e){}
+   if(my!==preloadToken) return;
+   if(dot){dot.textContent='● '; dot.style.color='#3fb950'; dot.title='1-min chart preloaded — click is instant';}
+ }
 }
 
 function dcQuery(){
