@@ -555,18 +555,18 @@ class TastyTradeClient:
             )
             return []
 
-    async def get_option_chain(self, symbol: str) -> List[Dict[str, Any]]:
-        """Get 0DTE option chain for a symbol with Greeks.
-        Fetches symbol list from REST, then enriches near-ATM strikes
-        with live bid/ask/delta via DXLink.
-        In sandbox mode, reads from production API (cert has no live feed).
+    async def get_option_chain(self, symbol: str,
+                               expiration: Optional[date] = None) -> List[Dict[str, Any]]:
+        """Get an option chain for a symbol with live Greeks, for `expiration` (default 0DTE).
+        Fetches symbol list from REST, then enriches near-ATM strikes with live bid/ask/delta
+        via DXLink. In sandbox mode, reads from production API (cert has no live feed).
         """
-        today = date.today().strftime("%Y-%m-%d")
+        target = (expiration or date.today()).strftime("%Y-%m-%d")
         http, base = self._market_http_and_url()
         async with http.get(
             f"{base}/option-chains/{symbol}/nested",
             headers=self._market_headers(),
-            params={"expiration-date": today},
+            params={"expiration-date": target},
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
@@ -575,7 +575,7 @@ class TastyTradeClient:
         for chain in data.get("data", {}).get("items", []):
             for expiration in chain.get("expirations", []):
                 exp_date = expiration.get("expiration-date", "")
-                if exp_date != today:
+                if exp_date != target:
                     continue
                 for strike in expiration.get("strikes", []):
                     strike_price = float(strike.get("strike-price", 0))

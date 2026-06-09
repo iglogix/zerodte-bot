@@ -11,8 +11,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--host", default="127.0.0.1")
-    s.add_argument("--intraday", choices=["theta", "off"], default="theta",
-                   help="live intraday source (theta = ThetaData stand-in for TT)")
+    s.add_argument("--intraday", choices=["theta", "tt", "off"], default="theta",
+                   help="live intraday source: theta (ThetaData), tt (TastyTrade broker prices "
+                        "— needs --mode sandbox|live; Theta seeds the morning), off")
     s.add_argument("--mode", choices=["manual", "sandbox", "live"], default="manual",
                    help="manual (default) builds tickets only; sandbox/live can SUBMIT to TastyTrade")
     sc = sub.add_parser("scan")
@@ -31,10 +32,6 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.cmd == "serve":
         from src_v2.flux.app import create_app
-        intraday_source = None
-        if args.intraday == "theta":
-            from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
-            intraday_source = ThetaIntradaySource()
         submitter = None
         if args.mode != "manual":          # only connect a broker when explicitly asked to submit
             from src_v2.flux.submit import make_tt_submitter
@@ -43,6 +40,30 @@ def main(argv=None) -> int:
                 print(f"[flux] order submission ENABLED — mode={args.mode}")
             except Exception as e:
                 print(f"[flux] submission DISABLED (broker connect failed: {e}); serving manual")
+
+        intraday_source = None
+        if args.intraday == "theta":
+            from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
+            intraday_source = ThetaIntradaySource()
+        elif args.intraday == "tt":
+            from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
+            client = getattr(submitter, "client", None)
+            loop = getattr(submitter, "loop", None)
+            if client is not None and loop is not None:
+                import asyncio
+                from src_v2.flux.sources.tastytrade_intraday import TastyTradeIntradaySource
+
+                def _chain_fn(exp):       # run the broker chain fetch on the client's loop
+                    return asyncio.run_coroutine_threadsafe(
+                        client.get_option_chain("SPX", exp), loop).result(timeout=60)
+
+                intraday_source = TastyTradeIntradaySource(chain_fn=_chain_fn,
+                                                           seed=ThetaIntradaySource())
+                print("[flux] intraday = TastyTrade live (broker prices) + Theta morning seed")
+            else:
+                intraday_source = ThetaIntradaySource()
+                print("[flux] --intraday tt needs --mode sandbox|live; falling back to Theta")
+
         create_app(intraday_source=intraday_source, submitter=submitter).run(
             host=args.host, port=args.port, debug=False)
         return 0
