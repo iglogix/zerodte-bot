@@ -124,6 +124,11 @@ class FakeDcSubmitter:
         from src_v2.flux.positions import DoubleCalendar
         return [DoubleCalendar("SPXW", date(2026, 6, 22), date(2026, 6, 23), 7335.0, 7505.0, 1)]
 
+    def working_orders(self):
+        return [{"id": "1057169", "status": "Received", "order_type": "Limit", "price": 0.57,
+                 "price_effect": "Debit",
+                 "legs": [{"symbol": "SPY   260618P00734000", "action": "Sell to Open", "qty": 1}]}]
+
     def submit(self, ticket, execution="combo"):
         from src_v2.flux.submit import SubmitResult
         self.calls.append((ticket, execution))
@@ -140,6 +145,16 @@ def test_positions_lists_detected_dcs():
 
 def test_positions_off_without_broker():
     assert "error" in create_app().test_client().get("/api/positions").get_json()
+
+
+def test_orders_lists_working_orders():
+    c = create_app(submitter=FakeDcSubmitter()).test_client()
+    o = c.get("/api/orders").get_json()["orders"]
+    assert len(o) == 1 and o[0]["status"] == "Received" and o[0]["id"] == "1057169"
+
+
+def test_orders_off_without_broker():
+    assert "error" in create_app().test_client().get("/api/orders").get_json()
 
 
 def test_transform_order_builds_credit_ticket():

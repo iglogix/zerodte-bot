@@ -25,10 +25,11 @@
 <div id="banner"></div>
 <div id="chart"></div>
 <div id="dcpanel" style="margin:8px 16px"></div>
-<h3>Scanner — expiry pairs by ratio drop <button id="scanbtn" style="font-size:11px;padding:2px 8px">↻ scan</button></h3>
+<h3>Scanner — expiry pairs by ratio drop<span id="scansess" style="color:#9aa4b2;font-weight:normal"></span> <button id="scanbtn" style="font-size:11px;padding:2px 8px">↻ scan</button></h3>
 <table id="scan"><thead><tr><th>front→back</th><th>gap</th><th>ratio</th><th>prev</th><th>drop</th><th>z</th></tr></thead><tbody></tbody></table>
 <h3>Open double calendars <button id="posbtn" style="font-size:11px;padding:2px 8px">↻ positions</button>
-  <label style="margin-left:8px">wing</label><input id="wing" type="number" min="0" value="25" style="width:54px"></h3>
+  <label style="margin-left:8px" title="IC wing width W (points). The transform buys front wings at K_put−W / K_call+W. Default 5 = the backtested value (front_dte=9, wing=5).">wing</label><input id="wing" type="number" min="0" value="5" style="width:54px" title="IC wing width in points — backtested at 5"></h3>
+<div id="ordpanel" style="margin:8px 16px"></div>
 <div id="pospanel" style="margin:8px 16px"></div>
 <div id="xfpanel" style="margin:8px 16px"></div>
 <script>
@@ -53,7 +54,7 @@ async function refresh(){
  const r=await fetch(url).then(r=>r.json());
  const meta=r.meta||{};
  $('#banner').textContent = r.error ? ('error: '+r.error)
-   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
+   : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · ${meta.front_expiry}/${meta.back_expiry}`:'');
  const x=r.points.map(p=>p.as_of);
  const rr=r.points.map(p=>p.ratio).filter(v=>v!=null);
  // Pin the ratio axis tight to its own data range so intraday moves are pronounced.
@@ -73,6 +74,7 @@ async function runScan(){
  const rd=$('#rd').value;
  $('#scan tbody').innerHTML='<tr><td colspan="6" style="color:#9aa4b2">scanning… (first run cold-fetches expiries, ~30–60s; instant once cached)</td></tr>';
  const sc=await fetch(`/api/scan?ref_delta=${rd}&min_dte=2&max_dte=15&gaps=1,2&by=drop`).then(r=>r.json());
+ if(sc.session) $('#scansess').textContent=` — EOD ${sc.session}`;
  $('#scan tbody').innerHTML = sc.error
    ? `<tr><td colspan="6" style="color:#f0b72f">scan error: ${sc.error}</td></tr>`
    : ((sc.rows||[]).slice(0,15).map(s=>`<tr class="${s.flag?'flag':''}"><td>${s.front_expiry}→${s.back_expiry}</td><td>${s.gap_td}</td><td>${s.ratio}</td><td>${s.ratio_prev}</td><td>${s.drop}</td><td>${s.zscore}</td></tr>`).join('') || '<tr><td colspan="6" style="color:#9aa4b2">no candidates</td></tr>');
@@ -125,11 +127,19 @@ async function buildDC(){
 
 // ---- Open double calendars → transform ----
 function xfQuery(d){
- const wing=Math.max(0,+$('#wing').value||25);
+ const wing=Math.max(0,+$('#wing').value||5);
  return `root=${d.root}&front=${d.front_expiry}&back=${d.back_expiry}&k_put=${d.k_put}&k_call=${d.k_call}&qty=${d.qty}&wing=${wing}`;
+}
+async function loadOrders(){
+ const r=await fetch('/api/orders').then(r=>r.json());
+ if(r.error||!(r.orders||[]).length){$('#ordpanel').innerHTML='';return;}
+ $('#ordpanel').innerHTML=`<div style="border:1px solid #30363d;border-radius:8px;padding:8px;background:#161b22">
+   <b>Working orders</b> <span style="color:#9aa4b2;font-size:11px">(submitted, not yet filled — these are NOT positions)</span>
+   ${r.orders.map(o=>`<div style="font-size:12px;margin-top:4px">#${o.id} <span style="color:#f0b72f">${o.status}</span> · ${o.order_type} ${o.price_effect} ${o.price.toFixed(2)} · <span style="color:#9aa4b2">${o.legs.map(l=>l.action.split(' ')[0]+' '+l.symbol).join(', ')}</span></div>`).join('')}</div>`;
 }
 async function loadPositions(){
  $('#pospanel').innerHTML='<span style="color:#9aa4b2">loading positions…</span>'; $('#xfpanel').innerHTML='';
+ loadOrders();
  const r=await fetch('/api/positions').then(r=>r.json());
  if(r.error){$('#pospanel').innerHTML=`<span style="color:#9aa4b2">${r.error}</span>`;return;}
  if(!(r.dcs||[]).length){$('#pospanel').innerHTML='<span style="color:#9aa4b2">no open double calendars detected</span>';return;}

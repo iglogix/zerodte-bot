@@ -78,16 +78,20 @@ class TastyTradeSubmitter(OrderSubmitter):
             raise RuntimeError("no listed SPY expiries/strikes to snap the proxy to")
         return snapped
 
+    def _run(self, coro, timeout=30):
+        import asyncio
+        if self.loop is not None:
+            return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
+        return asyncio.run(coro)
+
     def open_double_calendars(self):
         """Fetch open positions and detect double calendars (sync; runs on the loop)."""
         from src_v2.flux.positions import detect_double_calendars
-        import asyncio
-        coro = self.client.get_positions()
-        if self.loop is not None:
-            positions = asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=30)
-        else:
-            positions = asyncio.run(coro)
-        return detect_double_calendars(positions)
+        return detect_double_calendars(self._run(self.client.get_positions()))
+
+    def working_orders(self):
+        """Resting/working (non-terminal) orders (sync; runs on the loop)."""
+        return self._run(self.client.get_orders(working_only=True))
 
     def preview_proxy(self, ticket: OrderTicket) -> "OrderTicket | None":
         """The snapped proxy ticket that WOULD be submitted (for UI display). None if no proxy."""

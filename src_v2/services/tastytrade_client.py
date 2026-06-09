@@ -1044,6 +1044,33 @@ class TastyTradeClient:
             logger.info("Iron condor order placed successfully: order_id=%s", order_id)
             return {"order_id": order_id}
 
+    async def get_orders(self, working_only: bool = True) -> List[Dict[str, Any]]:
+        """Recent orders for the account. working_only keeps non-terminal ones (resting/working).
+        Normalized to {id, status, order_type, price, price_effect, legs:[{symbol,action,qty}]}."""
+        terminal = {"Filled", "Cancelled", "Canceled", "Rejected", "Expired", "Removed"}
+        async with self._http.get(
+            f"{self.base_url}/accounts/{self.account_number}/orders",
+            headers=self._headers(),
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+        out: List[Dict[str, Any]] = []
+        for o in data.get("data", {}).get("items", []):
+            status = o.get("status", "")
+            if working_only and status in terminal:
+                continue
+            out.append({
+                "id": str(o.get("id", "")),
+                "status": status,
+                "order_type": o.get("order-type", ""),
+                "price": float(o.get("price", 0) or 0),
+                "price_effect": o.get("price-effect", ""),
+                "legs": [{"symbol": l.get("symbol", "").strip(), "action": l.get("action", ""),
+                          "qty": int(float(l.get("quantity", 0) or 0))}
+                         for l in o.get("legs", [])],
+            })
+        return out
+
     async def get_positions(self) -> List[Dict[str, Any]]:
         """Open positions for the trading account, normalized to
         {symbol, quantity, direction, instrument_type}. Quantity is absolute; direction is

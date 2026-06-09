@@ -27,6 +27,25 @@ def _last_eod_session() -> date:
     return s[-1] if s else today - timedelta(days=1)
 
 
+def _latest_marketdata_session(src) -> date:
+    """Most recent session that actually has settled EOD data. marketdata.app lags ~1
+    session, so 'yesterday' is often still empty — walk back until a near chain has rows.
+    (The probe chain is cached, so the subsequent scan reuses it.)"""
+    today = date.today()
+    sess = sessions_between(today - timedelta(days=16), today - timedelta(days=1))
+    for s in reversed(sess):                       # newest first
+        exp = nth_trading_day_after(s, 2)
+        if exp is None:
+            continue
+        try:
+            ch = src.chain(exp, on_date=s)
+        except Exception:
+            continue
+        if ch and ch.rows:
+            return s
+    return sess[-1] if sess else today - timedelta(days=1)
+
+
 def _rp_json(p):
     return {"as_of": p.as_of.isoformat(), "front_iv": p.front_iv,
             "back_iv": p.back_iv, "ratio": p.ratio,
@@ -64,27 +83,46 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
     def intraday_ep():
         if intraday is None:
             return jsonify({"error": "intraday source not configured", "points": []}), 200
-        # "Today" = today's live (delayed) intraday; ?session=YYYY-MM-DD replays a past day.
-        session = date.fromisoformat(request.args.get("session", date.today().isoformat()))
-        # accept explicit expiry dates, or resolve from front_dte/gap relative to the session
-        if request.args.get("front") and request.args.get("back"):
-            front = date.fromisoformat(request.args["front"])
-            back = date.fromisoformat(request.args["back"])
-        else:
-            fd, gap = int(request.args.get("front_dte", 9)), int(request.args.get("gap", 1))
-            front = nth_trading_day_after(session, fd)
-            back = nth_trading_day_after(session, fd + gap)
-            if front is None or back is None:
-                return jsonify({"error": "could not resolve expiries", "points": []}), 200
         rd = float(request.args.get("ref_delta", 0.35))
         atm = request.args.get("atm")
         atm = float(atm) if atm else getattr(intraday, "last_spot", 7400.0)
+        explicit = request.args.get("front") and request.args.get("back")
+        fd, gap = int(request.args.get("front_dte", 9)), int(request.args.get("gap", 1))
+
+        def _expiries(sess):
+            if explicit:
+                return date.fromisoformat(request.args["front"]), date.fromisoformat(request.args["back"])
+            return nth_trading_day_after(sess, fd), nth_trading_day_after(sess, fd + gap)
+
+        def _series(sess):
+            front, back = _expiries(sess)
+            if front is None or back is None:
+                return None
+            return intraday.intraday(sess, front, back, rd, atm)
+
+        # "Today" = today's live (delayed) intraday; ?session=YYYY-MM-DD replays a past day.
+        session_arg = request.args.get("session")
+        session = date.fromisoformat(session_arg) if session_arg else date.today()
         try:
-            pts = intraday.intraday(session, front, back, rd, atm)
+            pts = _series(session) or []
         except Exception as e:
             return jsonify({"error": str(e), "points": []}), 200
+        fell_back = False
+        # Market closed / no trades yet → fall back to the most recent session that has data
+        # (only when the caller didn't pin an explicit session).
+        if not pts and not session_arg:
+            for s in reversed(sessions_between(date.today() - timedelta(days=10),
+                                               date.today() - timedelta(days=1))):
+                try:
+                    cand = _series(s)
+                except Exception:
+                    continue
+                if cand:
+                    session, pts, fell_back = s, cand, True
+                    break
         return jsonify({"points": [_rp_json(p) for p in pts],
-                        "meta": {"session": session.isoformat(), "atm": atm}})
+                        "meta": {"session": session.isoformat(), "atm": atm,
+                                 "fell_back": fell_back}})
 
     def _make_dc_ticket():
         """Build the DC ticket from request args → (ticket, error_str)."""
@@ -196,6 +234,16 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
              "back_expiry": d.back_expiry.isoformat(), "k_put": d.k_put,
              "k_call": d.k_call, "qty": d.qty} for d in dcs]})
 
+    @app.get("/api/orders")
+    def orders_ep():
+        if sub is None or not hasattr(sub, "working_orders"):
+            return jsonify({"error": "open orders need --mode sandbox|live", "orders": []}), 200
+        try:
+            orders = sub.working_orders()
+        except Exception as e:
+            return jsonify({"error": str(e), "orders": []}), 200
+        return jsonify({"mode": submit_mode, "orders": orders})
+
     @app.get("/api/transform_order")
     def transform_order():
         ticket, err = _make_transform_ticket()
@@ -257,7 +305,9 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
 
     @app.get("/api/scan")
     def do_scan():
-        on = date.fromisoformat(request.args.get("on_date", _last_eod_session().isoformat()))
+        # Default to the latest session that actually has settled EOD data (marketdata lags).
+        on = (date.fromisoformat(request.args["on_date"]) if request.args.get("on_date")
+              else _latest_marketdata_session(src))
         rd = float(request.args.get("ref_delta", 0.35))
         gaps = [int(x) for x in request.args.get("gaps", "1").split(",")]
         try:
@@ -265,8 +315,8 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
                         int(request.args.get("max_dte", 30)), gaps, rd,
                         by=request.args.get("by", "drop"))
         except Exception as e:
-            return jsonify({"error": str(e), "rows": []}), 200
-        return jsonify({"rows": [_sr_json(s) for s in rows]})
+            return jsonify({"error": str(e), "rows": [], "session": on.isoformat()}), 200
+        return jsonify({"rows": [_sr_json(s) for s in rows], "session": on.isoformat()})
 
     @app.get("/api/expirations")
     def expirations():
