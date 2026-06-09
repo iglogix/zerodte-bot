@@ -88,9 +88,8 @@ async function buildDC(){
  // Submit controls only when the server is running with --mode sandbox|live.
  const submitUI = manual
    ? `<div style="color:#9aa4b2;font-size:11px;margin-top:6px">manual ticket — enter these 4 legs as ONE combo order at the net ${t.price_effect.toLowerCase()} limit shown. (start <code>flux serve --mode sandbox|live</code> to submit from here)</div>`
-   : `<div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-        <label>execution</label>
-        <select id="exec"><option value="combo">combo (1 atomic order)</option><option value="legin">leg-in (buy longs, then sell shorts)</option></select>
+   : `<div style="margin-top:8px;display:flex;gap:10px;align-items:center">
+        <label title="checked = ONE atomic combo order; unchecked = leg-in (buy longs, then sell shorts)"><input type="checkbox" id="combo" checked> combo</label>
         <button id="submitdc" style="background:#da3633;border-color:#da3633">Submit to ${r.mode}</button>
         <span id="submitmsg" style="color:#9aa4b2;font-size:12px"></span>
       </div>`;
@@ -102,7 +101,7 @@ async function buildDC(){
 }
 
 async function submitDC(mode,t){
- const exec=$('#exec').value;
+ const exec=$('#combo').checked?'combo':'legin';
  const how=exec==='combo'?'ONE atomic combo order':'4 leg-in orders (buy longs first, then sell shorts)';
  if(!confirm(`Submit ${t.note} to ${mode.toUpperCase()} as ${how}?\nNet ${t.price_effect} limit ${t.price.toFixed(2)} (est $${t.est_cost.toFixed(0)}).`)) return;
  const btn=$('#submitdc'); btn.disabled=true; $('#submitmsg').textContent='submitting…';
