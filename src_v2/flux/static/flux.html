@@ -59,6 +59,8 @@ async function refresh(){
  $('#banner').textContent = view==='intraday' ? 'loading intraday… (live tail first; the 1-min morning streams in over ~1 min)' : 'loading…';
  const r=await fetch(url).then(r=>r.json());
  const meta=r.meta||{};
+ // Keep the front-DTE/gap dropdowns mirroring a pinned (scanned) pair so they match the chart.
+ if(pinnedPair && meta.front_dte!=null){ setSelect('#fd', meta.front_dte); if(meta.gap!=null) setSelect('#gap', meta.gap); }
  $('#banner').textContent = r.error ? ('error: '+r.error)
    : `${(r.points||[]).length} pts · ${view}` + (meta.session?` · session ${meta.session}`:'') + (meta.fell_back?' (last session — market closed/no trades today)':'') + (meta.front_expiry?` · F/B ${meta.front_expiry}→${meta.back_expiry}`:'') + (pinnedPair&&view==='intraday'?' · 📌 from scan (change DTE/gap to reset)':'');
  const x=r.points.map(p=>p.as_of);
@@ -115,8 +117,17 @@ async function preloadElevated(rows){
 }
 
 function dcQuery(){
- const fd=$('#fd').value,gap=$('#gap').value,rd=$('#rd').value,qty=Math.max(1,+$('#qty').value||1);
- return `front_dte=${fd}&gap=${gap}&target_delta=${rd}&qty=${qty}`;
+ const rd=$('#rd').value,qty=Math.max(1,+$('#qty').value||1);
+ // Build the ticket for whatever the CHART shows: a pinned (scanned) pair → explicit expiries;
+ // otherwise the front-DTE/gap dropdowns. Prevents chart/order pair mismatch.
+ const pair = pinnedPair ? `front=${pinnedPair.front}&back=${pinnedPair.back}`
+                         : `front_dte=${$('#fd').value}&gap=${$('#gap').value}`;
+ return `${pair}&target_delta=${rd}&qty=${qty}`;
+}
+function setSelect(sel, val){          // set a dropdown to `val`, adding it as an option if missing
+ const el=$(sel); val=String(val);
+ if(![...el.options].some(o=>o.value===val)){const o=document.createElement('option');o.value=val;o.text=val;el.add(o);}
+ el.value=val;                          // programmatic set does NOT fire onchange → pin preserved
 }
 
 // Shared ticket+submit renderer for both DC entry and transform. queryFn() rebuilds the

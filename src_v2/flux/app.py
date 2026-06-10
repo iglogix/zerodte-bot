@@ -121,11 +121,16 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
                     session, pts, fell_back = s, cand, True
                     break
         fe, be = _expiries(session)        # the expiry pair the chart actually compares
+        # Resolve the pair's front-DTE / gap (trading days) so the UI dropdowns can mirror the chart.
+        fdte = trading_days_after(session, fe) if fe else None
+        bdte = trading_days_after(session, be) if be else None
+        gap = (bdte - fdte) if (fdte is not None and bdte is not None) else None
         return jsonify({"points": [_rp_json(p) for p in pts],
                         "meta": {"session": session.isoformat(), "atm": atm,
                                  "fell_back": fell_back,
                                  "front_expiry": fe.isoformat() if fe else None,
-                                 "back_expiry": be.isoformat() if be else None}})
+                                 "back_expiry": be.isoformat() if be else None,
+                                 "front_dte": fdte, "gap": gap}})
 
     def _make_dc_ticket():
         """Build the DC ticket from request args → (ticket, error_str)."""
