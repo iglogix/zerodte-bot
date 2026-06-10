@@ -56,7 +56,7 @@ async function refresh(){
  const url = view==='intraday'
    ? `/api/intraday?${pair}&ref_delta=${rd}`                         // live 1-min (ThetaData)
    : `/api/ratio?front_dte=${fd}&gap=${gap}&ref_delta=${rd}&view=${view}`;  // EOD history
- $('#banner').textContent = view==='intraday' ? 'loading intraday… (first load ~30-50s cold; instant once cached)' : 'loading…';
+ $('#banner').textContent = view==='intraday' ? 'loading intraday… (live tail first; the 1-min morning streams in over ~1 min)' : 'loading…';
  const r=await fetch(url).then(r=>r.json());
  const meta=r.meta||{};
  $('#banner').textContent = r.error ? ('error: '+r.error)
