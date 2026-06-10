@@ -288,6 +288,30 @@ class TastyTradeClient:
             "Content-Type": "application/json",
         }
 
+    async def _authed_json(self, method: str, url: str, *, market: bool = False,
+                           **kwargs) -> Dict[str, Any]:
+        """Request returning parsed JSON, with ONE refresh-and-retry on 401. Access tokens
+        expire after ~15 min and the SDK does not refresh in the background, so a long-lived
+        client (e.g. the Flux server) must re-auth lazily on the first 401 and retry."""
+        for attempt in (0, 1):
+            if market:
+                http, _ = self._market_http_and_url()   # production session in sandbox
+                headers = self._market_headers()
+            else:
+                http, headers = self._http, self._headers()
+            async with http.request(method, url, headers=headers, **kwargs) as resp:
+                if resp.status == 401 and attempt == 0:
+                    logger.info("401 on %s — refreshing session and retrying", url)
+                    try:
+                        await self.refresh_session()
+                    except Exception as exc:
+                        logger.error("session refresh failed: %s", exc)
+                    continue
+                if resp.status >= 400:
+                    logger.error("%s %s -> %s: %s", method, url, resp.status, await resp.text())
+                resp.raise_for_status()
+                return await resp.json()
+
     # -------------------------------------------------------------------------
     # Market data
     # -------------------------------------------------------------------------
@@ -562,14 +586,9 @@ class TastyTradeClient:
         via DXLink. In sandbox mode, reads from production API (cert has no live feed).
         """
         target = (expiration or date.today()).strftime("%Y-%m-%d")
-        http, base = self._market_http_and_url()
-        async with http.get(
-            f"{base}/option-chains/{symbol}/nested",
-            headers=self._market_headers(),
-            params={"expiration-date": target},
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        _, base = self._market_http_and_url()
+        data = await self._authed_json("GET", f"{base}/option-chains/{symbol}/nested",
+                                       market=True, params={"expiration-date": target})
 
         options = []
         for chain in data.get("data", {}).get("items", []):
@@ -1048,12 +1067,8 @@ class TastyTradeClient:
         """Recent orders for the account. working_only keeps non-terminal ones (resting/working).
         Normalized to {id, status, order_type, price, price_effect, legs:[{symbol,action,qty}]}."""
         terminal = {"Filled", "Cancelled", "Canceled", "Rejected", "Expired", "Removed"}
-        async with self._http.get(
-            f"{self.base_url}/accounts/{self.account_number}/orders",
-            headers=self._headers(),
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        data = await self._authed_json(
+            "GET", f"{self.base_url}/accounts/{self.account_number}/orders")
         out: List[Dict[str, Any]] = []
         for o in data.get("data", {}).get("items", []):
             status = o.get("status", "")
@@ -1075,12 +1090,8 @@ class TastyTradeClient:
         """Open positions for the trading account, normalized to
         {symbol, quantity, direction, instrument_type}. Quantity is absolute; direction is
         Long/Short/Zero."""
-        async with self._http.get(
-            f"{self.base_url}/accounts/{self.account_number}/positions",
-            headers=self._headers(),
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        data = await self._authed_json(
+            "GET", f"{self.base_url}/accounts/{self.account_number}/positions")
         out: List[Dict[str, Any]] = []
         for item in data.get("data", {}).get("items", []):
             out.append({
@@ -1096,11 +1107,7 @@ class TastyTradeClient:
         """All listed expirations/strikes for `symbol` from the TRADING env (so the returned
         broker symbols are tradeable there). {exp_iso: {strike: {"call": sym, "put": sym}}}.
         Instrument metadata is available in cert even though live quotes are not."""
-        async with self._http.get(
-            f"{self.base_url}/option-chains/{symbol}/nested", headers=self._headers(),
-        ) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
+        data = await self._authed_json("GET", f"{self.base_url}/option-chains/{symbol}/nested")
         out: Dict[str, Dict[float, Dict[str, str]]] = {}
         for chain in data.get("data", {}).get("items", []):
             for expn in chain.get("expirations", []):
@@ -1126,15 +1133,9 @@ class TastyTradeClient:
         payload = {"time-in-force": tif, "order-type": "Limit",
                    "price": str(round(abs(float(price)), 2)), "price-effect": price_effect,
                    "legs": legs}
-        async with self._http.post(
-            f"{self.base_url}/accounts/{self.account_number}/orders",
-            headers=self._headers(), json=payload,
-        ) as resp:
-            if resp.status >= 400:
-                logger.error("Complex order rejected (%s): %s", resp.status, await resp.text())
-            resp.raise_for_status()
-            data = await resp.json()
-            return {"order_id": str(data["data"]["order"]["id"])}
+        data = await self._authed_json(
+            "POST", f"{self.base_url}/accounts/{self.account_number}/orders", json=payload)
+        return {"order_id": str(data["data"]["order"]["id"])}
 
     async def place_option_limit(self, osi: str, action: str, quantity: int, limit: float,
                                  tif: str = "Day") -> Dict[str, Any]:
@@ -1143,15 +1144,9 @@ class TastyTradeClient:
         payload = {"time-in-force": tif, "order-type": "Limit",
                    "price": str(round(abs(float(limit)), 2)), "price-effect": effect,
                    "legs": [self._build_leg(osi, action, int(quantity))]}
-        async with self._http.post(
-            f"{self.base_url}/accounts/{self.account_number}/orders",
-            headers=self._headers(), json=payload,
-        ) as resp:
-            if resp.status >= 400:
-                logger.error("Single-leg order rejected (%s): %s", resp.status, await resp.text())
-            resp.raise_for_status()
-            data = await resp.json()
-            return {"order_id": str(data["data"]["order"]["id"])}
+        data = await self._authed_json(
+            "POST", f"{self.base_url}/accounts/{self.account_number}/orders", json=payload)
+        return {"order_id": str(data["data"]["order"]["id"])}
 
     async def _place_credit_spread(self, order: Dict[str, Any]) -> Dict[str, Any]:
         qty = order.get("quantity", 1)
