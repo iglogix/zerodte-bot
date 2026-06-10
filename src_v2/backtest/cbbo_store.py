@@ -148,6 +148,10 @@ class CbboStore:
         p_mid = (put_q[0] + put_q[1]) / 2
         return round(atm_k + c_mid - p_mid, 2)
 
+    def available_dates(self) -> set[date]:
+        return {date.fromisoformat(p.stem)
+                for p in Path(self.cache_dir or self.opra_dir).glob("*.pkl")}
+
     def settlement_forward(self) -> Optional[float]:
         """Cash-settlement forward at the latest loaded minute, using the strike
         that minimises |call_mid - put_mid| (true ATM) for a robust parity value.
@@ -167,3 +171,36 @@ class CbboStore:
             if best is None or diff < best[0]:
                 best = (diff, k + c_mid - p_mid)
         return round(best[1], 2) if best else None
+
+
+class MergedCbboStore(CbboStore):
+    """Lazy per-day store that merges a base cache dir with an overlay dir
+    (base wins on key conflicts; the overlay contributes extra strikes/minutes).
+    Loads one day at a time to keep memory bounded (caches are ~2.5 GB each)."""
+
+    def __init__(self, base_dir: str, overlay_dir: str = ""):
+        super().__init__(base_dir, cache_dir=base_dir)
+        self._overlay_dir = Path(overlay_dir) if overlay_dir else None
+
+    def available_dates(self) -> set[date]:
+        dates = super().available_dates()
+        if self._overlay_dir:
+            dates |= {date.fromisoformat(p.stem)
+                      for p in self._overlay_dir.glob("*.pkl")}
+        return dates
+
+    def load_day(self, trading_date: date) -> int:
+        n = super().load_day(trading_date)
+        if self._overlay_dir:
+            pkl = self._overlay_dir / f"{trading_date.isoformat()}.pkl"
+            if pkl.exists():
+                with open(pkl, "rb") as f:
+                    overlay = pickle.load(f)
+                if n == 0:
+                    self._quotes = overlay
+                else:
+                    for k, v in overlay.items():
+                        self._quotes.setdefault(k, v)
+                self._strikes = {k[1] for k in self._quotes}
+                n = len(self._quotes)
+        return n

@@ -253,6 +253,9 @@ class BotOrchestrator:
         elif strategy_name == "meic":
             from src_v2.strategies.meic import MeicStrategy
             strategy = MeicStrategy()
+        elif strategy_name == "reverse_ic":
+            from src_v2.strategies.reverse_ic import ReverseIcStrategy
+            strategy = ReverseIcStrategy()
         else:
             from src_v2.strategies.iron_condor import IronCondorStrategy
             strategy = IronCondorStrategy()

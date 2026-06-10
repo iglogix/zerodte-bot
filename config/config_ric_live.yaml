@@ -1,0 +1,72 @@
+bot:
+  strategy: reverse_ic
+  mode: dry_run            # graduate: dry_run -> manual -> live (TT cert can't trade SPXW 0DTE)
+  symbol: SPX
+
+# 0-DTE Reverse Iron Condor (docs/0DTE-Reverse-Iron-Condor-Strategy.md) — live.
+# Long asymmetric condor near the open on gap-up days; resting profit target,
+# NO stop, rides to cash settlement. Production candidate from the backtest:
+# scale-out (½ @ +20%, ¼ @ +30%, ¼ runner) + VIX floor 15.
+entry:
+  schedule:
+    - "09:33"
+  skip_non_trading_days: true
+
+strategy:
+  gap_min_pct: 0.25            # SPX gap up vs prior daily close
+  gap_min_pct_by_weekday: {}   # e.g. { mon: 0.10 }
+  vix_floor: 15                # skip the low-vol grind (kills the edge)
+
+  long_call_delta: 0.50
+  long_put_delta: 0.35
+  call_wing_offset_pts: 20
+  put_wing_offset_pts: 35
+
+  profit_target_pct: 0.30      # single-target mode (ignored when scaling out)
+  setup_min_upside_pct: 0.25   # upside ramp must be >= 25% of the debit
+  skip_fomc_days: true
+
+  qty: 4                       # whole-contract scale-out fractions
+  scale_out:
+    enabled: true
+    tiers:
+      - { profit: 0.20, close_frac: 0.50 }
+      - { profit: 0.30, close_frac: 0.25 }
+
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
+
+risk:
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 6.0   # max loss = full debit (~$1.4k/contract)
+  max_buying_power_percent: 60.0
+
+monitor:
+  poll_interval_seconds: 15     # no stop to race — TP tiers only
+  eod_close_time: "15:59"       # do NOT force-close early; the runner settles
+
+options:
+  contract_multiplier: 100
+  quantity: 4
+  slippage_per_spread: 0.10
+  commission_per_contract_per_leg: 1.0
+  strike_step_pts: 5
+  option_root: "SPXW"
+  chain_half_span_pts: 400
+
+llm:
+  advisor_model: "anthropic/claude-haiku-4-5"
+  debrief_model: "anthropic/claude-sonnet-4-5"
+
+cache:
+  option_chain_ttl: 60
+  quote_ttl: 10
+  account_info_ttl: 60
+
+database:
+  trading_db: "data/ric_bot.db"
+  cache_db: "data/market_cache.db"
+
+logging:
+  log_dir: "logs"
+  level: "INFO"

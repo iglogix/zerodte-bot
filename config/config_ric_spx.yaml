@@ -1,0 +1,56 @@
+bot:
+  strategy: reverse_ic
+  mode: dry_run
+  symbol: SPX
+
+# 0-DTE "Reverse Iron Condor" — long asymmetric condor near the open on
+# gap-up days. Source spec: docs/0DTE-Reverse-Iron-Condor-Strategy.md (§15).
+strategy:
+  entry_time: "09:33"          # within ~15 min of the cash open; sweepable
+  gap_check_minute: "09:31"    # first cached minute; parity spot vs prior settle
+
+  gap_min_pct: 0.25            # instructor's flat default, any weekday
+  gap_min_pct_by_weekday: {}   # e.g. { mon: 0.10 } — §4 per-weekday nuance
+
+  long_call_delta: 0.50        # buy the ~ATM call
+  long_put_delta: 0.35         # buy the OTM put
+  call_wing_offset_pts: 20     # sell call +20 pts above the long call
+  put_wing_offset_pts: 35      # sell put -35 pts below the long put
+
+  profit_target_pct: 0.25      # resting limit at debit x 1.25 (sweep 0.30)
+  tp_fill: limit               # limit (fill at the resting level) | mid
+  setup_min_upside_pct: 0.25   # Gate 2: (call_width - debit) >= 25% of debit
+
+  final_exit: "15:55"          # only used in close mode
+  final_exit_mode: expire      # expire (cash settle, default) | close
+  skip_fomc_days: true
+  vix_floor: null              # e.g. 15 — skip low-vol grind (§7 regime caveat)
+  pricing: mid                 # mid (+slippage) | natural (pay ask / hit bid)
+
+  qty: 1
+  scale_out:                   # variant: ½ @ +20%, ¼ @ +30%, ¼ runner
+    enabled: false
+    tiers:
+      - { profit: 0.20, close_frac: 0.50 }
+      - { profit: 0.30, close_frac: 0.25 }
+
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
+
+options:
+  contract_multiplier: 100
+  slippage_per_spread: 0.10
+  commission_open_per_contract_per_leg: 1.0
+  commission_close_per_contract_per_leg: 1.0
+
+backtest:
+  data_file: "data/spy_1m.csv"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache_fly_10min"     # 1-min, 09:31-15:59, open±250pt
+  cbbo_overlay_dir: ""
+  start_date: "2022-05-11"
+  end_date: "2026-02-27"
+
+logging:
+  log_dir: "logs"
+  level: "INFO"
