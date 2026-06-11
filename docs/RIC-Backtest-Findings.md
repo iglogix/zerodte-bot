@@ -106,8 +106,28 @@ tradeable band; no robust case for regime-conditional structure:
   parameter-robust.
 
 Every cell is in-sample and one-at-a-time; high-VIX cells are thin (n=19–76).
-Run a ratio-based WF-CV (5:1, 4 folds) before promoting any of these over the
-spec parameters.
+
+## Walk-forward CV (2026-06-11) — `scripts/run_ric_wf_cv.py`
+
+Ratio-based 5:1, 4 folds (step ≈ 105 sessions): grid = 3 tier schemes × 6 VIX
+floors, selected per fold on train by annualised daily Sharpe, scored on the
+held-out next window. OOS span covers 2024-06 → 2026-02.
+
+- **The VIX≥15 floor validates: selected in 4/4 folds** (never 14/16/17/18 or
+  none). It is the robust component of the strategy.
+- **The tier scheme does not validate**: base picked 2/4, the other schemes
+  1/4 each — noise. The ½-runner "upgrade" was picked once (fold 4) and had
+  the worst OOS window. **Do not promote it; keep the base tiers.**
+- **OOS expectancy is much weaker than the full-window numbers**: selected
+  combos made **+$3.7k over 66 OOS trades** (qty 4); the fixed production
+  candidate made +$5.0k over the same windows. Two of four OOS folds were
+  negative (Jun–Nov 2024: −$5.1k; Sep 2025–Feb 2026: −$11.3k).
+- Interpretation: the headline +$87k is concentrated in 2022–2023, which
+  ratio-based WF-CV only ever uses for training. In the most recent ~20
+  months the edge is breakeven-to-slightly-positive (~$75/trade at qty 4
+  ≈ $19/contract). The fold-3 window (Apr–Sep 2025, +$13.1k, PF 1.75) shows
+  it still fires when vol returns — consistent with the regime story — but
+  recent OOS evidence does NOT support sizing up.
 
 ## Caveats
 
