@@ -105,6 +105,15 @@ instructor's claimed feel — while still losing money and worsening the
 tail (worst −$2,182); it also flips the profitable single-cycle variant
 negative. The refutation is robust to this construction choice.
 
+A second 22-variant sweep around the 3:1-enforced base (fills, hog
+delta/DTE, long delta 25–35Δ, R:R 2–4, TP/exit ablations, ladder,
+single-cycle combinations) found no robust region: signs flip between
+adjacent settings (2:1 +$607 vs 4:1 −$2,634; 25Δ +$241 vs 35Δ −$2,597;
+5Δ hog −$2,002 vs 10Δ +$679) and profits only survive at pure mid fills —
+the signature of noise around zero. The 20Δ-short single-cycle family and
+its naked-put form remain the only neighborhoods that are profitable at
+every tested perturbation.
+
 Two inversions of the course's premise:
 
 1. **The hedge is negative-value.** Removing it (same entries, naked put
