@@ -71,11 +71,50 @@ positive every year. Max drawdown $22.2k (vs ~$5.5k avg max loss per trade).
 - Sharpe in the reports annualizes per-trade at 252; with only ~40-60
   trades/yr, treat PF / yearly totals as primary.
 
+## Parameter sweeps by VIX regime (2026-06-11)
+
+All sweeps at qty 4 under natural pricing, computed from the trade logs (VIX
+floor) or via `scripts/sweep_ric_params.py` (structure; single data pass over
+16 engine variants, table in `results/ric_spx/param_sweep.csv`).
+
+**VIX floor.** Swept 13/14/15/16/17/18/20/22 on the scale-out variant: 15 is
+the optimum by total P&L (+$87.4k) and the only floor with zero negative
+years; the profile is smooth (14: +$62.9k, 16: +$74.3k PF 2.05), not a
+knife-edge — i.e. the peak sits exactly on the instructor's pre-registered
+"dies sub-15" boundary. Per-bucket avg/trade: <13 +$90 · 13–15 **−$779** ·
+15–18 +$615 · 18–22 +$530 · >22 +$767. The 13–15 bucket is where the runner
+mechanic specifically backfires (pin days expire the runner worthless).
+VIX-scaled sizing (0× <15, 1× 15–18, 2× ≥18) yields +$127k vs +$87k flat —
+directionally supported by the monotone buckets but the 2× leg doubles a
+66-trade sample; treat as a sizing suggestion only.
+
+**Structure (long deltas, wing offsets, tiers), one-at-a-time around spec.**
+The course spec (50Δ/35Δ, 20/35pt wings) is at or near the best in every
+tradeable band; no robust case for regime-conditional structure:
+
+- lc_delta 0.55 looks great in VIX 15–18 (+$820/trade, PF 2.67) but its richer
+  debit fails the setup filter in high vol (n=3 above 22, losing) — trap.
+- lp_delta 0.40 / put_wing 45 similarly shine in 15–18 and stop trading in
+  high vol; put_wing 25 only works in high vol. Mechanism is mostly the setup
+  filter *selecting different days*, not better structure.
+- call_wing 15 is outright negative; 25/30 dilute every band.
+- Tiers: a **bigger runner** (close only ½ @ +20%, let ½ ride) beats the base
+  on VIX≥15 days: +$99k vs +$87k, best 15–18 band (+$726/trade) — at the cost
+  of a 62% vs 75% win rate and lumpier equity. The defensible aggressive
+  variant. Tighter tiers (15/25) hurt; 25/40 wins only in VIX≥22 (n=19).
+- All 16 variants lose below VIX 15 (PF 0.48–0.78) — the floor is
+  parameter-robust.
+
+Every cell is in-sample and one-at-a-time; high-VIX cells are thin (n=19–76).
+Run a ratio-based WF-CV (5:1, 4 folds) before promoting any of these over the
+spec parameters.
+
 ## Caveats
 
-- The VIX≥15 floor was confirmed against only two candidate values (15, 18) —
-  conceptually pre-registered by the instructor's own "dies sub-15" caveat,
-  but the exact threshold is light in-sample.
+- The VIX≥15 floor was spot-checked at {15, 18} on 2026-06-10 and fully swept
+  on 2026-06-11 (see above) — the optimum lands on the instructor's own
+  pre-registered boundary with smooth shoulders, which mitigates (but does not
+  eliminate) the in-sample concern.
 - The runner's profits concentrate in big trend days; the 2025 max drawdown
   ($22k at qty 4) requires accepting ~4 consecutive full-debit losses.
 - FOMC blackout uses the static `_FOMC_DATES` table; CPI/PPI days are NOT
