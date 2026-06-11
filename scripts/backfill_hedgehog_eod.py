@@ -95,6 +95,41 @@ def fetch_expiry(root: str, exp: int, today: dt.date) -> dict | None:
     return {"expiry": exp, "days": days}
 
 
+def fetch_expiry_daily(root: str, exp: int, today: dt.date) -> dict | None:
+    """Day-by-day fallback for expirations whose bulk window request 475s
+    (Theta Terminal ArrayIndexOutOfBoundsException on some 2022 weeklies)."""
+    ed = _to_date(exp)
+    start = max(_to_date(HISTORY_START), ed - dt.timedelta(days=LOOKBACK_DAYS))
+    end = min(ed, today)
+    days: dict[int, dict] = {}
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            di = _to_int(d)
+            url = (
+                f"{BASE}/bulk_hist/option/eod?root={root}&exp={exp}"
+                f"&start_date={di}&end_date={di}"
+            )
+            data = _get(url, timeout=60)
+            if data and "response" in data:
+                fmt = data["header"]["format"]
+                i_bid, i_ask = fmt.index("bid"), fmt.index("ask")
+                i_vol, i_date = fmt.index("volume"), fmt.index("date")
+                q: dict = {}
+                for row in data["response"]:
+                    c = row["contract"]
+                    for t in row["ticks"]:
+                        q[(c["strike"] / 1000.0, c["right"])] = (
+                            t[i_bid], t[i_ask], t[i_vol]
+                        )
+                if q:
+                    days[di] = q
+        d += dt.timedelta(days=1)
+    if not days:
+        return None
+    return {"expiry": exp, "days": days}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default="SPY")
@@ -120,6 +155,8 @@ def main() -> int:
 
     def work(exp: int) -> tuple[int, bool]:
         payload = fetch_expiry(args.root, exp, today)
+        if payload is None or not payload["days"]:
+            payload = fetch_expiry_daily(args.root, exp, today)
         if payload is None or not payload["days"]:
             return exp, False
         with open(out_dir / f"{exp}.pkl", "wb") as f:
