@@ -170,6 +170,9 @@ class HhParams:
     hedge_dte_max: int = 35
     hedge_long_delta: float = 0.30  # absolute put delta
     hedge_short_delta: float = 0.20
+    # if set, pick the short strike to target this reward:risk on the
+    # vertical (course guide ~3.0) instead of hedge_short_delta
+    hedge_rr_target: Optional[float] = None
     # hog: far short put
     hog_dte_target: int = 100
     hog_dte_min: int = 75
@@ -325,20 +328,33 @@ class HedgeHogEngine:
             self.skips.append(SkipRecord(date, "no_greeks"))
             return None
 
-        # hedge: long ~30d / short ~20d put vertical
+        # hedge: long ~30d put; short leg by ~20d delta, or by reward:risk
+        # target when hedge_rr_target is set (course guide: ~3:1)
         k_long = min(hd, key=lambda k: abs(hd[k][0] - p.hedge_long_delta))
-        k_short = min(hd, key=lambda k: abs(hd[k][0] - p.hedge_short_delta))
-        if k_long <= k_short or hd[k_short][2][0] < p.min_bid:
+
+        def vertical(k_short: float) -> tuple[float, float, float]:
+            d = _fill(hd[k_long][2], "buy", p.fill_k) - _fill(
+                hd[k_short][2], "sell", p.fill_k
+            )
+            w = k_long - k_short
+            return d, w, ((w - d) / d if 0 < d < w else float("nan"))
+
+        shorts = [k for k in hd if k < k_long and hd[k][2][0] >= p.min_bid]
+        if not shorts:
             self.skips.append(SkipRecord(date, "bad_vertical"))
             return None
-        debit = _fill(hd[k_long][2], "buy", p.fill_k) - _fill(
-            hd[k_short][2], "sell", p.fill_k
-        )
-        width = k_long - k_short
-        if debit <= 0 or debit >= width:
+        if p.hedge_rr_target is not None:
+            k_short = min(
+                shorts,
+                key=lambda k: abs(vertical(k)[2] - p.hedge_rr_target)
+                if vertical(k)[2] == vertical(k)[2] else 1e9,
+            )
+        else:
+            k_short = min(shorts, key=lambda k: abs(hd[k][0] - p.hedge_short_delta))
+        debit, width, rr = vertical(k_short)
+        if not (0 < debit < width):
             self.skips.append(SkipRecord(date, "bad_vertical"))
             return None
-        rr = (width - debit) / debit
 
         # hog: ~7-delta short put, stepped toward ATM until credit > debit
         cands = sorted(

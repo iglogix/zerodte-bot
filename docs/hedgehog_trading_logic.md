@@ -56,11 +56,18 @@ All four steps must succeed or the day is skipped with a recorded reason.
    - Hog: the listed expiry with DTE in `[75, 115]` closest to 100.
 2. **Build the hedge (long put vertical), long ~30Δ / short ~20Δ.**
    - Long strike = put with |delta| closest to 0.30.
-   - Short strike = put with |delta| closest to 0.20 (must have bid ≥ 0.05).
+   - Short strike = put with |delta| closest to 0.20 (must have bid ≥ 0.05),
+     **or**, when `hedge_rr_target` is set, the strike whose vertical
+     reward:risk `(width − debit)/debit` is closest to the target (the
+     course's ~3:1 guide).
    - `debit = fill(long, buy) − fill(short, sell)` (fill model §5).
-   - Reject if `debit ≤ 0` or `debit ≥ width`; record the reward:risk
-     `(width − debit)/debit` (diagnostic only — not filtered, per spec it
-     is a "construction sanity" guide, ~3:1 expected).
+   - Reject if `debit ≤ 0` or `debit ≥ width`; reward:risk recorded on
+     every trade (`rr_ratio`).
+   - Note: on SPY 2020–2026 the natural 30Δ/20Δ construction prices at a
+     median 4.4:1 (only 8% of entries inside the course's 2.5–3.5 band).
+     Enforcing 3:1 (`hedge_rr_target=3.0`) lifts the win rate to ~70% but
+     the taught structure still loses (−$688, worse tail −$2,182) and it
+     *hurts* the single-cycle variant (+$3,542 → −$960) — see findings.
 3. **Build the hog (far short put), ~7Δ stepped until net credit.**
    - Candidates: puts with |delta| in `[0.04, 0.12]` and bid ≥ 0.05,
      sorted by delta ascending.

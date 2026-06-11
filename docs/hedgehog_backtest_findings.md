@@ -93,6 +93,17 @@ the 30-DTE vertical has lost more than the hog gained. Full-hold exits
 | ladder 4×3d | 427 | 23% | −$6,896 | 0.76 | −0.38 |
 | **hog_only (no hedge, same entries)** | 118 | **79%** | **+$1,101** | 1.13 | +0.13 |
 | **single_cycle 45–60 DTE ("1-1-1")** | 123 | **87%** | **+$3,542** | 1.96 | +0.61 |
+| as taught, 3:1 R:R enforced | 133 | 70% | −$688 | 0.89 | −0.12 |
+| single_cycle, 3:1 R:R enforced | 161 | 87% | −$960 | 0.87 | −0.15 |
+
+**On the course's "~3:1 reward:risk" guide**: the natural 30Δ/20Δ
+construction on SPY prices at a median **4.4:1** (only 8% of entries land
+in the 2.5–3.5 band — the band reflects the course's 2023 example chains,
+not SPY 2020-2026). Enforcing 3:1 via short-strike selection
+(`hedge_rr_target=3.0`) raises the win rate to ~70% — much closer to the
+instructor's claimed feel — while still losing money and worsening the
+tail (worst −$2,182); it also flips the profitable single-cycle variant
+negative. The refutation is robust to this construction choice.
 
 Two inversions of the course's premise:
 
