@@ -112,13 +112,29 @@ class ReverseIcStrategy(LiveStrategy):
         if api is None:
             return None
         try:
-            candles = await api.get_candles("SPX", interval="1d", count=3)
+            # from_time must be explicit: get_candles' default lookback only
+            # understands minute intervals and would filter daily bars out.
+            from datetime import timedelta
+            candles = await api.get_candles(
+                "SPX", interval="1d", count=5,
+                from_time=datetime.now() - timedelta(days=7))
         except Exception:
             logger.exception("RIC: daily candle fetch failed")
             return None
         today = self._now_fn().date()
-        closes = [c for c in (candles or [])
-                  if str(c.get("timestamp", ""))[:10] < today.isoformat()]
+
+        def session_day(c) -> str:
+            # dxfeed daily candles start at 00:00 UTC; the client's local-time
+            # "timestamp" label lands on the prior ET evening. The raw epoch
+            # interpreted as a UTC date IS the session date — use it so
+            # today's live candle is never mistaken for the prior close.
+            ts = c.get("_ts")
+            if ts:
+                from datetime import timezone
+                return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            return str(c.get("timestamp", ""))[:10]
+
+        closes = [c for c in (candles or []) if session_day(c) < today.isoformat()]
         if not closes:
             return None
         return float(closes[-1].get("close") or 0) or None
@@ -132,10 +148,15 @@ class ReverseIcStrategy(LiveStrategy):
         except Exception:
             logger.exception("RIC: VIX quote fetch failed")
             return None
+        if not isinstance(q, dict):
+            return None
         for key in ("last", "price", "mark", "close"):
-            v = q.get(key) if isinstance(q, dict) else None
+            v = q.get(key)
             if v:
                 return float(v)
+        bid, ask = q.get("bid") or 0, q.get("ask") or 0
+        if bid > 0 and ask > 0:
+            return (float(bid) + float(ask)) / 2
         return None
 
     def _is_dislocated(self, opt: Optional[Dict[str, Any]]) -> bool:
