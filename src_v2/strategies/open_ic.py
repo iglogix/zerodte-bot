@@ -99,6 +99,11 @@ class OpenIcStrategy(LiveStrategy):
 
         self._now_dt: Optional[datetime] = None  # injected by engine
         self._last_em_pts: Optional[float] = None
+        # Gap-adjusted EM box anchors (Pulver): top = open + k*EM, bottom =
+        # prev_close - k*EM. Injected by the backtest orchestrator (cbbo-derived,
+        # same scale as the chain). None -> gap_box falls back to symmetric.
+        self._gap_open: Optional[float] = None
+        self._gap_prev_close: Optional[float] = None
 
     def create_engine(self, deps: EngineDeps) -> BaseEngine:
         from src_v2.agent.window_entry_engine import WindowEntryEngine
@@ -127,14 +132,24 @@ class OpenIcStrategy(LiveStrategy):
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
         self._last_em_pts = em
 
-        if self._strike_mode == "em_mult":
+        if self._strike_mode in ("em_mult", "gap_box"):
             # Model-free strike selection at multiples of EM.
             put_mult = (self._em_mult_put if self._em_mult_put is not None
                         else self._em_mult)
             call_mult = (self._em_mult_call if self._em_mult_call is not None
                          else self._em_mult)
-            short_call_k = math.ceil((spot + call_mult * em) / self._strike_step) * self._strike_step
-            short_put_k = math.floor((spot - put_mult * em) / self._strike_step) * self._strike_step
+            # gap_box (Pulver): anchor the call side to today's OPEN and the put
+            # side to the PREVIOUS CLOSE, so a gap pushes the gap-away side
+            # further out. Falls back to symmetric (spot) if anchors absent.
+            if (self._strike_mode == "gap_box"
+                    and self._gap_open is not None
+                    and self._gap_prev_close is not None):
+                call_anchor = self._gap_open
+                put_anchor = self._gap_prev_close
+            else:
+                call_anchor = put_anchor = spot
+            short_call_k = math.ceil((call_anchor + call_mult * em) / self._strike_step) * self._strike_step
+            short_put_k = math.floor((put_anchor - put_mult * em) / self._strike_step) * self._strike_step
         else:
             # Legacy delta mode (BS inversion — unreliable for 0DTE).
             t = self._time_to_expiration_years()

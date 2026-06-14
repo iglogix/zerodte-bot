@@ -54,6 +54,8 @@ class BacktestOrchestrator:
             elif isinstance(w, str) and w[:3].title() in _name_to_idx:
                 self._skip_weekdays.add(_name_to_idx[w[:3].title()])
         self._market_open_str = strat.get("market_open", "09:30")
+        # Running cbbo-derived prior-session close forward, for gap_box strikes.
+        self._prev_close_forward: float | None = None
 
         opt = config.get("options", {})
         self._multiplier = opt.get("contract_multiplier", 100)
@@ -63,33 +65,42 @@ class BacktestOrchestrator:
         self._commission_per_leg = opt.get("commission_per_contract_per_leg", 1.0)
         self._eod_str = strat.get("eod_force_close", "15:50")
 
+    def _calendar_skip(self, sd) -> Optional[str]:
+        """Return a skip reason for calendar gates, or None to trade."""
+        from datetime import timedelta as _td
+        if self._skip_nfp and _is_nfp_friday(sd):
+            return "nfp_friday"
+        if self._skip_fomc and sd in _FOMC_DATES:
+            return "fomc_day"
+        if self._skip_cpi and sd in _CPI_DATES:
+            return "cpi_day"
+        if self._skip_fomc_next and (sd - _td(days=1)) in _FOMC_DATES:
+            return "fomc_next_day"
+        if self._skip_cpi_next and (sd - _td(days=1)) in _CPI_DATES:
+            return "cpi_next_day"
+        if sd.weekday() in self._skip_weekdays:
+            return f"weekday_skip_{sd.strftime('%a')}"
+        return None
+
     def run(self, days) -> List[BacktestResult]:
         """Run backtest across all days. Returns list of BacktestResult."""
         results = []
         for day in sorted(days, key=lambda d: d.session_date):
             sd = day.session_date
-            if self._skip_nfp and _is_nfp_friday(sd):
-                results.append(self._skip(sd, day.symbol, "nfp_friday"))
-                continue
-            if self._skip_fomc and sd in _FOMC_DATES:
-                results.append(self._skip(sd, day.symbol, "fomc_day"))
-                continue
-            if self._skip_cpi and sd in _CPI_DATES:
-                results.append(self._skip(sd, day.symbol, "cpi_day"))
-                continue
-            from datetime import timedelta as _td
-            if self._skip_fomc_next and (sd - _td(days=1)) in _FOMC_DATES:
-                results.append(self._skip(sd, day.symbol, "fomc_next_day"))
-                continue
-            if self._skip_cpi_next and (sd - _td(days=1)) in _CPI_DATES:
-                results.append(self._skip(sd, day.symbol, "cpi_next_day"))
-                continue
-            if sd.weekday() in self._skip_weekdays:
-                results.append(self._skip(sd, day.symbol, f"weekday_skip_{sd.strftime('%a')}"))
-                continue
-
-            day_results = asyncio.run(self._run_day(day))
-            results.extend(day_results)
+            skip_reason = self._calendar_skip(sd)
+            if skip_reason:
+                results.append(self._skip(sd, day.symbol, skip_reason))
+            else:
+                day_results = asyncio.run(self._run_day(day))
+                results.extend(day_results)
+            # Update prior-close forward for the NEXT day's gap_box strikes —
+            # done on every day (incl. skips) so e.g. Monday after a skipped
+            # Friday still sees Friday's close. cbbo is cached in memory.
+            if self._cbbo.loaded_date != sd:
+                self._cbbo.load_day(sd)
+            sf = self._cbbo.settlement_forward()
+            if sf:
+                self._prev_close_forward = sf
         return results
 
     async def _run_day(self, day) -> List[BacktestResult]:
@@ -131,6 +142,14 @@ class BacktestOrchestrator:
         # Create strategy
         strategy = self._strategy_cls()
         strategy.configure(self._config)
+
+        # Inject gap-adjusted EM-box anchors (Pulver): today's open + prior
+        # close, both cbbo-derived (same scale as the chain). Only OpenIcStrategy
+        # gap_box mode reads these; harmless for other strategies.
+        if hasattr(strategy, "_gap_open"):
+            strategy._gap_prev_close = self._prev_close_forward
+            hint = self._prev_close_forward or 5000.0
+            strategy._gap_open = self._cbbo.derive_spot("09:31", hint)
 
         # Create EngineDeps
         deps = EngineDeps(

@@ -72,6 +72,32 @@ call-BWB fully quoted, 175/326 the put-BWB — the Kc+25/Kp−25 far legs are of
 unquoted; defense applied where liquid.) Pulver's real edge is the discretionary
 **Plan-C gamma-"key-level" butterflies**, which cannot be mechanized.
 
+### 2b. The gap-adjusted Expected-Move Box
+
+Pulver places strikes on a **gap-adjusted** box: top = today's OPEN + EM, bottom
+= PREVIOUS CLOSE − EM (EM = pre-market broker plus/minus). A gap pushes the
+gap-away side further out (mean-reversion protection). The baseline backtest uses
+**symmetric** placement (spot ± `em_mult`·EM, EM = 09:35 ATM straddle): it
+captures the *distance* (via the `em_mult` sweep) but not the asymmetry.
+
+Added `strike_mode: gap_box` to `OpenIcStrategy` (call anchor = open, put anchor
+= prev close, both cbbo-derived in the chain's scale; injected by the
+orchestrator) and isolated it:
+
+| Framework | symmetric | gap-box (Pulver) |
+|---|---|---|
+| As-taught (no stop, hold; `scripts/em_box_compare.py`, k=1.25/W10) | −1.25 | **−0.08** |
+| As-taught (k=1.0/W20) | −1.03 | **+0.46** |
+| Optimized (per-side leg-out + gates, imbalance off) | **4.02** | 2.02 |
+
+So the gap box is a **real improvement in Pulver's no-stop framework** (+0.5 to
++1.5 Sharpe — it lowers win rate but cuts reversal breaches), **but is dominated
+by the per-side leg-out** in the Sharpe-optimal framework: the leg-out already
+manages breach risk better, and the box's forced asymmetry can't use the
+credit-balance filter (`max_credit_imbalance`, worth ~+1 Sharpe) and doubles the
+drawdown ($10.7k vs $5.7k). **The validated winner is correct to use symmetric
+placement;** the gap box is kept as a tested option for the no-stop variant.
+
 ## 3. Optimization for maximum Sharpe
 
 Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),

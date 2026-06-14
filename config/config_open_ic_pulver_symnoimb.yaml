@@ -1,0 +1,86 @@
+bot:
+  name: "spx-0dte-open-ic-pulver-symnoimb"
+  timezone: "America/New_York"
+  mode: "sandbox"
+  symbol: "SPX"
+  strategy: "open_ic"
+
+# Chris Pulver 0DTE iron condor (YouTube 5MbQ_dnImR0), as taught:
+#   - enter once within first ~5-10 min of the open
+#   - short strikes at the (gap-adjusted) expected-move box edge ~= 10-15 delta
+#   - narrow (10-pt) wings
+#   - NO stop loss
+#   - hold to cash settlement at close (no take-profit on the IC core)
+#   - trade EVERY day (no calendar gating) -- ~220-230 reps/yr
+strategy:
+  market_open:     "09:30"
+  eod_force_close: "15:59"
+  skip_nfp_fridays: true
+  skip_fomc_days:   false
+  skip_cpi_days:    false
+  skip_fomc_next_day: true
+  skip_cpi_next_day:  false
+  skip_weekdays:      ["Fri"]
+
+entry:
+  entry_mode: "fixed_time"
+  entry_time: "09:35"
+  stability_check: false
+  opening_range_filter:
+    enabled: false
+
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  strike_mode: "em_mult"         # symmetric (control)
+  em_mult: 0.20                 # WF-CV winner
+  wing_width: 30                # WF-CV winner (wider wings)
+  min_credit_per_spread: 0.05
+  max_credit_imbalance: 99.0    # gap_box is intentionally asymmetric (unbalanced credits)
+  # As-taught: hold the IC to settlement (no TP), no stop.
+  tp_pct_of_credit: 0.50        # take profit at 50% of credit
+  tp_mode: "total"
+  sl_mult_of_credit: 2.0        # per-side stop at 2x side credit
+  sl_scope: "per_side"          # asymmetric leg-out: PRIMARY Sharpe edge (see findings doc)
+  hold_put_breach: true
+  hold_call_breach: true
+  spread_mode: "iron_condor"
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  quantity: 1
+  commission_per_contract_per_leg: 1.0
+  monitor_poll_seconds: 30
+  pricing_model: "bs"
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_daily_loss_usd: 50000
+  max_buying_power_pct: 50.0
+
+llm:
+  enabled: false
+
+database:
+  trading_db: "spx_0dte_open_ic_pulver_symnoimb.db"
+  cache_db: "data/spx_0dte_open_ic_cache.db"
+
+logging:
+  level: "WARNING"
+  log_dir: "logs_spx_0dte_open_ic_pulver_symnoimb"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+regime:
+  enabled: false
+
+backtest:
+  data_dir: "data"
+  data_file: "data/spy_1m.csv"
+  data_source: "spy"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache"
+  start_date: "2022-05-11"
+  end_date: "2026-06-11"
