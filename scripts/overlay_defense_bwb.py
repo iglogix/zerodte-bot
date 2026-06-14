@@ -47,11 +47,26 @@ def bwb_mark(store, minute, low, mid_k, high, is_call):
     return a - 2 * b + c
 
 
-def defense_pnl(store, minute_in, minute_out, low, mid_k, high, is_call):
+def bwb_intrinsic(settle, low, mid_k, high, is_call):
+    """Expiration payoff of +1 low / -2 mid / +1 high (cash settlement)."""
+    if settle is None:
+        return None
+    if is_call:
+        f = lambda k: max(0.0, settle - k)
+    else:
+        f = lambda k: max(0.0, k - settle)
+    return f(low) - 2 * f(mid_k) + f(high)
+
+
+def defense_pnl(store, minute_in, settle, low, mid_k, high, is_call):
+    """Enter at minute_in (mid mark); exit at INTRINSIC settlement value.
+    P&L = intrinsic_settle - entry_mark - slippage - 3*commission."""
     m_in = bwb_mark(store, minute_in, low, mid_k, high, is_call)
-    m_out = bwb_mark(store, minute_out, low, mid_k, high, is_call)
-    if m_in is None or m_out is None:
-        return None  # unquoted -> no defense this side
+    if m_in is None:
+        return None  # unquoted entry -> no defense this side
+    m_out = bwb_intrinsic(settle, low, mid_k, high, is_call)
+    if m_out is None:
+        return None
     return (m_out - m_in) * MULT - SLIP * MULT - 3 * COMM
 
 
@@ -84,8 +99,12 @@ def main():
         if r.get("realized_pnl_usd") in ("", None):
             continue
         d = date.fromisoformat(r["session_date"])
-        rec = by_day.setdefault(d, {"ic": 0.0, "Kc": None, "Kp": None})
+        rec = by_day.setdefault(d, {"ic": 0.0, "Kc": None, "Kp": None, "spot": None})
         rec["ic"] += float(r["realized_pnl_usd"])
+        try:
+            rec["spot"] = float(r.get("underlying_at_entry") or 0) or rec["spot"]
+        except (TypeError, ValueError):
+            pass
         if r["spread_type"] == "call_credit_spread":
             rec["Kc"] = float(r["short_strike"])
         elif r["spread_type"] == "put_credit_spread":
@@ -99,12 +118,30 @@ def main():
 
     ic_only, ic_def = [], []
     def_call_n = def_put_n = both_missing = 0
+    # bucketed diagnostic: defense P&L vs how far settlement breached a short strike
+    from collections import defaultdict
+    buckets = defaultdict(lambda: {"n": 0, "def": 0.0})
+
+    def bucket_for(settle, Kc, Kp):
+        if settle > Kc:
+            over = settle - Kc
+            return "call breach >25" if over > 25 else (
+                "call breach 5-25" if over > 5 else "call breach 0-5")
+        if settle < Kp:
+            under = Kp - settle
+            return "put breach >25" if under > 25 else (
+                "put breach 5-25" if under > 5 else "put breach 0-5")
+        return "inside (no breach)"
+
     for d in days:
         rec = by_day[d]
         store.load_day(d)
         Kc, Kp = rec["Kc"], rec["Kp"]
-        dc = defense_pnl(store, ENTRY_MIN, EXIT_MIN, Kc - 5, Kc + 5, Kc + 25, True)
-        dp = defense_pnl(store, ENTRY_MIN, EXIT_MIN, Kp - 25, Kp - 5, Kp + 5, False)
+        # settlement spot: parity-derived at 15:59 (strike-independent), hinted by
+        # the entry spot; falls back to settlement_forward.
+        settle = store.derive_spot("15:59", rec["spot"] or Kc) or store.settlement_forward()
+        dc = defense_pnl(store, ENTRY_MIN, settle, Kc - 5, Kc + 5, Kc + 25, True)
+        dp = defense_pnl(store, ENTRY_MIN, settle, Kp - 25, Kp - 5, Kp + 5, False)
         def_total = 0.0
         if dc is not None:
             def_total += dc
@@ -116,11 +153,22 @@ def main():
             both_missing += 1
         ic_only.append(rec["ic"])
         ic_def.append(rec["ic"] + def_total)
+        if settle is not None:
+            b = buckets[bucket_for(settle, Kc, Kp)]
+            b["n"] += 1
+            b["def"] += def_total
 
     print(f"  days={len(days)}  call-BWB quoted {def_call_n}, put-BWB quoted "
           f"{def_put_n}, both-missing {both_missing}\n")
-    stats(ic_only, "IC only (as-taught)")
+    stats(ic_only, "IC only")
     stats(ic_def, "IC + BWB defense")
+    print("\n  defense P&L by settlement bucket (where it should HELP = breach 5-25):")
+    for k in ["inside (no breach)", "call breach 0-5", "call breach 5-25",
+              "call breach >25", "put breach 0-5", "put breach 5-25", "put breach >25"]:
+        if k in buckets:
+            b = buckets[k]
+            print(f"    {k:<22} n={b['n']:>4}  defense P&L ${b['def']:>+8.0f}  "
+                  f"(${b['def']/b['n']:>+6.0f}/day)")
     dtot = sum(ic_def) - sum(ic_only)
     print(f"\n  defense net P&L contribution: ${dtot:+,.0f} over {len(days)} days "
           f"(${dtot/len(days):+.1f}/day)")

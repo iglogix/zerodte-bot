@@ -56,24 +56,47 @@ the IC short strikes (Kc = short call, Kp = short put):
 - Call BWB: `+1 (Kc-5)  -2 (Kc+5)  +1 (Kc+25)`  (asymmetric 10/20)
 - Put  BWB: `+1 (Kp+5)  -2 (Kp-5)  +1 (Kp-25)`  (mirror)
 
-entered ~15 min after the IC (09:50), held to settlement
-(`scripts/overlay_defense_bwb.py`, priced from the same CBBO cache):
+entered ~15 min after the IC (09:50), held to **intrinsic settlement**
+(`scripts/overlay_defense_bwb.py`, entry priced from the CBBO cache):
 
 | System | Sharpe | Total P&L | WR | PF | Avg win/loss | Max DD |
 |---|---|---|---|---|---|---|
 | IC only | −1.01 | −$7,430 | 75.8% | 0.84 | +$164 / −$605 | $10,736 |
-| IC + BWB defense | −0.60 | −$6,160 | 79.1% | 0.89 | +$192 / −$820 | $11,988 |
+| IC + BWB defense | −0.52 | −$5,420 | 78.8% | 0.90 | +$196 / −$807 | $11,874 |
 
-The defense behaves exactly as Pulver describes — it buffers moderate breaches
-(WR 75.8%→79.1%, Sharpe −1.01→−0.60, +$3.9/day) but *raises* the average loss
-and max drawdown, because on big-move days "you lose on the IC and on defense."
-**The full as-taught system is still a net loser.**
+The defense behaves exactly as Pulver describes — it **widens the win zone and
+rescues moderate breaches** (WR 75.8%→78.8%, Sharpe −1.01→−0.52, **+$6.2/day**).
+The per-settlement-bucket P&L makes the mechanism explicit:
 
-**The defense is NOT placed in the engine or the winner**, and it shouldn't be:
-overlaid on the validated per-side-leg-out winner it *costs* −$67.9/day and
-halves Sharpe (5.18 → 2.53, avg loss −$248 → −$764, DD doubles). Same story as
-the gap box — both Pulver overlays help his no-stop framework but are
-redundant/counterproductive once the per-side leg-out is doing the defending. (226/326 days had the
+| settlement vs short strike | n | defense P&L/day |
+|---|---|---|
+| inside (no breach) | 233 | −$13 (carry) |
+| call breach 0–5 | 13 | **+$618** |
+| call breach 5–25 | 22 | **+$149** |
+| call breach >25 (tail) | 3 | −$676 |
+| put breach 0–5 | 10 | **+$397** |
+| put breach 5–25 | 18 | −$6 |
+| put breach >25 (tail) | 16 | −$510 |
+
+So on Pulver's **far 10-delta** strikes the protection zone (short → short+25)
+captures most breaches and the >±25 tail is rare → defense is net **positive**.
+It still doesn't make the weak as-taught IC profitable, but it genuinely helps.
+
+**The defense is NOT placed in the engine or the winner.** Overlaid on the
+per-side-leg-out winner it *costs* −$25.6/day (Sharpe 5.18 → 3.28) — but NOT
+because the mechanism fails (it still pays in every moderate-breach bucket and
+even on no-breach days, +$112 to +$773/day). It loses because the winner's
+**close ~35-delta strikes (em_mult 0.20)** make settlement land beyond short±25
+on **53 of 275 days**, repeatedly triggering the BWB's −$1,000 tail (−$46.9k
+total vs +$39.9k from the helping buckets). Pulver's fixed +5/+25 BWB offsets are
+calibrated to his far strikes; on close strikes the tail dominates. The per-side
+leg-out is the better-matched defense for the optimized winner, so the BWB is
+left off — but the earlier claim that the defense is simply "counterproductive"
+was wrong: it works as designed; it's just miscalibrated to close strikes.
+
+*(Correction: an earlier version of this analysis priced the BWB exit at 15:59
+mids and lost 75 days to a `settlement_forward` gap, understating the defense.
+The numbers above use intrinsic settlement and parity-derived spot.)* (226/326 days had the
 call-BWB fully quoted, 175/326 the put-BWB — the Kc+25/Kp−25 far legs are often
 unquoted; defense applied where liquid.) Pulver's real edge is the discretionary
 **Plan-C gamma-"key-level" butterflies**, which cannot be mechanized.
