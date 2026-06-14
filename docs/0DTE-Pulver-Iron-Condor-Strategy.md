@@ -1,0 +1,166 @@
+# 0DTE Iron Condor — Chris Pulver method (SPX), backtest + WF-CV
+
+**Source:** Chris Pulver interview, "How He Wins 85% of His 0DTE Trades" (YouTube
+`5MbQ_dnImR0`). Extracted, backtested on real CBBO quotes, optimized for
+**maximum Sharpe**, and validated via walk-forward cross-validation (WF-CV).
+
+**Date:** 2026-06-14. **Data:** `data/cbbo_cache` (real SPXW NBBO/CBBO mids,
+882 trading days 2022-05-11 → ~2026-03-20). Fills = mid − $0.10/spread slippage,
+$1/contract/leg commission. Engine: `OpenIcStrategy` + `WindowEntryEngine`.
+
+---
+
+## 1. The strategy as taught
+
+Pulver runs three overlapping 0DTE structures on SPX/XSP, "to win the day":
+
+1. **Core — open iron condor.** Enter once in the first ~5–10 min. Short call
+   and short put at the **gap-adjusted expected-move box edge** (open ± broker
+   plus/minus, ≈ **10–15 delta**), **10-pt wings**. Target ≥ $1.00–1.50 credit
+   (≈ $850 max risk on a 10-wide). **No stop loss.** Hold to cash settlement.
+2. **Defense — broken-wing butterfly** placed 5–10 min later as a 5–15-pt buffer
+   above/below the condor. Discretionary, sized for a small credit/debit.
+3. **Butterflies at "key levels"** (gamma HVL pivot via Tanuki Trade) for
+   low-risk/high-reward "profit traps". Fully discretionary.
+
+Only the **core open iron condor** is mechanically reproducible. The defense and
+butterfly overlays depend on intraday gamma reads and discretionary level
+selection that cannot be backtested without inventing the discretion — so the
+honest mechanical test is the core IC. Pulver's claimed live results (89.6% IC
+win rate, ~27%/yr) rest substantially on those discretionary overlays.
+
+Mapping to `OpenIcStrategy`: model-free `strike_mode: em_mult` (EM = ATM straddle
+mid = the broker expected move); `em_mult ≈ 1.25` ≈ his 10–15-delta box edge;
+`wing_width: 10`; `sl_mult_of_credit: 0` + `hold_*_breach: true` = no stop;
+`tp_pct_of_credit: 0` = hold to the 15:59 force-close; traded every day.
+
+## 2. As-taught result — refuted
+
+Full clean CBBO data, 326 trading days:
+
+| Sharpe (ann) | Total P&L | Win rate | Profit factor | Avg win / loss | Max DD |
+|---|---|---|---|---|---|
+| **−1.01** | −$7,430 | 75.8% | 0.84 | +$164 / −$605 | $10,736 |
+
+Classic narrow-wing / far-OTM iron condor trap: a high win rate, but each breach
+loses nearly the full $850 wing while wins collect only ~$1.50 credit. **Net
+loser without the discretionary defense overlay.** Consistent with the repo's
+prior CBBO finding ("BS credits are fiction at low delta / narrow width; real
+SPX 0DTE needs 25pt+ width, 0.20+ delta").
+
+## 3. Optimization for maximum Sharpe
+
+Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),
+em_mult × wing × TP × SL, no gates, in-sample:
+
+- The Sharpe-optimal **robust plateau** is the **opposite** of Pulver's recipe:
+  **close-to-ATM** short strikes (`em_mult ≈ 0.20–0.25`, ~35–40 delta),
+  **wider wings (20–30)**, a **50% take-profit**. In-sample Sharpe **≈ 2.0**.
+- Tiny-n high-Sharpe cells (e.g. em1.25/wing50, n=45, Sharpe 4.2) are overfit
+  noise — far-OTM wings are rarely quoted, so few days qualify.
+- **Calendar gates do not help** the plateau in-sample (em0.25/wing20/tp0.5
+  went 2.05 → 1.92 when gated). Simpler / trade-every-day wins on raw IS Sharpe.
+
+## 4. WF-CV validation — the in-sample optimum is overfit; the real edge is the leg-out
+
+WF-CV, ratio 4:1, 5 expanding folds (`scripts/run_wf_cv_open_ic_pulver.py`,
+`scripts/run_v2_wf_cv_open_ic.py`). Mean **out-of-sample** fold Sharpe:
+
+| Config | SL scope | Gates | OOS Sharpe | Profitable folds | Worst fold |
+|---|---|---|---|---|---|
+| em0.25 / wing20 / tp0.5 (IS optimum) | total | none | **0.09** | 2/5 | −$11,183 |
+| em0.20 / wing30 / tp0.5 / sl2.0 | **per_side** | none | **1.66** | 3/5 | −$3,053 |
+| em0.20 / wing30 / tp0.5 / sl2.0 | **per_side** | FOMC+1, Fri | **4.02** | 4/5 | −$74 |
+
+Findings:
+
+- **The in-sample Sharpe-2.0 cell is overfit** — under a conservative whole-IC
+  stop (`sl_scope: total`) it collapses to OOS Sharpe **0.09** (2/5 folds).
+- **`sl_scope: per_side` (asymmetric leg-out) is the primary edge** — it lifts
+  OOS Sharpe 0.09 → **1.66** with no gates. Mechanism: when one side is breached,
+  close that spread at the 2× stop and **hold the untested side**, which decays
+  to ~0 by EOD and banks its full credit. This shrinks the average loss
+  (−$248 vs −$605 as-taught) far more than it caps wins → higher Sharpe.
+- **Calendar gates** (skip FOMC-next-day + Friday) add the rest: 1.66 → **4.02**
+  and tighten robustness (worst fold −$3,053 → −$74).
+- Two independent grids converge on the **same structural winner**:
+  `em_mult=0.20, wing_width=30, sl_mult=2.0, tp=0.50, per_side`.
+
+This also reconciles the repo's earlier note that `total` "won 1.6–1.7× PnL on
+clean data" and per_side was "an artifact": **`total` maximizes raw P&L, but
+`per_side` maximizes Sharpe** — it trades upside for much smaller drawdowns. The
+user's objective here is Sharpe, so per_side is correct.
+
+### Validated winner (config: `config/config_open_ic_pulver_wfcv.yaml`)
+
+`em_mult 0.20 · wing 30 · TP 50% of credit · per-side SL 2× side-credit ·
+skip FOMC+1 & Fridays · enter 09:35 · hold to 15:59`
+
+Full-period in-sample: Sharpe **5.18**, PF **2.94**, +$60,124, max DD **$4,392**,
+avg win +$607 / avg loss −$248. **WF-CV OOS: mean fold Sharpe 4.02, 4/5
+profitable, worst fold −$74.**
+
+## 5. Markov regime gate — tested, NOT necessary
+
+Per the goal, the `markov-2-hedge-fund-method` (FILTER mode, causal trailing-20d
+BULL/BEAR/SIDEWAYS state on prior-day close) was applied
+(`scripts/wf_markov_gate_open_ic.py`, `scripts/markov_overlay_open_ic.py`):
+
+- In-sample it *looks* powerful (IC after a BULL day → Sharpe 7.3; "trade only
+  after BULL" → 9.0), but this is hindsight on small subsets (n≈25–86).
+- **Walk-forward, the gate is not learnable.** On every fold's train window all
+  three states show positive mean P&L, so the learned gate selects "trade all"
+  and the gated OOS series is **identical** to ungated. On the validated winner,
+  imposing BULL-only / skip-SIDEWAYS actually **hurts** OOS — the calendar gates
+  already remove the bad days.
+- Conclusion: the regime edge does not survive honest WF; the Markov gate adds
+  nothing on top of the per-side + calendar-gate structure. **Not deployed.**
+
+## 6. The execution caveat (this is the whole ballgame)
+
+The entire validated edge lives in **`sl_scope: per_side`** — the asymmetric
+leg-out. The backtest assumes (a) the breached side fills at ~2× its entry credit
+on a per-minute mark, and (b) the untested side, once held, decays to ~0 without
+a same-day reversal threatening it. Both are optimistic:
+
+- 0DTE deltas move violently; a per-minute stop trigger can catch a transient
+  spike whose actual fill is worse, and fast moves slip the tested leg.
+- A whipsaw day (rally then sell-off) can breach **both** sides after you've
+  already taken the first stop.
+
+If live leg-out fills are materially worse than mid−$0.10, the edge degrades
+toward the `total`-scope result (OOS Sharpe ~0). **Before risking capital this
+needs a paper/live leg-out fill study** (cf. the open MEIC scale-out reconciliation
+gap — scale-out/leg-out fills are exactly what the backtest can't yet prove).
+
+## 7. Bottom line
+
+- **Pulver's core IC as taught (far-OTM, 10-wide, no stop, hold) is a net loser
+  on real SPX 0DTE fills** (Sharpe −1.01). His live edge is the discretionary
+  butterfly/defense overlay, which is not mechanically reproducible.
+- Re-optimized into the open-IC family and validated via WF-CV, the
+  **maximum robust Sharpe is ≈ 4.0** (mean OOS, 4/5 folds) with
+  `em0.20 / wing30 / 50% TP / per-side 2× SL / skip FOMC+1 & Fri` — but that
+  number is **contingent on the per-side leg-out execution model** holding up in
+  live fills. Under a conservative whole-IC stop there is **no robust edge**.
+- The **Markov regime gate is unnecessary** here and not causally learnable.
+
+### Reproduce
+
+```bash
+PY=.venv/bin/python
+# as-taught (loser)
+$PY -m scripts.run_v2_backtest --config config/config_open_ic_pulver.yaml
+$PY -m scripts.ic_csv_stats results/open_ic_pulver/trades.csv "as-taught"
+# landscape sweeps (in-sample)
+$PY -m scripts.sweep_open_ic_pulver            # no gates
+$PY -m scripts.sweep_open_ic_pulver --gates    # calendar gates
+# WF-CV (OOS): total vs per_side, no gates
+$PY -m scripts.run_wf_cv_open_ic_pulver --ratio 4 --folds 5
+WF_SL_SCOPE=per_side $PY -m scripts.run_wf_cv_open_ic_pulver --ratio 4 --folds 5
+# WF-CV with repo grid (per_side + gates) -> mean OOS Sharpe 4.02
+$PY -m scripts.run_v2_wf_cv_open_ic --config config/config_spx_0dte_open_ic.yaml --ratio 4 --folds 5
+# validated winner + Markov gate check
+$PY -m scripts.run_v2_backtest --config config/config_open_ic_pulver_wfcv.yaml
+$PY -m scripts.wf_markov_gate_open_ic results/open_ic_pulver_wfcv/trades.csv
+```
