@@ -1,0 +1,103 @@
+bot:
+  strategy: meic
+  mode: dry_run
+  symbol: SPX
+entry:
+  schedule:
+  - '11:00'
+  - '11:20'
+  - '11:40'
+  - '12:00'
+  - '12:20'
+  - '12:40'
+  - '13:00'
+  - '13:20'
+  - '13:40'
+  - '14:00'
+  - '14:20'
+  - '14:40'
+  - '15:00'
+  stability_fraction: 0.2
+  single_candle_fraction: 0.12
+  fallback_stability_pts: 12.0
+  skip_non_trading_days: true
+strategy:
+  am_pm_cutoff: '12:30'
+  short_em_mult: 1.0
+  wing_em_frac: 0.5
+  min_credit_width_ratio: 0.08
+  strike_step_pts: 5
+  stop_pct_of_total_credit: 0.7
+  am_scale_out_tiers:
+  - 0.55
+  - 0.65
+  - 0.75
+  - 0.85
+  am_scale_out_fractions:
+  - 0.25
+  - 0.25
+  - 0.25
+  - 0.25
+  pm_scale_out_tiers:
+  - 0.65
+  - 0.85
+  pm_scale_out_fractions:
+  - 0.5
+  - 0.5
+  abandon_long_below: 0.05
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
+  credit_equality_threshold: 0.3
+  default_tranche_qty: 3
+  tranche_sizing:
+    '11:00': 3
+    '11:20': 4
+    '11:40': 4
+    '12:00': 5
+    '12:20': 5
+    '12:40': 6
+    '13:00': 6
+    '13:20': 5
+    '13:40': 5
+    '14:00': 4
+    '14:20': 4
+    '14:40': 3
+    '15:00': 3
+risk:
+  max_concurrent_trades: 14
+  max_daily_risk_percent: 3.0
+  max_buying_power_percent: 60.0
+  take_profit_threshold: 0.05
+monitor:
+  poll_interval_seconds: 15
+  eod_close_time: '15:50'
+options:
+  contract_multiplier: 100
+  quantity: 1
+  slippage_per_spread: 0.1
+  commission_per_contract_per_leg: 1.0
+  stop_slippage_per_spread: 0.25
+  strike_step_pts: 5
+  option_root: SPXW
+  chain_half_span_pts: 400
+  stop_execution: trigger
+llm:
+  advisor_model: openai/gpt-4.1-mini
+  debrief_model: openai/gpt-4.1
+cache:
+  option_chain_ttl: 60
+  quote_ttl: 60
+  account_info_ttl: 60
+database:
+  trading_db: data/meic_bot.db
+  cache_db: data/market_cache.db
+logging:
+  log_dir: logs
+  level: INFO
+backtest:
+  data_file: data/spy_1m.csv
+  data_source: spy
+  price_scale: 10.0
+  cbbo_cache_dir: data/cbbo_cache_meic
+  start_date: '2022-05-11'
+  end_date: '2026-02-27'

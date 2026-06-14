@@ -5,6 +5,7 @@ Each method corresponds to a tool the LLM can call.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, date
@@ -161,6 +162,25 @@ class ToolHandlers:
     async def get_5min_candles(self, count: int = 6) -> List[Dict[str, Any]]:
         """Return the last N 5-minute SPX candles."""
         return await self.cache.get_5min_candles("SPX", count=count)
+
+    async def get_daily_closes(self, symbol: str = "SPX", count: int = 50) -> List[float]:
+        """Return the last `count` PRIOR-session daily closes, oldest first.
+
+        Today's (partial) candle is excluded so the result is identical at
+        every entry window of the day — used by causal day-level gates.
+        """
+        from datetime import timedelta
+        # get_candles sorts ascending and truncates at `count` (keeping the
+        # OLDEST), so let from_time bound the window, take everything it holds,
+        # and tail the newest ourselves.
+        candles = await self.api_client.get_candles(
+            symbol, interval="1d",
+            from_time=datetime.now() - timedelta(days=int(count * 1.7) + 30),
+            count=100_000,
+        )
+        today = date.today().isoformat()
+        return [c["close"] for c in candles
+                if c.get("close") and not str(c.get("timestamp", "")).startswith(today)][-count:]
 
     async def get_expected_move(self) -> Dict[str, Any]:
         """Return the 0DTE expected daily move derived from the ATM straddle price.
@@ -464,6 +484,108 @@ class ToolHandlers:
             "call_spread": call,
         }
 
+    async def place_power_hour_ic(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Place a Power Hour iron condor (docs/0DTE-Power-Hour-Strategy.md).
+
+        In ALL modes the assumed fill is persisted to the trades DB (with the
+        leg symbols + stop/ratchet params in strategy_data) so PositionMonitor
+        runs the combined-strangle stop, the 40% ratchet, and the 15:55 forced
+        close — in manual mode this is the paper lifecycle that the 2026-06-11
+        review found missing. The comparator hooks mirror place_two_spread_ic.
+        """
+        qty = int(payload.get("quantity", 1))
+        put = payload["put_spread"]
+        call = payload["call_spread"]
+        tranche = payload.get("tranche") or "T"
+
+        exp = date.today()
+        put_short_sym = format_osi(exp, put["short_strike"], is_call=False)
+        put_long_sym = format_osi(exp, put["long_strike"], is_call=False)
+        call_short_sym = format_osi(exp, call["short_strike"], is_call=True)
+        call_long_sym = format_osi(exp, call["long_strike"], is_call=True)
+        trade_id = datetime.now().strftime(f"ph-{tranche}-%H%M%S")
+
+        # Execution-comparison hooks (same contract as the MEIC path).
+        if self._execution_log is not None:
+            try:
+                self._execution_log.log_assumed_entry(
+                    trade_id, payload, put_short_sym, call_short_sym)
+            except Exception:
+                logger.exception("Failed to log assumed entry for execution comparison")
+        if self._on_entry is not None:
+            try:
+                self._on_entry(trade_id, payload, put_short_sym, call_short_sym)
+            except Exception:
+                logger.exception("on_entry hook raised")
+
+        # Persist the assumed fill so the monitor owns the exit lifecycle.
+        if self.db is not None:
+            strategy_data = {
+                "short_put_symbol": put_short_sym,
+                "long_put_symbol": put_long_sym,
+                "short_call_symbol": call_short_sym,
+                "long_call_symbol": call_long_sym,
+                "strangle_credit": payload.get("strangle_credit"),
+                "stop_dollars": payload.get("stop_amount"),
+                "ratchet_add": payload.get("ratchet_add"),
+                "put_credit": put.get("credit"),
+                "call_credit": call.get("credit"),
+                "put_open_qty": qty,
+                "call_open_qty": qty,
+                "tranche": tranche,
+            }
+            try:
+                await self.db.create_trade({
+                    "trade_id": trade_id,
+                    "entry_time": datetime.now(),
+                    "expiration_date": exp,
+                    "underlying": "SPX",
+                    "underlying_price_at_entry": float(payload.get("underlying_at_entry") or 0.0),
+                    "short_call_strike": call["short_strike"],
+                    "long_call_strike": call["long_strike"],
+                    "short_put_strike": put["short_strike"],
+                    "long_put_strike": put["long_strike"],
+                    "call_spread_premium": call.get("credit") or 0.0,
+                    "put_spread_premium": put.get("credit") or 0.0,
+                    "total_premium": payload.get("total_credit") or 0.0,
+                    "call_wing_width": int(call["long_strike"] - call["short_strike"]),
+                    "put_wing_width": int(put["short_strike"] - put["long_strike"]),
+                    "stop_loss_amount": payload.get("stop_amount"),
+                    "status": "open",
+                    "strategy_data": json.dumps(strategy_data),
+                })
+                logger.info("Power Hour trade persisted: %s (strangle %.2f, stop +%.2f, ratchet %s)",
+                            trade_id, payload.get("strangle_credit") or 0.0,
+                            payload.get("stop_amount") or 0.0, payload.get("ratchet_add"))
+            except Exception:
+                logger.exception("Failed to persist power_hour trade %s", trade_id)
+
+        if self._block_submission():
+            if self.dry_run:
+                logger.info("[DRY RUN] Simulated Power Hour IC: %s", trade_id)
+                return {"order_id": f"DRY-{trade_id}", "trade_id": trade_id,
+                        "dry_run": True, "simulated": True, **payload}
+            res = self._manual_order_result("place_power_hour_ic", payload)
+            res["trade_id"] = trade_id
+            return res
+
+        # LIVE: wings are part of each credit-spread order (defined risk per
+        # side); the combined-strangle stop is monitor-driven, so no broker
+        # stop-markets are rested here.
+        put_result = await self.place_credit_spread(
+            "put", put["short_strike"], put["long_strike"], qty, credit=put.get("credit"))
+        call_result = await self.place_credit_spread(
+            "call", call["short_strike"], call["long_strike"], qty, credit=call.get("credit"))
+        return {
+            "order_type": "power_hour_ic",
+            "trade_id": trade_id,
+            "quantity": qty,
+            "put_result": put_result,
+            "call_result": call_result,
+            "put_spread": put,
+            "call_spread": call,
+        }
+
     async def place_credit_spread(
         self,
         spread_type: str,
@@ -564,6 +686,8 @@ class ToolHandlers:
         """Generic order placement — routes strategy-built payloads to the API."""
         if order_payload.get("order_type") == "meic_two_spreads":
             return await self.place_two_spread_ic(order_payload)
+        if order_payload.get("order_type") == "power_hour_ic":
+            return await self.place_power_hour_ic(order_payload)
         if self._block_submission():
             if self.dry_run:
                 order_id = f"DRY-{order_payload.get('order_type', 'ORD').upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}"

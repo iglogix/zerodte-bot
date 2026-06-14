@@ -139,7 +139,8 @@ def test_intraday_marks_for_0dte():
 
 def test_lifecycle_lock_then_target_and_uncle_stop():
     cfg = BurritoConfig(lock_trigger_pct=0.07, stop_pct=0.07, pt_pct=0.10)
-    tr = BurritoTrade(side="call", legs=[], debit=10.0, entry_date=20240101, expiry=20240105)
+    tr = BurritoTrade(side="call", legs=[], debit=10.0, debit_mid=10.0,
+                      entry_date=20240101, expiry=20240105)
     d = lifecycle_decision(tr, "DIRECTIONAL", 10.8, cfg, is_last=False)
     assert d.action == "lock" and d.next_state == "FLOATING"
     d = lifecycle_decision(tr, "DIRECTIONAL", 9.2, cfg, is_last=False)

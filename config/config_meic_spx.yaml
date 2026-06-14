@@ -103,7 +103,7 @@ cache:
 
 database:
   trading_db: "data/meic_bot.db"
-  cache_db: "data/market_cache.db"
+  cache_db: "data/market_cache_meic.db"   # own file — PH bot runs concurrently, avoid SQLite lock contention
 
 logging:
   log_dir: "logs"

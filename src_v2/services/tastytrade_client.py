@@ -83,9 +83,15 @@ class TastyTradeClient:
         self._market_token: Optional[str] = None
         self._market_sdk_session = None  # production OAuthSession for DXLink in sandbox
 
-        # Persistent DXLink quote streamer (replaces per-call open/close)
+        # Persistent DXLink quote streamer (replaces per-call open/close).
+        # The streamer is an anyio task group, so it must be hosted by its own
+        # dedicated OWNER task — entering it from a caller's task means any
+        # internal failure cancels that caller (this killed the scheduled
+        # engine mid-session on 2026-06-11). See _quote_streamer_owner().
         self._quote_streamer = None
-        self._quote_feed_task: Optional[asyncio.Task] = None
+        self._quote_owner_task: Optional[asyncio.Task] = None
+        self._quote_ready: Optional[asyncio.Event] = None
+        self._quote_shutdown = False
         self._latest_quotes: Dict[str, Dict[str, Any]] = {}
         self._quote_symbols: set = set()
         self._quote_streamer_lock = asyncio.Lock()
@@ -329,93 +335,125 @@ class TastyTradeClient:
         try:
             return await self._get_quote_via_dxlink(symbol)
         except Exception as exc:
+            # Transient fallback only — do NOT pin the symbol to REST; the
+            # owner task reconnects the streamer and DXLink resumes serving.
             logger.warning("DXLink quote failed for %s: %s — falling back to REST", symbol, exc)
-            self._dxlink_rest_only.add(symbol)
             return await self._get_quote_via_rest(symbol)
 
     # -- Persistent DXLink quote streamer ------------------------------------
 
     async def _ensure_quote_streamer(self, symbol: str):
-        """Ensure the persistent DXLink streamer is running and subscribed to *symbol*."""
-        from tastytrade import DXLinkStreamer  # type: ignore
+        """Ensure the owner task is alive and *symbol* is subscribed."""
         from tastytrade.dxfeed import Quote    # type: ignore
 
         async with self._quote_streamer_lock:
-            # (Re)create streamer if it died or was never started
-            if self._quote_streamer is None:
-                session = self._market_sdk_session or self._sdk_session
-                streamer = DXLinkStreamer(session)
-                self._quote_streamer = await streamer.__aenter__()
-                self._quote_symbols.clear()
-                self._quote_feed_task = asyncio.create_task(
-                    self._quote_feed_loop(), name="dxlink-quote-feed"
+            if self._quote_owner_task is None or self._quote_owner_task.done():
+                self._quote_shutdown = False
+                self._quote_ready = asyncio.Event()
+                self._quote_owner_task = asyncio.create_task(
+                    self._quote_streamer_owner(), name="dxlink-quote-owner"
                 )
-                logger.info("Persistent DXLink quote streamer started")
+            ready = self._quote_ready
 
-            if symbol not in self._quote_symbols:
+        # Wait for the streamer to come up (outside the lock — the owner task
+        # needs the lock-free path to set readiness).
+        await asyncio.wait_for(ready.wait(), timeout=15)
+
+        async with self._quote_streamer_lock:
+            if symbol not in self._quote_symbols and self._quote_streamer is not None:
                 await self._quote_streamer.subscribe(Quote, [symbol])
                 self._quote_symbols.add(symbol)
                 logger.info("DXLink subscribed to %s", symbol)
 
-    async def _quote_feed_loop(self):
-        """Background task: read quote events and keep _latest_quotes fresh."""
-        from tastytrade.dxfeed import Quote  # type: ignore
+    async def _quote_streamer_owner(self):
+        """Dedicated task that OWNS the DXLinkStreamer context.
 
-        while True:
+        The SDK streamer hosts an anyio task group; whatever task enters it
+        becomes the host that anyio cancels on internal failure. By doing the
+        `async with` here, a websocket drop cancels only this task, the real
+        exception surfaces through __aexit__, and we reconnect with backoff —
+        the calling engine/monitor tasks are never touched.
+        """
+        from tastytrade import DXLinkStreamer  # type: ignore
+        from tastytrade.dxfeed import Quote    # type: ignore
+
+        backoff = 1.0
+        while not self._quote_shutdown:
             try:
-                event = await self._quote_streamer.get_event(Quote)
-                sym = event.event_symbol
-                bid = float(event.bid_price or 0)
-                ask = float(event.ask_price or 0)
-                mid = (bid + ask) / 2 if bid and ask else bid or ask
-                self._latest_quotes[sym] = {
-                    "symbol": sym,
-                    "price": mid,
-                    "bid": bid,
-                    "ask": ask,
-                    "timestamp": datetime.now().isoformat(),
-                }
+                session = self._market_sdk_session or self._sdk_session
+                async with DXLinkStreamer(session) as streamer:
+                    self._quote_streamer = streamer
+                    resub = sorted(self._quote_symbols)
+                    if resub:
+                        await streamer.subscribe(Quote, resub)
+                        logger.info("DXLink resubscribed to %d symbols", len(resub))
+                    self._quote_ready.set()
+                    logger.info("Persistent DXLink quote streamer started (owner task)")
+                    backoff = 1.0
+                    while True:
+                        event = await streamer.get_event(Quote)
+                        sym = event.event_symbol
+                        bid = float(event.bid_price or 0)
+                        ask = float(event.ask_price or 0)
+                        mid = (bid + ask) / 2 if bid and ask else bid or ask
+                        self._latest_quotes[sym] = {
+                            "symbol": sym,
+                            "price": mid,
+                            "bid": bid,
+                            "ask": ask,
+                            "timestamp": datetime.now().isoformat(),
+                        }
             except asyncio.CancelledError:
-                return
-            except Exception as exc:
-                logger.warning("Quote feed error: %s — streamer will reconnect on next request", exc)
-                # Mark streamer as dead so _ensure_quote_streamer recreates it
-                async with self._quote_streamer_lock:
-                    self._quote_streamer = None
-                    self._quote_symbols.clear()
-                return
+                if self._quote_shutdown:
+                    raise
+                logger.warning("DXLink streamer cancelled internally — reconnecting")
+            except BaseException as exc:  # anyio surfaces ExceptionGroup here
+                if self._quote_shutdown:
+                    return
+                logger.warning("DXLink streamer died: %r — reconnecting in %.0fs",
+                               exc, backoff)
+            self._quote_streamer = None
+            self._quote_ready = asyncio.Event()
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30.0)
 
     async def _close_quote_streamer(self):
-        """Shut down the persistent streamer and its background task."""
-        if self._quote_feed_task and not self._quote_feed_task.done():
-            self._quote_feed_task.cancel()
+        """Shut down the owner task (and with it the streamer context)."""
+        self._quote_shutdown = True
+        if self._quote_owner_task and not self._quote_owner_task.done():
+            self._quote_owner_task.cancel()
             try:
-                await self._quote_feed_task
-            except asyncio.CancelledError:
+                await self._quote_owner_task
+            except (asyncio.CancelledError, Exception):
                 pass
-        self._quote_feed_task = None
-
-        if self._quote_streamer:
-            try:
-                await self._quote_streamer.__aexit__(None, None, None)
-            except Exception:
-                pass
-            self._quote_streamer = None
+        self._quote_owner_task = None
+        self._quote_streamer = None
         self._quote_symbols.clear()
         self._latest_quotes.clear()
 
-    async def _get_quote_via_dxlink(self, symbol: str) -> Dict[str, Any]:
-        """Return the latest quote from the persistent DXLink streamer."""
+    async def _get_quote_via_dxlink(self, symbol: str, max_stale_s: float = 30.0) -> Dict[str, Any]:
+        """Return the latest quote from the persistent DXLink streamer.
+
+        Quotes older than max_stale_s are treated as missing — serving a stale
+        price to the stop monitor during a streamer outage is worse than
+        falling back to REST.
+        """
         await self._ensure_quote_streamer(symbol)
 
-        # Wait up to 5s for the first quote after a fresh subscribe
+        # Wait up to 5s for a fresh quote after (re)subscribe
         for _ in range(50):
             cached = self._latest_quotes.get(symbol)
             if cached is not None:
-                return cached
+                try:
+                    age = (datetime.now()
+                           - datetime.fromisoformat(cached["timestamp"])).total_seconds()
+                except (KeyError, ValueError):
+                    age = 0.0
+                if age <= max_stale_s:
+                    return cached
             await asyncio.sleep(0.1)
 
-        raise TimeoutError(f"No DXLink quote received for {symbol} within 5s")
+        raise TimeoutError(f"No fresh DXLink quote for {symbol} within 5s")
 
     async def _get_quote_via_rest(self, symbol: str) -> Dict[str, Any]:
         """REST fallback for quotes using TT market-data endpoint."""

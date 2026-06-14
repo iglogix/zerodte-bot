@@ -67,6 +67,14 @@ class ScheduledEngine(BaseEngine):
         self.stability_fraction = entry_cfg.get("stability_fraction", 0.15)
         self.single_candle_fraction = entry_cfg.get("single_candle_fraction", 0.10)
         self.fallback_stability_pts = entry_cfg.get("fallback_stability_pts", 8.0)
+        gate_cfg = entry_cfg.get("markov_gate") or {}
+        self.markov_gate = None
+        if gate_cfg.get("enabled"):
+            from src_v2.agent.markov_gate import MarkovGate
+            self.markov_gate = MarkovGate(gate_cfg)
+        # (date, decision) — the gate uses prior closes only, so one evaluation
+        # holds for every entry window of the day
+        self._markov_decision: Optional[tuple] = None
 
     async def run(self):
         """Run the scheduled entry loop."""
@@ -127,6 +135,17 @@ class ScheduledEngine(BaseEngine):
         return result
 
     async def _run(self, cycle) -> CycleResult:
+        # ------------------------------------------------------------------
+        # Step 0: Markov regime gate — causal day-level pre-check
+        # ------------------------------------------------------------------
+        if self.markov_gate:
+            decision = await self._check_markov_gate()
+            if not decision["allow"]:
+                return CycleResult(
+                    outcome="skip_session",
+                    reason=f"markov_gate: {decision['reason']}",
+                )
+
         # ------------------------------------------------------------------
         # Step 1: fetch candles (needed by guards + regime classifier)
         # ------------------------------------------------------------------
@@ -340,6 +359,31 @@ class ScheduledEngine(BaseEngine):
             regime=regime,
             candidates_found=candidates_found,
         )
+
+    async def _check_markov_gate(self) -> Dict[str, Any]:
+        """Evaluate the Markov regime gate, once per session day.
+
+        Fails OPEN on any data problem: a broken daily-candle feed must
+        degrade to ungated behaviour, never to a silent permanent skip.
+        """
+        assert self.markov_gate is not None  # only called when configured
+        today = date.today()
+        if self._markov_decision and self._markov_decision[0] == today:
+            return self._markov_decision[1]
+        try:
+            closes = await self.tool_handlers.get_daily_closes(
+                count=self.markov_gate.min_closes + 5)
+            decision = self.markov_gate.evaluate(closes)
+        except Exception as exc:
+            logger.warning("Markov gate data fetch failed — failing open: %r", exc)
+            decision = {"allow": True, "reason": f"data_error_fail_open: {exc}"}
+        (logger.warning if not decision["allow"] else logger.info)(
+            "Markov gate: %s — %s",
+            "BLOCKED (skip session)" if not decision["allow"] else "allowed",
+            decision["reason"],
+        )
+        self._markov_decision = (today, decision)
+        return decision
 
     async def _get_market_snapshot(self) -> Dict[str, Any]:
         """Build a compact market snapshot for the decision log."""

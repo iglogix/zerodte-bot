@@ -40,6 +40,16 @@ def _setup_logging(log_dir: str, level: str = "INFO", strategy: str = "bot"):
             logging.FileHandler(log_file),
         ],
     )
+    # Third-party libraries flood DEBUG (the tastytrade SDK logs every quote
+    # tick — 95% of a 261KB session log on 2026-06-11). The SDK's __init__
+    # sets its logger to DEBUG at import time and our client imports it
+    # lazily, so import it first and pin afterwards.
+    try:
+        import tastytrade  # noqa: F401
+    except ImportError:
+        pass
+    for noisy in ("tastytrade", "websockets", "httpx", "httpcore", "LiteLLM"):
+        logging.getLogger(noisy).setLevel(logging.INFO)
 
 
 def _load_config(config_path: str = "config/config.yaml") -> Dict[str, Any]:
@@ -253,6 +263,9 @@ class BotOrchestrator:
         elif strategy_name == "meic":
             from src_v2.strategies.meic import MeicStrategy
             strategy = MeicStrategy()
+        elif strategy_name == "power_hour":
+            from src_v2.strategies.power_hour import PowerHourStrategy
+            strategy = PowerHourStrategy()
         elif strategy_name == "reverse_ic":
             from src_v2.strategies.reverse_ic import ReverseIcStrategy
             strategy = ReverseIcStrategy()

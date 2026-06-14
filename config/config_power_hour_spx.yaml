@@ -1,0 +1,79 @@
+bot:
+  strategy: power_hour
+  mode: dry_run
+  symbol: SPX
+
+# 0-DTE "Power Hour" — three staggered fixed-credit iron condors in the last hour.
+# Source spec: docs/0DTE-Power-Hour-Strategy.md (Version A; B/C as variants).
+strategy:
+  # Tranche schedule (Version A). target_credit is per SIDE; stop dollars are on
+  # the COMBINED short strangle over entry credit; ratchet_add is the one-time
+  # stop reset applied when profit reaches ratchet_trigger_profit_pct.
+  tranches:
+    - { name: T1, entry: "14:55", target_credit: 4.00, stop: 4.00, ratchet_add: 3.00, qty: 1 }
+    - { name: T2, entry: "15:15", target_credit: 3.00, stop: 3.00, ratchet_add: 2.00, qty: 1 }
+    - { name: T3, entry: "15:25", target_credit: 2.00, stop: 3.00, ratchet_add: null, qty: 1 }
+
+  # Ratchet reading (§13.1 ambiguity):
+  #   trigger_plus — new stop = strangle price at trigger + ratchet_add (verbal
+  #                  worked example: $4.80 + $3 = $7.80 ≈ breakeven). Default.
+  #   entry_plus   — new stop = entry credit + ratchet_add (literal OO
+  #                  "stop loss = 3" reading: $8 + $3 = $11).
+  ratchet_mode: trigger_plus
+  ratchet_trigger_profit_pct: 0.40
+
+  profit_target_pct: 0.90      # close shorts if strangle decays 90%
+  final_exit: "15:55"          # forced close 5 min before the bell
+  final_exit_mode: close       # close | expire (expire = settle at parity forward)
+
+  wing_target_price: 0.05      # long wings = nearest strike priced ~ $0.05
+
+  # Stop fill model:
+  #   trigger — fill at the stop level + stop slippage (optimistic, OO-like)
+  #   quote   — buy both shorts at their breach-minute asks + stop slippage
+  stop_execution: trigger
+
+  skip_fomc_days: true         # the only blackout in the standard version
+
+  # Entry-quote dislocation guard (same idea as MEIC): skip a tranche whose
+  # short leg quote is stale/locked (spread > min AND > mult x mid).
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
+
+  # Version selector: A (fixed credit, default) | B (lecture 1.10 personal params)
+  version: A
+  version_b:
+    target_delta: 0.20
+    wing_width_pts: 70
+    trail_pct: 0.60
+    qty: 4                  # so 50%/25% scale-outs land on whole contracts
+    scale_tiers:
+      - { profit: 0.20, close_frac: 0.50, new_trail: 0.30 }
+      - { profit: 0.40, close_frac: 0.25 }
+
+  # Version C regime overlay (lecture 1.11). Disabled for Version A.
+  regime_overlay:
+    enabled: false
+    up_pct: 0.5            # >= +0.5% from open at tranche entry  -> up day
+    down_pct: -0.6         # <= -0.6% from open                   -> down day
+    skip_normal: true      # normal days: skip the tranche
+    ratio: 2               # up: 2 puts:1 call; down: 2 calls:1 put
+
+options:
+  contract_multiplier: 100
+  slippage_per_spread: 0.10            # entry / time-exit, per side-spread
+  stop_slippage_per_spread: 0.25       # stops slip worse
+  commission_open_per_contract_per_leg: 1.0
+  commission_close_per_contract_per_leg: 1.0   # OO model: $1 open + $1 close
+
+backtest:
+  data_file: "data/spy_1m.csv"
+  price_scale: 10.0
+  cbbo_cache_dir: "data/cbbo_cache_fly_10min"     # 1-min, 09:31-15:59, open±250pt
+  cbbo_overlay_dir: "data/cbbo_cache_meic"        # 1-min, 11:00-15:49, extra strikes
+  start_date: "2022-05-11"
+  end_date: "2026-02-27"
+
+logging:
+  log_dir: "logs"
+  level: "INFO"

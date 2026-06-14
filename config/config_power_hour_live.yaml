@@ -1,0 +1,80 @@
+bot:
+  strategy: power_hour
+  mode: dry_run            # graduate: dry_run -> manual -> live (TT cert can't trade SPXW 0DTE)
+  symbol: SPX
+
+# 0-DTE Power Hour (docs/0DTE-Power-Hour-Strategy.md, Version A) — live config.
+# Three staggered fixed-credit iron condors in the final hour, combined-strangle
+# dollar stops with a one-time profit ratchet, forced close 15:55 ET.
+entry:
+  schedule:
+    - "14:55"
+    - "15:15"
+    - "15:25"
+  skip_non_trading_days: true
+  # Markov regime gate — managed by the quarterly re-optimization METHOD
+  # (scripts/reopt_markov_gate.py via markov-gate-reopt.timer). The method —
+  # re-sweep rule x window x threshold on the trailing ~130 trade days and
+  # deploy the winner — is what's validated (three-tier WF per docs/wf-cv.md,
+  # results/markov_gate_wf_method_2026-06-12.txt: every train/cadence cell in
+  # the 130-195/65-130 box beat no-optimization over 593 OOS days). Do not
+  # hand-tune values here; they are overwritten at each re-opt. Causal:
+  # prior-session closes only. Fails open if the daily feed is down.
+  markov_gate:
+    enabled: true
+    window: 15
+    bull_threshold: 0.06
+    bear_threshold: -0.06
+    rule: non_sw
+    # re-opt 2026-06-12 (quarterly method, trailing-130d sweep)
+
+strategy:
+  tranches:
+    - { name: T1, entry: "14:55", target_credit: 4.00, stop: 4.00, ratchet_add: 3.00, qty: 1 }
+    - { name: T2, entry: "15:15", target_credit: 3.00, stop: 3.00, ratchet_add: 2.00, qty: 1 }
+    - { name: T3, entry: "15:25", target_credit: 2.00, stop: 3.00, ratchet_add: null, qty: 1 }
+  ratchet_mode: trigger_plus
+  ratchet_trigger_profit_pct: 0.40
+  profit_target_pct: 0.90
+  wing_target_price: 0.05
+  dislocation_min_spread_pts: 1.0
+  dislocation_spread_mult: 1.5
+  skip_fomc_days: true
+
+risk:
+  max_concurrent_trades: 3      # the three tranches
+  max_daily_risk_percent: 3.0
+  max_buying_power_percent: 60.0
+
+monitor:
+  poll_interval_seconds: 5      # dollar stops need a tight poll in the last hour
+  eod_close_time: "15:55"       # forced close 5 min before the bell (zero-bid risk)
+
+options:
+  contract_multiplier: 100
+  quantity: 1
+  slippage_per_spread: 0.10
+  commission_per_contract_per_leg: 1.0
+  stop_slippage_per_spread: 0.25
+  strike_step_pts: 5
+  option_root: "SPXW"
+  chain_half_span_pts: 400
+
+# OpenAI primary for now — Anthropic API account is out of credits (2026-06-11);
+# both gates failed open on the first manual run. Switch back once topped up.
+llm:
+  advisor_model: "openai/gpt-4.1-mini"
+  debrief_model: "openai/gpt-4.1"
+
+cache:
+  option_chain_ttl: 60
+  quote_ttl: 10
+  account_info_ttl: 60
+
+database:
+  trading_db: "data/power_hour_bot.db"
+  cache_db: "data/market_cache.db"
+
+logging:
+  log_dir: "logs"
+  level: "INFO"

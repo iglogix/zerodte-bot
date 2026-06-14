@@ -295,11 +295,13 @@ def clawback_legs(legs: List[Leg], forward: float, cfg: BurritoConfig,
 class BurritoTrade:
     side: Side
     legs: List[Leg]
-    debit: float
+    debit: float                  # entry cost at slipped fills (for realized P&L)
     entry_date: int
     expiry: int
+    debit_mid: float = 0.0        # entry cost at mid (basis for % decisions)
     state: str = "DIRECTIONAL"
-    extra_cost: float = 0.0
+    extra_cost: float = 0.0       # adjustment costs at slipped fills
+    extra_mid: float = 0.0        # adjustment costs at mid
     exit_date: Optional[int] = None
     exit_reason: Optional[str] = None
     pnl_pts: Optional[float] = None
@@ -317,9 +319,9 @@ class Decision:
 
 def lifecycle_decision(tr: BurritoTrade, state: str, mtm_value: float, cfg: BurritoConfig,
                        is_last: bool, in_valley: bool = False) -> Decision:
-    """Pure decision function for one mark. mtm_value = current per-share value of
-    holding (proceeds to close). Capital basis = tr.debit + tr.extra_cost."""
-    basis = tr.debit + tr.extra_cost
+    """Pure decision function for one mark. mtm_value = current per-share MID value
+    of holding. Capital basis = mid entry cost (debit_mid + extra_mid)."""
+    basis = (tr.debit_mid + tr.extra_mid) or (tr.debit + tr.extra_cost)
     pnl_frac = (mtm_value - basis) / basis if basis > 0 else 0.0
     if is_last:
         return Decision("settle", next_state="CLOSED", reason="expiry")
@@ -345,13 +347,17 @@ def lifecycle_decision(tr: BurritoTrade, state: str, mtm_value: float, cfg: Burr
 
 
 def _em_from_chain(chain: dict, F: float, T: float) -> float:
-    """Expected move proxy = ATM straddle-equivalent (F*vol*sqrt(T)); per project
-    guidance use the ATM vol, not VIX. Falls back to 1% of F if unpriceable."""
-    sm = Smile(chain, F, T)
-    if sm.ok():
-        v = sm.vol(F)
-        if v:
-            return F * v * (T ** 0.5)
+    """Expected move proxy = ATM straddle mid (per project guidance: ATM straddle,
+    not VIX). Cheap — no IV solve. Falls back to 1% of F if unpriceable."""
+    strikes = sorted({k for (k, _r) in chain})
+    if strikes:
+        atm = min(strikes, key=lambda k: abs(k - F))
+        c = chain.get((atm, "C"))
+        p = chain.get((atm, "P"))
+        if c and p and c[1] > 0 and p[1] > 0:
+            straddle = (c[0] + c[1]) / 2 + (p[0] + p[1]) / 2
+            if straddle > 0:
+                return straddle
     return 0.01 * F
 
 
@@ -371,10 +377,12 @@ def run_trade(store, entry_date: int, expiry: int, side: Side,
         em = _em_from_chain(ch0, F0, T0)
     legs = build_legs(F0, em, cfg, side)
     debit = entry_debit(legs, ch0, cfg.slippage_k, cfg.commission_per_leg)
-    if debit is None or (cfg.gates_on and not passes_gates(debit, cfg)):
+    debit_mid = entry_debit(legs, ch0, 0.0, 0.0)
+    if debit is None or debit_mid is None or (cfg.gates_on and not passes_gates(debit, cfg)):
         return None
-    tr = BurritoTrade(side=side, legs=legs, debit=debit, entry_date=entry_date,
-                      expiry=expiry, dte=(_to_date(expiry) - _to_date(entry_date)).days)
+    tr = BurritoTrade(side=side, legs=legs, debit=debit, debit_mid=debit_mid,
+                      entry_date=entry_date, expiry=expiry,
+                      dte=(_to_date(expiry) - _to_date(entry_date)).days)
 
     if marks is None:
         from src_v2.backtest.burrito_clock import eod_marks
@@ -382,39 +390,51 @@ def run_trade(store, entry_date: int, expiry: int, side: Side,
     if not marks:
         return None
 
+    def _add(add_legs, mark):
+        """Price an adjustment and fold its legs into the position."""
+        if not add_legs:
+            return
+        fill = entry_debit(add_legs, mark.chain, cfg.slippage_k, cfg.commission_per_leg)
+        mid = entry_debit(add_legs, mark.chain, 0.0, 0.0)
+        if fill is None or mid is None:
+            return
+        tr.extra_cost += fill
+        tr.extra_mid += mid
+        tr.legs = _merge(tr.legs + add_legs)
+
     n = len(marks)
     for i, m in enumerate(marks):
-        sm = Smile(m.chain, m.forward, m.T) if m.forward else None
-        val = position_value(tr.legs, m.chain, sm, m.forward, cfg.slippage_k)
-        if val is None:
+        # lazy smile: only build (expensive IV solve) when a leg is unpriced by the chain
+        mid_val = position_value(tr.legs, m.chain, None, None, 0.0)
+        sm = None
+        if mid_val is None and m.forward is not None:
+            sm = Smile(m.chain, m.forward, m.T)
+            mid_val = position_value(tr.legs, m.chain, sm, m.forward, 0.0)
+        if mid_val is None:
             continue
         in_window = (i >= n - cfg.clawback_last_n)
         in_valley = (in_window and m.forward is not None and
                      _nearest_valley(tr.legs, m.forward, cfg,
-                                     tr.debit + tr.extra_cost) is not None)
-        d = lifecycle_decision(tr, tr.state, val, cfg, m.is_last, in_valley)
+                                     tr.debit_mid + tr.extra_mid) is not None)
+        d = lifecycle_decision(tr, tr.state, mid_val, cfg, m.is_last, in_valley)
         if d.action == "lock":
-            add = lock_legs(tr.side, m.forward, em, cfg)
-            tr.extra_cost += entry_debit(add, m.chain, cfg.slippage_k, cfg.commission_per_leg) or 0.0
-            tr.legs = _merge(tr.legs + add)
+            _add(lock_legs(tr.side, m.forward, em, cfg), m)
             tr.state = d.next_state
         elif d.action == "defend":
-            add = _apply_defense(tr, m, em, cfg)
-            tr.extra_cost += entry_debit(add, m.chain, cfg.slippage_k, cfg.commission_per_leg) or 0.0
-            tr.legs = _merge(tr.legs + add)
+            _add(_apply_defense(tr, m, em, cfg), m)
             tr.state = d.next_state
         elif d.action == "clawback":
-            add = clawback_legs(tr.legs, m.forward, cfg, tr.debit + tr.extra_cost)
-            tr.extra_cost += entry_debit(add, m.chain, cfg.slippage_k, cfg.commission_per_leg) or 0.0
-            tr.legs = _merge(tr.legs + add)
+            _add(clawback_legs(tr.legs, m.forward, cfg, tr.debit_mid + tr.extra_mid), m)
         elif d.action in ("close", "settle"):
-            _close(tr, m, val, d.reason, cfg)
+            if d.reason in ("expiry", "settle"):
+                _close(tr, m, None, d.reason, cfg, settle_price=_settle_price(store, m))
+            else:
+                fill_val = position_value(tr.legs, m.chain, sm, m.forward, cfg.slippage_k)
+                _close(tr, m, fill_val, d.reason, cfg)
             return tr
-    # safety net: settle at last mark
+    # safety net: settle at last mark (cash settlement)
     last = marks[-1]
-    sm = Smile(last.chain, last.forward, last.T) if last.forward else None
-    val = position_value(tr.legs, last.chain, sm, last.forward, cfg.slippage_k)
-    _close(tr, last, val if val is not None else (tr.debit + tr.extra_cost), "expiry", cfg)
+    _close(tr, last, None, "expiry", cfg, settle_price=_settle_price(store, last))
     return tr
 
 
@@ -428,12 +448,25 @@ def _apply_defense(tr: BurritoTrade, m, em: float, cfg: BurritoConfig) -> List[L
     return []
 
 
-def _close(tr: BurritoTrade, m, val: float, reason: str, cfg: BurritoConfig) -> None:
+def _settle_price(store, m) -> Optional[float]:
+    """Robust expiry settlement: parity forward of the expiry chain, else the
+    index spot on the expiry day, else the mark's forward (SPXW is PM cash-settled
+    at the expiry-day close)."""
+    s = parity_forward(m.chain)
+    if s is None and hasattr(store, "spot"):
+        s = store.spot(m.date)
+    return s if s is not None else m.forward
+
+
+def _close(tr: BurritoTrade, m, val: Optional[float], reason: str, cfg: BurritoConfig,
+           settle_price: Optional[float] = None) -> None:
     if reason in ("expiry", "settle"):
-        settle = parity_forward(m.chain) or m.forward
+        settle = settle_price if settle_price is not None else (parity_forward(m.chain) or m.forward)
         gross = payoff(tr.legs, settle) if settle is not None else (val or 0.0)
-    else:
-        gross = val
+    elif val is not None:
+        gross = val                      # slipped proceeds to close early
+    else:                                # unpriceable: fall back to intrinsic at forward
+        gross = payoff(tr.legs, m.forward) if m.forward is not None else (tr.debit + tr.extra_cost)
     tr.pnl_pts = gross - (tr.debit + tr.extra_cost)
     tr.pnl_usd = tr.pnl_pts * cfg.multiplier
     tr.exit_date = m.date

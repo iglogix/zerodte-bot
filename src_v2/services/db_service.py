@@ -34,7 +34,21 @@ class DatabaseService:
 
     def initialize(self):
         self._engine = init_db(self.db_path)
+        self._migrate()
         logger.info("Database initialized at %s", self.db_path)
+
+    def _migrate(self):
+        """Additive migrations for pre-existing SQLite files (create_all only
+        creates missing tables, it never adds columns to existing ones)."""
+        from sqlalchemy import text
+        with self._engine.connect() as conn:
+            cols = {row[1] for row in
+                    conn.execute(text("PRAGMA table_info(iron_condor_trades)"))}
+            if cols and "strategy_data" not in cols:
+                conn.execute(text(
+                    "ALTER TABLE iron_condor_trades ADD COLUMN strategy_data TEXT"))
+                conn.commit()
+                logger.info("DB migration: added iron_condor_trades.strategy_data")
 
     def _session(self):
         return get_session(self._engine)
@@ -85,7 +99,14 @@ class DatabaseService:
             return True
 
     def _trade_to_dict(self, trade: IronCondorTrade) -> Dict[str, Any]:
+        extra: Dict[str, Any] = {}
+        if getattr(trade, "strategy_data", None):
+            try:
+                extra = json.loads(trade.strategy_data)
+            except (ValueError, TypeError):
+                logger.warning("Unparseable strategy_data on trade %s", trade.trade_id)
         return {
+            **extra,
             "id": trade.id,
             "trade_id": trade.trade_id,
             "entry_time": trade.entry_time,
