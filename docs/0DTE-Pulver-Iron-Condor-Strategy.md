@@ -48,6 +48,30 @@ loser without the discretionary defense overlay.** Consistent with the repo's
 prior CBBO finding ("BS credits are fiction at low delta / narrow width; real
 SPX 0DTE needs 25pt+ width, 0.20+ delta").
 
+### 2a. Adding the broken-wing-butterfly defense (full as-taught system)
+
+A video screenshot confirmed the defense is mechanically specifiable relative to
+the IC short strikes (Kc = short call, Kp = short put):
+
+- Call BWB: `+1 (Kc-5)  -2 (Kc+5)  +1 (Kc+25)`  (asymmetric 10/20)
+- Put  BWB: `+1 (Kp+5)  -2 (Kp-5)  +1 (Kp-25)`  (mirror)
+
+entered ~15 min after the IC (09:50), held to settlement
+(`scripts/overlay_defense_bwb.py`, priced from the same CBBO cache):
+
+| System | Sharpe | Total P&L | WR | PF | Avg win/loss | Max DD |
+|---|---|---|---|---|---|---|
+| IC only | −1.01 | −$7,430 | 75.8% | 0.84 | +$164 / −$605 | $10,736 |
+| IC + BWB defense | −0.60 | −$6,160 | 79.1% | 0.89 | +$192 / −$820 | $11,988 |
+
+The defense behaves exactly as Pulver describes — it buffers moderate breaches
+(WR 75.8%→79.1%, Sharpe −1.01→−0.60, +$3.9/day) but *raises* the average loss
+and max drawdown, because on big-move days "you lose on the IC and on defense."
+**The full as-taught system is still a net loser.** (226/326 days had the
+call-BWB fully quoted, 175/326 the put-BWB — the Kc+25/Kp−25 far legs are often
+unquoted; defense applied where liquid.) Pulver's real edge is the discretionary
+**Plan-C gamma-"key-level" butterflies**, which cannot be mechanized.
+
 ## 3. Optimization for maximum Sharpe
 
 Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),
