@@ -67,7 +67,13 @@ entered ~15 min after the IC (09:50), held to settlement
 The defense behaves exactly as Pulver describes — it buffers moderate breaches
 (WR 75.8%→79.1%, Sharpe −1.01→−0.60, +$3.9/day) but *raises* the average loss
 and max drawdown, because on big-move days "you lose on the IC and on defense."
-**The full as-taught system is still a net loser.** (226/326 days had the
+**The full as-taught system is still a net loser.**
+
+**The defense is NOT placed in the engine or the winner**, and it shouldn't be:
+overlaid on the validated per-side-leg-out winner it *costs* −$67.9/day and
+halves Sharpe (5.18 → 2.53, avg loss −$248 → −$764, DD doubles). Same story as
+the gap box — both Pulver overlays help his no-stop framework but are
+redundant/counterproductive once the per-side leg-out is doing the defending. (226/326 days had the
 call-BWB fully quoted, 175/326 the put-BWB — the Kc+25/Kp−25 far legs are often
 unquoted; defense applied where liquid.) Pulver's real edge is the discretionary
 **Plan-C gamma-"key-level" butterflies**, which cannot be mechanized.
