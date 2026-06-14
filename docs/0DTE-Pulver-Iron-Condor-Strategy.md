@@ -151,6 +151,41 @@ So the joint re-optimization leaves the winner unchanged, and no defense config
 is worth WF-CV-ing (none beats the bare IC even in-sample). The defense earns its
 keep only in Pulver's no-stop, far-strike framework.
 
+### 2d. Full delta range: win rate vs Sharpe (the central tradeoff)
+
+Sweeping em_mult from near-ATM to ~4-delta (`scripts/delta_tradeoff.py`,
+realized delta from each day's ATM-straddle IV, wing 30, full period):
+
+**A — Pulver's framework (no stop, hold to settlement):**
+
+| em_mult | ~delta | WR% | Sharpe | total$ |
+|---|---|---|---|---|
+| 0.20 | 30d | 54% | 1.30 | +42,911 |
+| 0.75 | 17d | 67% | 0.89 | +10,942 |
+| 1.25 | **10d** | **80%** | 0.50 | +3,358 |
+| 1.50 | 8d | 86% | 0.10 | +598 |
+| 2.00 | 4d | 92% | 1.07 | +3,508 |
+
+**B — leg-out (per-side SL + TP + gates):** 0.20/29d → Sharpe **4.02**;
+1.25/10d → −0.44; 2.00/4d → −2.24.
+
+Findings:
+- **At Pulver's ~10-delta the win rate is 80%** (rising to 86–92% at 6–4 delta),
+  matching his 85–89% claim. em_mult=1.25 is empirically ≈10-delta (an earlier
+  analytic estimate of ~16d was wrong), so 10-delta *was* covered; this surfaces
+  its WR/Sharpe explicitly and extends to 4-delta.
+- **High WR ≠ high Sharpe.** At 10-delta Sharpe is only ~0.50; the 92%-WR
+  4-delta is 1.07. None approach the near-ATM Sharpe (4.02). The high win rate is
+  paid for by rare full-width losses → poor risk-adjusted return (the
+  premium-selling inversion).
+- **The leg-out only helps near-ATM and is destructive far-OTM** (1.25→−0.44,
+  2.0→−2.24): a 2× stop on a tiny far-OTM credit triggers on noise and locks in
+  losses that hold-to-expiry would have won. This is exactly *why* Pulver runs
+  **no stop** at his delta — correct for his delta.
+- So the max-Sharpe winner (~30-delta, 53% WR) is a fundamentally different trade
+  from Pulver's (~10-delta, 80% WR). His high-WR IC is low-Sharpe on its own; his
+  real returns come from the discretionary butterflies.
+
 ## 3. Optimization for maximum Sharpe
 
 Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),
