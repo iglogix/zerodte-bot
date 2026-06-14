@@ -18,13 +18,15 @@ from src_v2.backtest.burrito_core import BurritoConfig, run_history, summarize_b
 
 # Focused grid — the levers that matter. Wider stop/lock bands than the deck's
 # tight 5-10% because EOD marks are noisy; hold-to-expiry is the wide limit.
+# 'both' dropped from the sweep: the structural sweep showed the directional call
+# barely moves WR (hull 18.3% vs both 18.0%) and it doubles runtime.
 GRID = {
     "entry_dte": [1, 3],
-    "body_offset": [0.25, 0.5, 0.75],
-    "direction_signal": ["hull", "momentum", "both"],
+    "body_offset": [0.5, 0.75],
+    "direction_signal": ["hull", "momentum"],
     "lock_trigger_pct": [0.25, 0.5],
     "stop_pct": [0.5, 1.0],
-    "pt_pct": [0.25, 0.5],
+    "pt_pct": [0.5],
     "defense_policy": [(), ("clawback",)],
 }
 MIN_TRADES = 30
@@ -74,7 +76,8 @@ def main():
         results.append({"test_year": test_y, "selected": best,
                         "val_sharpe": round(best_sharpe, 3), "val": best_val, "oos": oos})
         print(f"  fold test={test_y}: val_sharpe={best_sharpe:.2f} "
-              f"OOS sharpe={oos.get('sharpe')} OOS trades={oos.get('trades')} sel={best}")
+              f"OOS sharpe={oos.get('sharpe')} OOS trades={oos.get('trades')} sel={best}",
+              flush=True)
 
     stress = {}
     if results:
