@@ -186,6 +186,56 @@ Findings:
   from Pulver's (~10-delta, 80% WR). His high-WR IC is low-Sharpe on its own; his
   real returns come from the discretionary butterflies.
 
+### 2e. Plan C — the "key-level" butterflies (modeled)
+
+Pulver places 0DTE butterflies at gamma "key levels" (the HVL pivot / where price
+gravitates) and manages them for 50%+ return or a end-of-day pin. Modeled with the
+repo's existing butterfly evaluator + GEX engine (`scripts/analytical_butterfly_eval.py`,
+`src_v2/backtest/gex.py`: `magnet_strike` = dealer-gamma pin = his "key level";
+`gamma_flip` = HVL pivot). 20–25-wide, entry 10:00, CBBO-priced, full period.
+
+**His exact recipe (gamma-magnet placement) has no edge:**
+
+| placement (50% target) | Sharpe (zero-cost) | Sharpe ($0.05/leg) |
+|---|---|---|
+| gamma magnet (his "key level") | 1.93 | 0.57 |
+| centered / ATM | 2.08 | 0.80 |
+| anti (fade morning move) | 3.39 | 1.74 |
+
+The gamma-magnet placement is the *weakest* — his "skate where the puck is going"
+gamma read is not the source of edge (matches the repo's prior "GEX placement
+refuted"). Hold-to-pin is a losing lottery (Sharpe −0.68); his 50%-return rule is
+what turns a profit — but at 50% target it's cost-fragile (1.74 → 0.33 → −1.12 as
+slip goes $0.05 → $0.10 → $0.15/leg).
+
+**The one robust, WF-CV-validated, cost-robust butterfly is directional — and NOT
+his method.** A sweep (120 combos × 4 expanding folds, selected on net train
+Sharpe) picked **put-side / 2:1-target / 25-wide** in *every* fold; OOS net Sharpe
+4.14 / 2.32 / 4.78 / 7.37, pooled **+$231/trade with costs**, and cost-robust
+(Sharpe 3.87 → 3.41 → 2.95 at $0.05 → $0.10 → $0.15/leg — letting winners run to
+2:1 makes per-leg slippage a small fraction). But the direction comparison shows
+it is a **pure downside-drift bet**, not a structural pin edge:
+
+| dir (2:1, 25-wide, $0.10) | Sharpe | P&L |
+|---|---|---|
+| put (downside fly) | +3.41 | +$156,847 |
+| call (upside fly) | **−5.50** | −$238,468 |
+| anti (mean-revert) | +1.56 | +$73,342 |
+| coin (random) | −1.88 | −$83,924 |
+
+Put wins, the call mirror loses catastrophically → the edge is direction (a
+persistent downside-skew / pullback harvest over 2022–2026), expressed via a put
+fly, with 47.6% WR and positive skew (a few big winners — so Sharpe flatters a
+fat-tailed return). It carries melt-up bleed and gap-down tail risk and is
+regime-dependent. The `anti` mean-reversion fly (1.56) is the more defensible,
+less purely-directional edge.
+
+**Verdict:** butterflies are fully modelable. Pulver's *neutral gamma-key-level*
+butterfly has no mechanical edge; the profitable flies are a *directional*
+downside/mean-reversion bet that is not what he teaches. So his discretionary
+gamma read is, again, not the source of any edge — consistent with the IC, the
+EM-box, and the defense: the mechanizable edges are different from his stated method.
+
 ## 3. Optimization for maximum Sharpe
 
 Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),
