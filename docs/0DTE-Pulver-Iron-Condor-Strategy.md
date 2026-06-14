@@ -127,6 +127,30 @@ credit-balance filter (`max_credit_imbalance`, worth ~+1 Sharpe) and doubles the
 drawdown ($10.7k vs $5.7k). **The validated winner is correct to use symmetric
 placement;** the gap box is kept as a tested option for the no-stop variant.
 
+### 2c. Joint re-optimization: IC + tunable defense
+
+Since the defense is real (2a) and is matched to far strikes, the full system was
+re-optimized jointly (`scripts/optimize_ic_plus_defense.py`): em_mult × wing ×
+defense outer-wing offset (or off), with per-side leg-out + gates, full-period IS.
+
+| em | wing | defense | Sharpe | total$ | WR | maxDD |
+|---|---|---|---|---|---|---|
+| 0.20 | 30 | **off** | **4.02** | +58,498 | 53% | $5,671 |
+| 0.20 | 30 | out15 | 2.76 | +44,550 | 48% | $9,027 |
+| 1.00 | 30 | off | 1.52 | +2,642 | 51% | $2,209 |
+| 1.00 | 30 | **out30** | **2.12** | +9,271 | 66% | $3,373 |
+
+- The defense **helps far-OTM ICs** (em1.0/wing30: 1.52 → 2.12, WR 51%→66%) —
+  Pulver's zone, mechanism confirmed once more.
+- But **no defense variant beats the close-strike bare IC (4.02)**; on the
+  winner, defense only lowers Sharpe. The per-side leg-out is a *strictly better*
+  version of the same defense (caps the breach loss without the BWB's >±25 tail
+  or daily carry). They solve the same problem; the leg-out wins.
+
+So the joint re-optimization leaves the winner unchanged, and no defense config
+is worth WF-CV-ing (none beats the bare IC even in-sample). The defense earns its
+keep only in Pulver's no-stop, far-strike framework.
+
 ## 3. Optimization for maximum Sharpe
 
 Full-period landscape sweep (`scripts/sweep_open_ic_pulver.py`),
