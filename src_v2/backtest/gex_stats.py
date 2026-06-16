@@ -45,3 +45,30 @@ def partial_effect(y: np.ndarray, regime: np.ndarray, em: np.ndarray) -> Dict:
             "regime_t": float(t[1]), "regime_p": float(p[1]),
             "interaction_coef": float(beta[3]), "interaction_t": float(t[3]),
             "n": int(len(y))}
+
+
+def _sequential_folds(n: int, n_folds: int):
+    """Contiguous, non-overlapping OOS blocks in time order (rows assumed date-sorted)."""
+    edges = np.linspace(0, n, n_folds + 1).astype(int)
+    return [(edges[i], edges[i + 1]) for i in range(n_folds)]
+
+
+def oos_partial_effect(y, regime, em, n_folds: int = 4) -> Dict:
+    """Run partial_effect within each sequential OOS block. Rows MUST be date-sorted."""
+    y = np.asarray(y, float); regime = np.asarray(regime, float); em = np.asarray(em, float)
+    folds = []
+    for k, (lo, hi) in enumerate(_sequential_folds(len(y), n_folds)):
+        sl = slice(lo, hi)
+        if hi - lo < 20:
+            folds.append({"fold": k, "n": hi - lo, "regime_coef": float("nan"),
+                          "regime_t": float("nan"), "regime_p": float("nan"), "thin": True})
+            continue
+        pe = partial_effect(y[sl], regime[sl], em[sl])
+        pe["fold"] = k
+        folds.append(pe)
+    valid = [f for f in folds if not f.get("thin")]
+    n_pos_sig = sum(1 for f in valid if f["regime_coef"] > 0 and f["regime_p"] < 0.1)
+    n_neg_sig = sum(1 for f in valid if f["regime_coef"] < 0 and f["regime_p"] < 0.1)
+    return {"folds": folds, "n_valid": len(valid),
+            "n_pos_sig": n_pos_sig, "n_neg_sig": n_neg_sig,
+            "consistent_majority": max(n_pos_sig, n_neg_sig) > len(valid) / 2}

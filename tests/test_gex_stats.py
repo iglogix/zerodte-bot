@@ -29,3 +29,16 @@ def test_partial_effect_zero_when_regime_is_pure_vol_proxy():
     y = 0.3 * (em / em.mean()) + rng.normal(scale=0.05, size=n)
     res = partial_effect(y, regime, em)
     assert abs(res["regime_t"]) < 3.0             # not robustly significant
+
+from src_v2.backtest.gex_stats import oos_partial_effect
+
+def test_oos_partial_effect_reports_per_fold():
+    rng = np.random.default_rng(2)
+    n = 1000
+    regime = rng.normal(size=n)
+    em = rng.uniform(20, 60, n)
+    y = 0.4 * regime + 0.2 * (em / em.mean()) + rng.normal(scale=0.05, size=n)  # real regime effect
+    res = oos_partial_effect(y, regime, em, n_folds=4)
+    assert len(res["folds"]) == 4
+    # a genuine positive effect should appear in a majority of OOS folds
+    assert sum(1 for f in res["folds"] if f["regime_coef"] > 0 and f["regime_p"] < 0.1) >= 3
