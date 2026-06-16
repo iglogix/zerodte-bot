@@ -8,7 +8,7 @@ that have no existing CBBO cache to bootstrap a basis from.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime as _dt
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -74,6 +74,41 @@ def meic_day_symbols(
         out.append(format_osi(session_date, float(k), is_call=True, root=root))
         k += step_pts
     return out
+
+
+def multi_expiry_symbols(expiries, spot_low, spot_high, buffer_pts=150,
+                         buffer_down_pts=None, buffer_up_pts=None, step_pts=5,
+                         root="SPXW"):
+    """OSI symbols for a list of expiries over [spot_low-down, spot_high+up].
+
+    Defaults to a symmetric buffer_pts; pass buffer_down_pts/buffer_up_pts for an
+    asymmetric (wider-downside) window so the put-driven gamma flip — which sits well
+    below spot — is never truncated. Truncation must not be vol-correlated, so over-fetch
+    generously rather than tightly fit (statistics schema is cheap)."""
+    down = buffer_down_pts if buffer_down_pts is not None else buffer_pts
+    up = buffer_up_pts if buffer_up_pts is not None else buffer_pts
+    base_lo = int((spot_low - down) // step_pts) * step_pts
+    base_hi = int(-(-(spot_high + up) // step_pts)) * step_pts
+    out = []
+    for expiry in expiries:
+        k = base_lo
+        while k <= base_hi:
+            out.append(format_osi(expiry, float(k), is_call=False, root=root))
+            out.append(format_osi(expiry, float(k), is_call=True, root=root))
+            k += step_pts
+    return out
+
+
+def parse_osi_multi(symbol):
+    """'SPXW  240119P04700000' -> (date(2024,1,19), 4700.0, False); None on bad input."""
+    s = symbol.strip()
+    try:
+        exp = _dt.strptime(s[-15:-9], "%y%m%d").date()
+        is_call = s[-9] == "C"
+        strike = int(s[-8:]) / 1000.0
+        return exp, strike, is_call
+    except (ValueError, IndexError):
+        return None
 
 
 def meic_window_utc(
