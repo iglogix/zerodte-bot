@@ -43,3 +43,78 @@ def years_to_expiry(entry_anchor: str, sessions_after_today: int) -> float:
     """sessions_after_today = trading sessions strictly after the entry day up to and
     including the expiry session (0 for 0DTE, 1 for the next-session expiry)."""
     return (intraday_trading_fraction(entry_anchor) + sessions_after_today) / TRADING_DAYS_PER_YEAR
+
+
+@dataclass
+class RegimeFeatures:
+    total_gex: float
+    sign: int
+    flip: Optional[float]
+    dist_flip_em: Optional[float]      # (S - flip) / EM  (primary regime variable)
+    magnet: Optional[float]
+    dist_magnet_em: Optional[float]    # (S - magnet) / EM
+
+
+def _sign(x: float) -> int:
+    return 1 if x > 0 else (-1 if x < 0 else 0)
+
+
+def total_gex_multi(moi: MultiOi, S: float, sigma: float,
+                    t_by_expiry: Dict[date, float], mult: int = 100) -> float:
+    return sum(total_gex(slice_expiry(moi, e), S, sigma, t_by_expiry[e], mult)
+               for e in expiries(moi))
+
+
+def gamma_flip_multi(moi: MultiOi, S: float, sigma: float,
+                     t_by_expiry: Dict[date, float], mult: int = 100) -> Optional[float]:
+    strikes = sorted({k for (_, k, _) in moi})
+    if not strikes:
+        return None
+    prev = total_gex_multi(moi, strikes[0], sigma, t_by_expiry, mult)
+    for lvl in strikes[1:]:
+        cur = total_gex_multi(moi, lvl, sigma, t_by_expiry, mult)
+        if (prev < 0 <= cur) or (prev > 0 >= cur):
+            return lvl
+        prev = cur
+    return None
+
+
+def magnet_strike_multi(moi: MultiOi, S: float, sigma: float,
+                        t_by_expiry: Dict[date, float]) -> Optional[float]:
+    best: Optional[float] = None
+    best_val = -1.0
+    for K in sorted({k for (_, k, _) in moi}):
+        val = 0.0
+        for e in expiries(moi):
+            oc = moi.get((e, K, True), 0)
+            op = moi.get((e, K, False), 0)
+            val += bs_gamma(S, K, t_by_expiry[e], sigma) * (oc + op)
+        if val > best_val:
+            best_val, best = val, K
+    return best
+
+
+def _features(tg: float, flip: Optional[float], magnet: Optional[float],
+              S: float, em: float) -> RegimeFeatures:
+    d_flip = (S - flip) / em if (flip is not None and em > 0) else None
+    d_mag = (S - magnet) / em if (magnet is not None and em > 0) else None
+    return RegimeFeatures(tg, _sign(tg), flip, d_flip, magnet, d_mag)
+
+
+def standing_regime(moi: MultiOi, S: float, em: float, sigma: float,
+                    t_by_expiry: Dict[date, float], mult: int = 100) -> RegimeFeatures:
+    tg = total_gex_multi(moi, S, sigma, t_by_expiry, mult)
+    flip = gamma_flip_multi(moi, S, sigma, t_by_expiry, mult)
+    magnet = magnet_strike_multi(moi, S, sigma, t_by_expiry)
+    return _features(tg, flip, magnet, S, em)
+
+
+def proxy_regime(moi: MultiOi, expiry_1dte: date, S: float, em: float, sigma: float,
+                 entry_anchor: str, mult: int = 100) -> RegimeFeatures:
+    """1DTE OI distribution evaluated at the 0DTE time-to-expiry kernel."""
+    oi = slice_expiry(moi, expiry_1dte)
+    t0 = years_to_expiry(entry_anchor, 0)
+    tg = total_gex(oi, S, sigma, t0, mult)
+    flip = gamma_flip(oi, S, sigma, t0, mult)
+    magnet = magnet_strike(oi, S, sigma, t0)
+    return _features(tg, flip, magnet, S, em)
