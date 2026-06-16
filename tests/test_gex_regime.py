@@ -46,3 +46,26 @@ def test_proxy_uses_0dte_kernel_on_1dte_oi():
                            sigma=0.20, entry_anchor="09:30")
     # call-heavy 1DTE -> positive dealer gamma
     assert feat.sign == 1
+
+def test_evolution_stability_stable_when_sign_and_flip_constant():
+    # same expiry observed on 2 obs-days; OI grows but sign/flip barely move
+    # 3-strike design: heavy calls at 5000, neutral at 4950, heavy puts at 4900
+    # -> sign positive at S=5000, flip at 4950 (sign crossing between 4900 and 4950)
+    oi_a = {(5000.0, True): 2000, (5000.0, False): 100,
+            (4950.0, True): 300,  (4950.0, False): 300,
+            (4900.0, True): 100,  (4900.0, False): 2000}
+    oi_b = {(5000.0, True): 2200, (5000.0, False): 120,
+            (4950.0, True): 310,  (4950.0, False): 310,
+            (4900.0, True): 110,  (4900.0, False): 2100}
+    snaps = [(date(2022,10,3), oi_a), (date(2022,10,4), oi_b)]
+    res = gr.evolution_stability(snaps, S=5000.0, em=40.0, sigma=0.20, T_eval=gr.years_to_expiry("09:30",0))
+    assert res["signs"][0] == res["signs"][1]      # sign stable
+    assert res["sign_stable"] is True
+    assert res["max_flip_drift_em"] is not None
+
+def test_evolution_stability_unstable_on_sign_flip():
+    call_heavy = {(5000.0, True): 1000, (5000.0, False): 100}
+    put_heavy = {(5000.0, True): 100, (5000.0, False): 1000}
+    snaps = [(date(2022,10,3), call_heavy), (date(2022,10,4), put_heavy)]
+    res = gr.evolution_stability(snaps, S=5000.0, em=40.0, sigma=0.20, T_eval=gr.years_to_expiry("09:30",0))
+    assert res["sign_stable"] is False

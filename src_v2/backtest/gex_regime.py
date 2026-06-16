@@ -118,3 +118,27 @@ def proxy_regime(moi: MultiOi, expiry_1dte: date, S: float, em: float, sigma: fl
     flip = gamma_flip(oi, S, sigma, t0, mult)
     magnet = magnet_strike(oi, S, sigma, t0)
     return _features(tg, flip, magnet, S, em)
+
+
+def evolution_stability(snapshots: List[Tuple[date, Oi]], S: float, em: float,
+                        sigma: float, T_eval: float, mult: int = 100) -> dict:
+    """Track one expiry's regime across consecutive observation days (e.g. its 2DTE,
+    1DTE, 0DTE-prior-close snapshots), all evaluated at a common T_eval kernel.
+
+    Returns sign sequence, flip sequence, max flip drift in EM units, and sign_stable.
+    sign_stable=True iff the dealer-gamma sign is identical across every snapshot.
+    """
+    signs: List[int] = []
+    flips: List[Optional[float]] = []
+    for _, oi in snapshots:
+        signs.append(_sign(total_gex(oi, S, sigma, T_eval, mult)))
+        flips.append(gamma_flip(oi, S, sigma, T_eval, mult))
+    known = [f for f in flips if f is not None]
+    drift = (max(known) - min(known)) / em if (len(known) >= 2 and em > 0) else None
+    return {
+        "obs_days": [d for d, _ in snapshots],
+        "signs": signs,
+        "flips": flips,
+        "max_flip_drift_em": drift,
+        "sign_stable": len(set(signs)) == 1,
+    }
