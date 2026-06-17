@@ -113,7 +113,10 @@ def build_router() -> APIRouter:
         index = _STATIC_DIR / "index.html"
         if not index.is_file():
             return JSONResponse({"error": "cockpit not built"}, status_code=500)
-        return FileResponse(index)
+        # Never cache the HTML, so the browser always loads the current scripts
+        # (a stale index.html pinned to old JS was making the "now" payoff
+        # curve appear frozen). The JS/CSS are versioned with ?v= for busting.
+        return FileResponse(index, headers={"Cache-Control": "no-store, max-age=0"})
 
     @router.get("/api/positions")
     async def api_positions():
