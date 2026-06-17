@@ -75,6 +75,10 @@ def create_app() -> FastAPI:
     # Auth middleware
     app.add_middleware(AuthMiddleware)
 
+    # Live P&L cockpit (routes: /cockpit, /api/positions, /api/quotes, /api/pnl_history)
+    from web.cockpit import build_router as build_cockpit_router
+    app.include_router(build_cockpit_router())
+
     # ------------------------------------------------------------------ #
     #  Auth routes
     # ------------------------------------------------------------------ #

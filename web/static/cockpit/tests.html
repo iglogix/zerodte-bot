@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cockpit JS tests</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #d7dee8; padding: 20px; }
+    .pass { color: #2ec26a; } .fail { color: #ff5d5d; font-weight: bold; }
+    h1 { font-size: 16px; }
+  </style>
+  <script src="/static/cockpit/payoff.js"></script>
+  <script src="/static/cockpit/pnl.js"></script>
+</head>
+<body>
+  <h1>Cockpit JS tests</h1>
+  <div id="out"></div>
+  <script>
+    var out = document.getElementById("out");
+    var pass = 0, fail = 0;
+    function ok(name, cond) {
+      var d = document.createElement("div");
+      d.className = cond ? "pass" : "fail";
+      d.textContent = (cond ? "PASS " : "FAIL ") + name;
+      out.appendChild(d);
+      cond ? pass++ : fail++;
+    }
+    function approx(a, b, tol) { return Math.abs(a - b) <= (tol || 1e-6); }
+
+    // --- Black-Scholes sanity ---
+    // ATM call with positive time has positive extrinsic value.
+    ok("ATM call > 0", Payoff.bsPrice(6000, 6000, 0.02, 0.16, true) > 0);
+    // Deep ITM call ~ intrinsic.
+    ok("ITM call ~ intrinsic", approx(Payoff.bsPrice(6100, 6000, 1e-6, 0.16, true), 100, 0.5));
+    // Deep OTM put ~ 0 near expiry.
+    ok("OTM put ~ 0", Payoff.bsPrice(6100, 6000, 1e-6, 0.16, false) < 0.5);
+    // normCdf(0) == 0.5
+    ok("normCdf(0)=0.5", approx(Payoff.normCdf(0), 0.5, 1e-3));
+
+    // --- Payoff of a put credit spread ---
+    // Short 5950 put / long 5930 put, credit 1.10, qty 1, mult 100.
+    var pos = { spreads: [{ right: "put", credit: 1.10, qty: 1,
+      short: { symbol: "S", right: "put", strike: 5950, multiplier: 100 },
+      long:  { symbol: "L", right: "put", strike: 5930, multiplier: 100 } }] };
+    // Above both strikes at expiry => keep full credit = +110.
+    ok("PCS max profit = +110", approx(Payoff.positionPayoffAt(pos, 6000, 0, "expiry"), 110, 1e-6));
+    // Below both strikes at expiry => max loss = (credit-width)*100 = (1.1-20)*100 = -1890.
+    ok("PCS max loss = -1890", approx(Payoff.positionPayoffAt(pos, 5900, 0, "expiry"), -1890, 1e-6));
+
+    // --- Pnl.aggregate ---
+    var list = [
+      { trade_id: "a", strategy: "MEIC", open_pnl: 100, max_profit: 215 },
+      { trade_id: "b", strategy: "MEIC", open_pnl: -40, max_profit: 193 },
+      { trade_id: "c", strategy: "ORB", open_pnl: 50, max_profit: 140 },
+    ];
+    ok("aggregate all = 110", Pnl.aggregate(list).total === 110);
+    ok("aggregate selected a+c = 150", Pnl.aggregate(list, ["a", "c"]).total === 150);
+    ok("byStrategy MEIC = 60", Pnl.aggregate(list).byStrategy.MEIC.open_pnl === 60);
+
+    // --- Pnl.curveFromHistory (sums per timestamp over selected) ---
+    var samples = [
+      { ts: "t1", trade_id: "a", open_pnl: 10 },
+      { ts: "t1", trade_id: "b", open_pnl: 5 },
+      { ts: "t2", trade_id: "a", open_pnl: 20 },
+      { ts: "t2", trade_id: "b", open_pnl: 8 },
+    ];
+    var curve = Pnl.curveFromHistory(samples, ["a", "b"]);
+    ok("curve x length 2", curve.x.length === 2);
+    ok("curve t1 sum = 15", curve.y[0] === 15);
+    ok("curve selected a only t2 = 20", Pnl.curveFromHistory(samples, ["a"]).y[1] === 20);
+
+    // --- netGreeks: short leg flips sign ---
+    var positions = [{ trade_id: "a", legs: [
+      { symbol: "S", side: "short", qty: 1, multiplier: 100 },
+      { symbol: "L", side: "long", qty: 1, multiplier: 100 } ] }];
+    var marks = { S: { delta: -0.30 }, L: { delta: -0.20 } };
+    // net delta = (-1)*(-0.30)*100 + (1)*(-0.20)*100 = 30 - 20 = 10
+    ok("netGreeks delta = 10", approx(Pnl.netGreeks(positions, marks, ["a"]).delta, 10, 1e-6));
+
+    var summary = document.createElement("h1");
+    summary.textContent = "Result: " + pass + " passed, " + fail + " failed";
+    summary.className = fail ? "fail" : "pass";
+    out.appendChild(summary);
+    window.__TEST_RESULT__ = { pass: pass, fail: fail };
+  </script>
+</body>
+</html>

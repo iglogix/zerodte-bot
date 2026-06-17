@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Live P&L Cockpit</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <link rel="stylesheet" href="/static/cockpit/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>P&amp;L Cockpit</h1>
+    <span id="mode-badge" class="badge">…</span>
+    <span id="conn-badge" class="badge">connecting</span>
+
+    <div class="stat">
+      <span class="label">SPX</span>
+      <span class="value small" id="spx">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Open P&amp;L (selected)</span>
+      <span class="value" id="total-pnl">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">% of Max</span>
+      <span class="value small" id="pnl-pct">—</span>
+    </div>
+
+    <div class="greeks">
+      <div class="stat"><span class="label">Δ</span><span class="value small" id="g-delta">—</span></div>
+      <div class="stat"><span class="label">Γ</span><span class="value small" id="g-gamma">—</span></div>
+      <div class="stat"><span class="label">Θ</span><span class="value small" id="g-theta">—</span></div>
+      <div class="stat"><span class="label">V</span><span class="value small" id="g-vega">—</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="panel">
+      <h2>
+        <span>Positions</span>
+        <span class="muted" id="updated">—</span>
+      </h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Strategy / Leg</th>
+              <th>Mark</th>
+              <th>Credit</th>
+              <th>Open P&amp;L</th>
+              <th>% Max</th>
+            </tr>
+          </thead>
+          <tbody id="pos-body">
+            <tr><td colspan="5" class="empty">Loading positions…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="right-col">
+      <div class="panel">
+        <h2><span>Intraday P&amp;L</span><span class="muted">cumulative · selected</span></h2>
+        <div class="chart" id="curve"></div>
+      </div>
+      <div class="panel">
+        <h2><span>Payoff / Risk</span><span class="muted">now vs expiry · selected</span></h2>
+        <div class="chart" id="payoff"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/cockpit/payoff.js"></script>
+  <script src="/static/cockpit/pnl.js"></script>
+  <script src="/static/cockpit/app.js"></script>
+</body>
+</html>
