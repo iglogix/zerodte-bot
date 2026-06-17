@@ -57,6 +57,18 @@ header h1 {
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 
+.reset-btn {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.reset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 .greeks { display: flex; gap: 16px; margin-left: auto; }
 
 main {

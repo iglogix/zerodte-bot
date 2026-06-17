@@ -47,7 +47,18 @@
     var badge = $("mode-badge");
     badge.textContent = state.sim ? "SIM" : "LIVE";
     badge.className = "badge " + (state.sim ? "sim" : "live");
+    var resetBtn = $("reset-btn");
+    if (state.sim && resetBtn) resetBtn.style.display = "";
     buildTable();
+  }
+
+  async function resetDay() {
+    try {
+      await fetch("/api/sim/reset", { method: "POST" });
+    } catch (e) { /* ignore */ }
+    state.samples = [];           // drop the old day's curve immediately
+    Plotly.purge("curve");
+    location.reload();            // reseed cleanly from 09:30
   }
 
   async function loadHistory() {
@@ -332,6 +343,8 @@
 
   // ---- boot --------------------------------------------------------------
   async function boot() {
+    var resetBtn = $("reset-btn");
+    if (resetBtn) resetBtn.addEventListener("click", resetDay);
     await loadPositions();
     await loadHistory();
     await poll();
