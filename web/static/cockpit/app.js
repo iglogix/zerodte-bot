@@ -79,7 +79,15 @@
         }
       });
       setStale(false);
-      $("updated").textContent = new Date().toLocaleTimeString();
+      if (data.sim && data.sim.clock) {
+        var simDt = new Date(data.sim.clock);
+        var hh = String(simDt.getHours()).padStart(2, "0");
+        var mm = String(simDt.getMinutes()).padStart(2, "0");
+        $("sim-clock").textContent = hh + ":" + mm + (data.sim.at_close ? " · CLOSE" : "");
+        $("updated").textContent = "session " + hh + ":" + mm;
+      } else {
+        $("updated").textContent = new Date().toLocaleTimeString();
+      }
     } catch (e) {
       setStale(true);
     }

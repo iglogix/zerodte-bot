@@ -85,6 +85,19 @@ class PnlSnapshotStore:
             session.add_all(rows)
         return len(rows)
 
+    def clear_for_date(self, day: Optional[date] = None) -> int:
+        """Delete all samples for ``day`` (default today). Returns rows removed."""
+        day = day or date.today()
+        start = datetime.combine(day, dt_time(0, 0, 0))
+        end = datetime.combine(day, dt_time(23, 59, 59, 999999))
+        with get_session(self._engine) as session:
+            n = (
+                session.query(PnlSnapshot)
+                .filter(PnlSnapshot.ts >= start, PnlSnapshot.ts <= end)
+                .delete()
+            )
+        return n
+
     def series_for_date(self, day: Optional[date] = None) -> List[Dict[str, Any]]:
         """Return all samples for ``day`` (default today), ordered by timestamp.
 

@@ -151,11 +151,21 @@ def build_router() -> APIRouter:
         und = underlyings.get("SPX") or (next(iter(underlyings.values()), None))
         und_price = (und or {}).get("last") or (und or {}).get("mid")
 
+        # A position contributes P&L only once it has entered. In sim mode the
+        # snapshot reports which trades are active at the current session time;
+        # in live mode every open trade is active.
+        sim_block = snapshot.get("sim") or {}
+        active_ids = sim_block.get("active_trade_ids")
+        active_set = set(active_ids) if active_ids is not None else None
+
         # Per-position open P&L (authoritative; persisted for the curve).
         pnl: List[Dict[str, Any]] = []
         samples: List[Dict[str, Any]] = []
         for pos in positions:
-            val = open_pnl_for_position(pos, mark_prices)
+            if active_set is not None and pos["trade_id"] not in active_set:
+                val = None
+            else:
+                val = open_pnl_for_position(pos, mark_prices)
             entry = {
                 "trade_id": pos["trade_id"],
                 "strategy": pos.get("strategy", "Other"),
@@ -172,9 +182,16 @@ def build_router() -> APIRouter:
                         "underlying_price": und_price,
                     }
                 )
+        # Persist in the snapshot's own time (simulated session time in sim mode)
+        # so the seeded curve and the live curve share one timeline.
+        ts = None
+        try:
+            ts = datetime.fromisoformat(snapshot["as_of"])
+        except (KeyError, TypeError, ValueError):
+            ts = None
         if samples:
             try:
-                _state.store.record_many(samples)
+                _state.store.record_many(samples, ts=ts)
             except Exception:
                 log.exception("Failed to persist P&L snapshot")
 
@@ -183,8 +200,21 @@ def build_router() -> APIRouter:
             "underlying": und,
             "marks": marks,
             "pnl": pnl,
+            "sim": snapshot.get("sim"),
             "market_regime": snapshot.get("market_regime"),
         }
+
+    @router.post("/api/sim/reset")
+    async def api_sim_reset():
+        """Restart the simulated session from the open and clear today's history."""
+        if not _sim_enabled():
+            return JSONResponse({"error": "not in sim mode"}, status_code=400)
+        _state.sim.reset()
+        try:
+            _state.store.clear_for_date(date.today())
+        except Exception:
+            log.exception("Failed to clear P&L history on reset")
+        return {"ok": True, "minute": _state.sim.sim_minute}
 
     @router.get("/api/pnl_history")
     async def api_pnl_history(d: Optional[str] = None):

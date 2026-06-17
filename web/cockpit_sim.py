@@ -1,29 +1,38 @@
 """Simulation harness for the Live P&L Cockpit.
 
 The market is closed and there are no live 0DTE positions, so this module
-fabricates a realistic, *internally consistent* world:
+replays a *full trading session* on a simulated clock:
 
-* a set of open trades across strategies (MEIC x2 tranches, Power Hour, ORB),
-  shaped exactly like ``DatabaseService.get_open_trades()`` output; and
-* a quote generator that prices every requested leg with Black-Scholes off a
-  random-walking SPX spot, returning the same wire shape as the options_api
-  ``/market-data/options-snapshot`` endpoint.
+* a pre-generated 1-minute SPX path from the open (09:30) to the close (16:00);
+* a simulated clock that advances a few session-minutes per poll, so you can
+  watch the whole day unfold in a couple of minutes of wall-clock time;
+* Black-Scholes marks priced at the *simulated* time-to-close, so theta decays
+  realistically as the session progresses and legs converge to intrinsic at 16:00;
+* positions that activate at their real entry times (ORB 09:45, MEIC 10:05/10:30,
+  Power Hour 14:30) — before entry a position has no quotes and no P&L.
 
-Because marks come from one moving spot, the intraday P&L curve, the payoff
-graph and the positions table all move together and stay coherent.
+Everything is driven by the one simulated spot path, so the intraday P&L curve,
+the payoff graph and the positions table stay coherent. The wire shape matches
+the options_api ``/market-data/options-snapshot`` response.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import random
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List
 
 from src_v2.backtest.osi_symbol import format_osi
 
 _MULT = 100
 _NORM = 1.0 / math.sqrt(2.0 * math.pi)
+
+_SESSION_OPEN = time(9, 30)
+_SESSION_CLOSE = time(16, 0)
+_SESSION_MINUTES = 390  # 09:30 -> 16:00
+_MINUTES_PER_YEAR = 525600.0
 
 
 def _norm_pdf(x: float) -> float:
@@ -62,14 +71,59 @@ def black_scholes(
 
 
 class CockpitSim:
-    """Holds the simulated world: a moving spot and a fixed set of positions."""
+    """Replays one trading session: a simulated clock, spot path and positions."""
 
-    def __init__(self, spot: float = 6000.0, iv: float = 0.22, seed: int = 7):
+    def __init__(
+        self,
+        spot: float = 6000.0,
+        iv: float = 0.22,
+        seed: int = 7,
+        minutes_per_poll: int | None = None,
+        daily_vol: float = 0.012,
+    ):
         self._rng = random.Random(seed)
-        self.spot = spot
+        self.start_spot = spot
         self.iv = iv
         self.expiry = date.today()
+        if minutes_per_poll is None:
+            minutes_per_poll = int(os.environ.get("SIM_MINUTES_PER_POLL", "6"))
+        self.minutes_per_poll = max(1, minutes_per_poll)
+        self._path = self._gen_path(spot, daily_vol)
+        self.sim_minute = 0
         self._trades = self._make_trades()
+
+    # ------------------------------------------------------------------ #
+    #  Session clock + spot path
+    # ------------------------------------------------------------------ #
+
+    def _gen_path(self, spot: float, daily_vol: float) -> List[float]:
+        """Pre-generate a 1-minute GBM spot path for the whole session."""
+        sig_min = daily_vol / math.sqrt(_SESSION_MINUTES)
+        path = [spot]
+        for _ in range(_SESSION_MINUTES):
+            shock = self._rng.gauss(0.0, sig_min) - 0.5 * sig_min * sig_min
+            path.append(path[-1] * math.exp(shock))
+        return path
+
+    @property
+    def spot(self) -> float:
+        return self._path[min(self.sim_minute, _SESSION_MINUTES)]
+
+    def current_dt(self) -> datetime:
+        return datetime.combine(self.expiry, _SESSION_OPEN) + timedelta(minutes=self.sim_minute)
+
+    def _t_years(self) -> float:
+        minutes_left = max(_SESSION_MINUTES - self.sim_minute, 0)
+        return max(minutes_left / _MINUTES_PER_YEAR, 1e-6)
+
+    def at_close(self) -> bool:
+        return self.sim_minute >= _SESSION_MINUTES
+
+    def seek(self, minute: int) -> None:
+        self.sim_minute = max(0, min(minute, _SESSION_MINUTES))
+
+    def reset(self) -> None:
+        self.sim_minute = 0
 
     # ------------------------------------------------------------------ #
     #  Positions
@@ -121,7 +175,7 @@ class CockpitSim:
         }
 
     def _make_trades(self) -> List[Dict[str, Any]]:
-        s = self.spot
+        s = self.start_spot
         trades = [
             # Two MEIC tranches at different times / widths
             self._ic_trade("meic-100500", s - 50, s - 70, s + 50, s + 70, 1.10, 1.05, "1005"),
@@ -169,6 +223,11 @@ class CockpitSim:
         trades.append(orb)
         return trades
 
+    def _entry_minute_of(self, trade: Dict[str, Any]) -> int:
+        et = trade["entry_time"]
+        minute = (et.hour - _SESSION_OPEN.hour) * 60 + (et.minute - _SESSION_OPEN.minute)
+        return max(0, min(minute, _SESSION_MINUTES))
+
     def trades(self) -> List[Dict[str, Any]]:
         return self._trades
 
@@ -176,28 +235,20 @@ class CockpitSim:
     #  Quotes
     # ------------------------------------------------------------------ #
 
-    def _t_years(self) -> float:
-        """Fraction of a year to 4pm ET today; floored so 0DTE keeps extrinsic."""
-        now = datetime.now()
-        close = now.replace(hour=16, minute=0, second=0, microsecond=0)
-        # Floor at ~2h so 0DTE legs keep visible extrinsic value off-hours.
-        hours = max((close - now).total_seconds() / 3600.0, 2.0)
-        return hours / (24.0 * 365.0)
-
-    def step_spot(self) -> None:
-        """Advance the simulated SPX spot by a small random walk."""
-        self.spot += self._rng.gauss(0.0, 2.5)
-
     def snapshot(self, request_body: Dict[str, Any]) -> Dict[str, Any]:
-        """Return an options_api-shaped SnapshotResponse for the requested legs."""
-        self.step_spot()
+        """Return an options_api-shaped SnapshotResponse at the current sim time."""
+        spot = self.spot
         t = self._t_years()
+        as_of = self.current_dt()
+        # Every option has a live quote all session — entry timing gates the
+        # *position's* P&L (below), not the quote feed. (Strategies can share a
+        # strike, so gating quotes by symbol would be wrong.)
         legs_out: List[Dict[str, Any]] = []
         for leg in request_body.get("legs", []):
             sym = leg["symbol"]
             strike = float(leg.get("strike") or 0.0)
             is_call = leg.get("right") == "call"
-            bs = black_scholes(self.spot, strike, t, self.iv, is_call)
+            bs = black_scholes(spot, strike, t, self.iv, is_call)
             mark = round(bs["price"], 2)
             spread = max(0.05, mark * 0.02)
             legs_out.append(
@@ -217,22 +268,38 @@ class CockpitSim:
                     "multiplier": leg.get("multiplier", _MULT),
                 }
             )
-        return {
-            "as_of": datetime.now().isoformat(),
+
+        active_trade_ids = [
+            t["trade_id"] for t in self._trades if self._entry_minute_of(t) <= self.sim_minute
+        ]
+        day_change = (spot - self._path[0]) / self._path[0] * 100
+        result = {
+            "as_of": as_of.isoformat(),
+            "sim": {
+                "clock": as_of.isoformat(),
+                "minute": self.sim_minute,
+                "total": _SESSION_MINUTES,
+                "minutes_per_poll": self.minutes_per_poll,
+                "at_close": self.at_close(),
+                "active_trade_ids": active_trade_ids,
+            },
             "underlyings": {
                 "SPX": {
                     "symbol": "SPX",
-                    "last": round(self.spot, 2),
-                    "bid": round(self.spot - 0.1, 2),
-                    "ask": round(self.spot + 0.1, 2),
-                    "mid": round(self.spot, 2),
-                    "day_change_pct": round((self.spot - 6000.0) / 6000.0 * 100, 3),
+                    "last": round(spot, 2),
+                    "bid": round(spot - 0.1, 2),
+                    "ask": round(spot + 0.1, 2),
+                    "mid": round(spot, 2),
+                    "day_change_pct": round(day_change, 3),
                 }
             },
             "legs": legs_out,
             "market_regime": {
-                "spy_day_change_pct": round((self.spot - 6000.0) / 6000.0 * 100, 3),
+                "spy_day_change_pct": round(day_change, 3),
                 "vix": 15.5,
             },
             "errors": [],
         }
+        # Advance the simulated clock for the next poll (hold at the close).
+        self.sim_minute = min(self.sim_minute + self.minutes_per_poll, _SESSION_MINUTES)
+        return result

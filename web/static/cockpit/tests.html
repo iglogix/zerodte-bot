@@ -8,8 +8,8 @@
     .pass { color: #2ec26a; } .fail { color: #ff5d5d; font-weight: bold; }
     h1 { font-size: 16px; }
   </style>
-  <script src="/static/cockpit/payoff.js"></script>
-  <script src="/static/cockpit/pnl.js"></script>
+  <script src="/static/cockpit/payoff.js?v=2"></script>
+  <script src="/static/cockpit/pnl.js?v=2"></script>
 </head>
 <body>
   <h1>Cockpit JS tests</h1>
@@ -67,6 +67,18 @@
     ok("curve x length 2", curve.x.length === 2);
     ok("curve t1 sum = 15", curve.y[0] === 15);
     ok("curve selected a only t2 = 20", Pnl.curveFromHistory(samples, ["a"]).y[1] === 20);
+
+    // Repeated polls at the same ts (frozen clock) must NOT double-count:
+    // last value per trade wins, then sum across trades.
+    var dupSamples = [
+      { ts: "tc", trade_id: "a", open_pnl: 100 },
+      { ts: "tc", trade_id: "b", open_pnl: 50 },
+      { ts: "tc", trade_id: "a", open_pnl: 110 },  // a re-polled at same ts
+      { ts: "tc", trade_id: "b", open_pnl: 55 },   // b re-polled at same ts
+    ];
+    var dupCurve = Pnl.curveFromHistory(dupSamples, ["a", "b"]);
+    ok("curve dedups same ts (1 point)", dupCurve.x.length === 1);
+    ok("curve dedups same ts (last sum = 165)", dupCurve.y[0] === 165);
 
     // --- netGreeks: short leg flips sign ---
     var positions = [{ trade_id: "a", legs: [

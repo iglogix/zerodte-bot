@@ -27,14 +27,27 @@
   // samples: [{ts, trade_id, strategy, open_pnl}] (ordered by ts)
   function curveFromHistory(samples, selected) {
     var sel = selected ? new Set(selected) : null;
+    // ts -> (trade_id -> latest open_pnl). De-duping by trade_id means repeated
+    // polls at the same timestamp (e.g. the clock frozen at the close) don't
+    // double-count — we keep the last value per trade, then sum across trades.
     var byTs = new Map();
     (samples || []).forEach(function (s) {
       if (sel && !sel.has(s.trade_id)) return;
       if (s.open_pnl == null) return;
-      byTs.set(s.ts, (byTs.get(s.ts) || 0) + s.open_pnl);
+      var perTrade = byTs.get(s.ts);
+      if (!perTrade) {
+        perTrade = new Map();
+        byTs.set(s.ts, perTrade);
+      }
+      perTrade.set(s.trade_id, s.open_pnl);
     });
     var xs = Array.from(byTs.keys()).sort();
-    return { x: xs, y: xs.map(function (t) { return byTs.get(t); }) };
+    var ys = xs.map(function (t) {
+      var sum = 0;
+      byTs.get(t).forEach(function (v) { sum += v; });
+      return sum;
+    });
+    return { x: xs, y: ys };
   }
 
   // Net position greeks over selected trades. Short legs flip the sign.

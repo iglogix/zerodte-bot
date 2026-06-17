@@ -126,6 +126,7 @@ def test_black_scholes_sanity():
 
 def test_sim_snapshot_prices_all_requested_legs():
     sim = CockpitSim(spot=6000.0)
+    sim.seek(360)  # late session: every strategy has entered
     positions = cd.group_positions(sim.trades())
     body = cd.snapshot_request_body(positions)
     snap = sim.snapshot(body)
@@ -137,12 +138,42 @@ def test_sim_snapshot_prices_all_requested_legs():
     assert snap["underlyings"]["SPX"]["last"] is not None
 
 
+def test_sim_quotes_exist_all_day_but_positions_gate_by_entry():
+    # Quotes exist for every option all session (a real option always has a
+    # quote), but no position is "active" at the open (09:30) yet.
+    sim = CockpitSim(spot=6000.0)
+    body = cd.snapshot_request_body(cd.group_positions(sim.trades()))
+    snap = sim.snapshot(body)  # renders minute 0
+    assert all(leg["status"] == "ok" for leg in snap["legs"])
+    assert snap["sim"]["active_trade_ids"] == []
+
+
+def test_sim_active_trade_ids_grow_through_session():
+    sim = CockpitSim(spot=6000.0)
+    body = cd.snapshot_request_body(cd.group_positions(sim.trades()))
+    sim.seek(20)  # after 09:45 ORB entry only
+    early = set(sim.snapshot(body)["sim"]["active_trade_ids"])
+    sim.seek(360)  # after every entry
+    late = set(sim.snapshot(body)["sim"]["active_trade_ids"])
+    assert early == {"orbdir-put-094500"}
+    assert len(late) == 4 and early.issubset(late)
+
+
+def test_sim_clock_advances_open_to_close():
+    sim = CockpitSim(spot=6000.0, minutes_per_poll=60)
+    body = cd.snapshot_request_body(cd.group_positions(sim.trades()))
+    minutes = [sim.snapshot(body)["sim"]["minute"] for _ in range(10)]
+    assert minutes[0] == 0
+    assert minutes[-1] == 390  # holds at the close
+    assert sim.snapshot(body)["sim"]["at_close"] is True
+
+
 def test_sim_spot_moves_between_snapshots():
     sim = CockpitSim(spot=6000.0)
     body = cd.snapshot_request_body(cd.group_positions(sim.trades()))
     a = sim.snapshot(body)["underlyings"]["SPX"]["last"]
     b = sim.snapshot(body)["underlyings"]["SPX"]["last"]
-    assert a != b  # random walk advances each call
+    assert a != b  # spot path advances with the clock
 
 
 # --------------------------------------------------------------------------- #
@@ -214,17 +245,31 @@ def test_route_positions_sim(client):
 
 def test_route_quotes_and_history_sim(client):
     positions = client.get("/api/positions").json()["positions"]
+    # Jump the simulated session past every entry so all positions are active.
+    import web.cockpit as ck
+
+    ck._state.sim.seek(360)
     r = client.post("/api/quotes", json={"positions": positions})
     assert r.status_code == 200
     data = r.json()
     assert data["marks"]
     assert data["underlying"]["last"] is not None
+    assert data["sim"]["minute"] >= 360
     assert len(data["pnl"]) == len(positions)
     assert all(p["open_pnl"] is not None for p in data["pnl"])
 
     # the poll should have persisted a snapshot; history returns it
     hist = client.get("/api/pnl_history").json()
     assert len(hist["samples"]) == len(positions)
+
+
+def test_route_sim_reset(client):
+    import web.cockpit as ck
+
+    ck._state.sim.seek(120)
+    r = client.post("/api/sim/reset")
+    assert r.status_code == 200
+    assert r.json()["minute"] == 0
 
 
 def test_route_cockpit_page_served(client):
