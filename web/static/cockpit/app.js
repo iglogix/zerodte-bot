@@ -13,6 +13,7 @@
     samples: [],             // [{ts, trade_id, strategy, open_pnl}] (history + live)
     underlying: null,
     sim: false,
+    simInfo: null,           // latest {minute, total, clock, at_close} in sim mode
     stale: false,
   };
 
@@ -25,10 +26,17 @@
   var cls = function (v) { return v == null || isNaN(v) ? "" : v >= 0 ? "pos" : "neg"; };
 
   function tYears() {
+    // In sim mode, time-to-close comes from the simulated session clock so the
+    // "now" payoff curve matches the server's marks (and decays toward expiry
+    // as the day progresses). Otherwise fall back to the real wall clock.
+    if (state.simInfo && typeof state.simInfo.minute === "number") {
+      var left = Math.max(state.simInfo.total - state.simInfo.minute, 0);
+      return Math.max(left / 525600, 1e-6); // minutes -> years
+    }
     var now = new Date();
     var close = new Date(now);
     close.setHours(16, 0, 0, 0);
-    var hours = Math.max((close - now) / 3.6e6, 0.5);
+    var hours = Math.max((close - now) / 3.6e6, 1e-6);
     return hours / (24 * 365);
   }
 
@@ -90,6 +98,7 @@
         }
       });
       setStale(false);
+      state.simInfo = data.sim || null;
       if (data.sim && data.sim.clock) {
         var simDt = new Date(data.sim.clock);
         var hh = String(simDt.getHours()).padStart(2, "0");
