@@ -111,8 +111,14 @@
     } catch (e) {
       setStale(true);
     }
-    updateValues();
-    recompute();
+    // Rendering must never throw out of poll() — a single bad frame would
+    // otherwise kill the interval and freeze the page.
+    try {
+      updateValues();
+      recompute();
+    } catch (e) {
+      console.error("cockpit render error", e);
+    }
   }
 
   function setStale(on) {
@@ -354,10 +360,16 @@
   async function boot() {
     var resetBtn = $("reset-btn");
     if (resetBtn) resetBtn.addEventListener("click", resetDay);
-    await loadPositions();
-    await loadHistory();
-    await poll();
+    try {
+      await loadPositions();
+      await loadHistory();
+    } catch (e) {
+      console.error("cockpit init error", e);
+    }
+    // Start the recurring poll FIRST and unconditionally, so nothing in the
+    // initial render can prevent the loop from running.
     setInterval(poll, POLL_MS);
+    poll();
   }
 
   boot();
