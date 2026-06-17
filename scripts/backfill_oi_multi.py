@@ -37,6 +37,14 @@ from src_v2.backtest.study_expiries import study_expiries
 
 OI_STAT = int(StatType.OPEN_INTEREST)
 
+MAX_SYMBOLS_PER_REQ = 1900  # under Databento's ~2000 symbols/request limit
+
+
+def chunked(seq, size):
+    """Yield successive `size`-length chunks of `seq`."""
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
 
 def oi_multi_from_df(df) -> Dict[Tuple[date, float, bool], int]:
     out: Dict[Tuple[date, float, bool], int] = {}
@@ -114,37 +122,51 @@ def main() -> int:
             n_skipped += 1
             continue
         start_iso, end_iso = meic_window_utc(d, "04:00", "12:00")
-        try:
-            cost = client.metadata.get_cost(
-                dataset="OPRA.PILLAR", schema="statistics", symbols=symbols,
-                stype_in="raw_symbol", start=start_iso, end=end_iso)
-        except Exception as e:
-            print(f"{d}: cost ERROR {type(e).__name__}: {str(e)[:80]}")
+        chunks = list(chunked(symbols, MAX_SYMBOLS_PER_REQ))
+        cost = 0.0
+        cost_err = False
+        for ch in chunks:
+            try:
+                cost += client.metadata.get_cost(
+                    dataset="OPRA.PILLAR", schema="statistics", symbols=ch,
+                    stype_in="raw_symbol", start=start_iso, end=end_iso)
+            except Exception as e:
+                print(f"{d}: cost ERROR {type(e).__name__}: {str(e)[:80]}")
+                cost_err = True
+                break
+        if cost_err:
             cost = 0.0
 
         if args.dry_run:
             run_cost += cost
             ledger.record(d, "dry_run", cost, len(symbols), 0)
-            print(f"{d}: {len(exps):>2} exps {len(symbols):>5} syms  est ${cost:.5f}  cum ${run_cost:.3f}")
+            print(f"{d}: {len(exps):>2} exps {len(symbols):>5} syms {len(chunks)}ch  est ${cost:.5f}  cum ${run_cost:.3f}")
             continue
 
         if args.max_cost_usd and run_cost >= args.max_cost_usd:
             print(f"STOP: cum cost ${run_cost:.2f} >= cap ${args.max_cost_usd}")
             break
-        try:
-            df = client.timeseries.get_range(
-                dataset="OPRA.PILLAR", schema="statistics", symbols=symbols,
-                stype_in="raw_symbol", start=start_iso, end=end_iso).to_df()
-        except Exception as e:
-            print(f"{d}: fetch ERROR {type(e).__name__}: {str(e)[:80]}")
+        oi = {}
+        fetch_err = False
+        for ch in chunks:
+            try:
+                df = client.timeseries.get_range(
+                    dataset="OPRA.PILLAR", schema="statistics", symbols=ch,
+                    stype_in="raw_symbol", start=start_iso, end=end_iso).to_df()
+            except Exception as e:
+                print(f"{d}: fetch ERROR {type(e).__name__}: {str(e)[:80]}")
+                fetch_err = True
+                break
+            if len(df):
+                oi.update(oi_multi_from_df(df))
+        if fetch_err:
             continue
-        oi = oi_multi_from_df(df) if len(df) else {}
         with open(out_path, "wb") as f:
             pickle.dump(oi, f)
         run_cost += cost
         n_calls += 1
         ledger.record(d, "fetch", cost, len(symbols), len(oi))
-        print(f"{d}: {len(exps):>2} exps {len(oi):>5} OI rows  ${cost:.5f}  cum ${run_cost:.3f}")
+        print(f"{d}: {len(exps):>2} exps {len(symbols):>5} syms {len(chunks)}ch {len(oi):>5} OI  ${cost:.5f}  cum ${run_cost:.3f}")
 
     print(f"done: {n_calls} fetched, {n_skipped} skipped, cum ${run_cost:.3f}")
     return 0
