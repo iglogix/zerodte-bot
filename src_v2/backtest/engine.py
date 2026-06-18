@@ -584,9 +584,11 @@ class BacktestEngine:
         # EOD / no exit.
         remaining = int(trade[qty_key])
         base.exit_time = eod_dt
-        if self._exit_mode == "hold_to_expiry":
+        if self._exit_mode in ("hold_to_expiry", "take_profit"):
             # Cash settlement: remaining qty settles at the short's expiry intrinsic
-            # (capped at the wing width), NOT assumed worthless.
+            # (capped at the wing width), NOT assumed worthless. take_profit MUST use
+            # this path too — it has no stop, so a breached side rides to EOD and
+            # would otherwise be booked as a worthless win (fiction).
             if settle_spot is not None:
                 intrinsic = max(0.0, (settle_spot - short_strike) if side == "call"
                                 else (short_strike - settle_spot))

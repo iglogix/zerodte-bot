@@ -62,6 +62,9 @@ class MeicStrategy(LiveStrategy):
         # — see docs/spx_0dte_meic_strategy.md). stop_pct is irrelevant when holding.
         self._exit_mode = strat.get("exit_mode", "managed")
         self._stop_pct = strat.get("stop_pct_of_total_credit", 0.70)
+        # take_profit mode: close a side fully at this fraction of its credit; no
+        # stop, no scale-out tiers. Remainder settles at expiry intrinsic (engine).
+        self._tp_pct = strat.get("tp_pct_of_credit", 0.50)
         if self._exit_mode == "managed" and not (0.65 <= self._stop_pct <= 0.90):
             raise ValueError(
                 f"stop_pct_of_total_credit must be in [0.65, 0.90], got {self._stop_pct}"
@@ -295,10 +298,18 @@ class MeicStrategy(LiveStrategy):
         qty = int(setup.extra.get("qty", 1))
         st = setup.strikes
         stop = self.compute_stop_loss(setup)
+        # Buying-power requirement for a defined-risk IC = max loss = wider
+        # spread width less the net credit, times multiplier times qty (only one
+        # side can finish ITM at expiry, so the broker holds the wider side).
+        put_width = st["short_put"] - st["long_put"]
+        call_width = st["long_call"] - st["short_call"]
+        capreq_usd = round(
+            (max(put_width, call_width) - setup.total_credit) * self._multiplier * qty, 2)
         return {
             "order_type": "meic_two_spreads",
             "quantity": qty,
             "total_credit": setup.total_credit,
+            "capreq_usd": capreq_usd,
             "stop_amount": stop["stop_amount"],
             "put_spread": {
                 "short_strike": st["short_put"],
@@ -362,8 +373,14 @@ class MeicStrategy(LiveStrategy):
         if self._exit_mode == "hold_to_expiry":
             return ExitAction(action="hold")
 
+        # take_profit: full-close a side at tp_pct of credit, NO stop / NO tiers.
+        # The un-taken remainder rides to EOD and settles at expiry intrinsic in
+        # the engine (same as hold_to_expiry) — never assumed worthless.
+        take_profit_only = self._exit_mode == "take_profit"
+
         trade_id = trade.get("trade_id", "")
-        tiers, fractions = self._tiers_for(trade)
+        if not take_profit_only:
+            tiers, fractions = self._tiers_for(trade)
 
         legs_to_close: List[str] = []
         leg_qty: Dict[str, int] = {}
@@ -389,6 +406,24 @@ class MeicStrategy(LiveStrategy):
             credit = trade.get(credit_key, 0.0)
             open_qty = int(trade.get(qty_key, 0))
             if short_ask <= 0 or credit <= 0 or open_qty <= 0:
+                continue
+
+            # --- take_profit mode: close the FULL side once decayed enough ---
+            if take_profit_only:
+                pnl_pct = (credit - short_ask) / credit
+                if pnl_pct < self._tp_pct:
+                    continue
+                legs_to_close.append(short_sym)
+                leg_qty[short_sym] = open_qty
+                if long_sym:
+                    lq = quotes.get(long_sym)
+                    long_bid = lq.get("bid", 0.0) if lq else 0.0
+                    if long_bid >= self._abandon_long_below:
+                        legs_to_close.append(long_sym)
+                        leg_qty[long_sym] = open_qty
+                    else:
+                        reasons.append(f"{side}_abandon_long")
+                reasons.append(f"{side}_tp@{pnl_pct:.2f}")
                 continue
 
             # --- Stop-loss check (short ask >= stop trigger) ---
