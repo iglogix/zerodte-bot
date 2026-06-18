@@ -334,26 +334,93 @@
     }), { displayModeBar: false, responsive: true });
   }
 
+  function avgIv() {
+    var ivs = [];
+    for (var k in state.marks) {
+      var q = state.marks[k];
+      if (q && q.iv) ivs.push(q.iv);
+    }
+    return ivs.length ? ivs.reduce(function (a, b) { return a + b; }, 0) / ivs.length : 0.16;
+  }
+
   function drawPayoff() {
     var positions = selectedPositions();
-    var center = state.underlying && (state.underlying.last || state.underlying.mid) || 6000;
+    var center = (state.underlying && (state.underlying.last || state.underlying.mid)) || 6000;
     var spots = Payoff.spotGrid(center, 0.03, 81);
     var now = Payoff.sumPayoff(positions, spots, tYears(), "now", ivLookup);
     var expiry = Payoff.sumPayoff(positions, spots, 0, "expiry", ivLookup);
+
+    // (2) break-evens: where the expiry payoff crosses zero (depends on selection)
+    var bes = positions.length ? Payoff.zeroCrossings(spots, expiry) : [];
+    // (3) expected move of the underlying: spot ± EM, EM = spot * iv * sqrt(t)
+    var em = center * avgIv() * Math.sqrt(tYears());
+    var emLo = center - em, emHi = center + em;
+
+    var shapes = [
+      // (3) EM band + edges
+      { type: "rect", xref: "x", x0: emLo, x1: emHi, yref: "paper", y0: 0, y1: 1,
+        fillcolor: "rgba(76,154,255,0.07)", line: { width: 0 }, layer: "below" },
+      { type: "line", x0: emLo, x1: emLo, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#4c9aff", width: 1, dash: "dot" } },
+      { type: "line", x0: emHi, x1: emHi, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#4c9aff", width: 1, dash: "dot" } },
+      // current spot
+      { type: "line", x0: center, x1: center, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#d7dee8", width: 1, dash: "dot" } },
+    ];
+    var annotations = [
+      { x: emHi, y: 1, yref: "paper", yanchor: "bottom", xanchor: "left",
+        text: "EM ±" + em.toFixed(0), showarrow: false,
+        font: { size: 9, color: "#4c9aff" } },
+    ];
+    // (2) break-even vertical lines + labels
+    bes.forEach(function (be) {
+      shapes.push({ type: "line", x0: be, x1: be, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#f0a93b", width: 1, dash: "dash" } });
+      annotations.push({ x: be, y: 0, yanchor: "bottom", xanchor: "center",
+        text: "BE " + be.toFixed(0), showarrow: false,
+        font: { size: 9, color: "#f0a93b" } });
+    });
+
     var layout = darkLayout({
       xaxis: { type: "linear", gridcolor: "#222b36", zerolinecolor: "#2a3441",
                title: { text: "SPX", font: { size: 10 } } },
-      shapes: [{
-        type: "line", x0: center, x1: center, yref: "paper", y0: 0, y1: 1,
-        line: { color: "#4c9aff", width: 1, dash: "dot" },
-      }],
+      // (1) highlight the zero-profit line
+      yaxis: { gridcolor: "#222b36", tickprefix: "$", zeroline: true,
+               zerolinecolor: "#7c8a9a", zerolinewidth: 2 },
+      shapes: shapes,
+      annotations: annotations,
     });
-    Plotly.react("payoff", [
+
+    var traces = [
       { x: spots, y: expiry, type: "scatter", mode: "lines", name: "At expiry",
         line: { color: "#8b97a7", width: 1.5 } },
       { x: spots, y: now, type: "scatter", mode: "lines", name: "Now",
         line: { color: "#4c9aff", width: 2 } },
-    ], layout, { displayModeBar: false, responsive: true });
+    ];
+    // (4) positions on the chart: a marker per selected leg, on the zero line
+    if (positions.length) {
+      var lx = [], ly = [], lt = [], lsym = [], lcol = [];
+      positions.forEach(function (p) {
+        (p.legs || []).forEach(function (leg) {
+          if (leg.strike == null) return;
+          lx.push(leg.strike);
+          ly.push(0);
+          lt.push((leg.side === "short" ? "Short " : "Long ") + leg.qty + " " +
+                  (leg.right === "call" ? "C" : "P") + " " + leg.strike +
+                  "  [" + p.trade_id + "]");
+          lsym.push(leg.side === "short" ? "diamond" : "diamond-open");
+          lcol.push(leg.right === "call" ? "#4c9aff" : "#ff5d5d");
+        });
+      });
+      traces.push({
+        x: lx, y: ly, type: "scatter", mode: "markers", name: "Strikes",
+        marker: { symbol: lsym, color: lcol, size: 10, line: { color: "#0d1117", width: 1 } },
+        text: lt, hoverinfo: "text",
+      });
+    }
+
+    Plotly.react("payoff", traces, layout, { displayModeBar: false, responsive: true });
   }
 
   // ---- boot --------------------------------------------------------------

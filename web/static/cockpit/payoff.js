@@ -68,6 +68,20 @@
     });
   }
 
+  // Spots where a payoff series crosses zero (break-evens), linearly interpolated.
+  function zeroCrossings(xs, ys) {
+    var out = [];
+    for (var i = 1; i < ys.length; i++) {
+      var a = ys[i - 1], b = ys[i];
+      if (a === 0) { out.push(xs[i - 1]); continue; }
+      if ((a < 0 && b > 0) || (a > 0 && b < 0)) {
+        var f = a / (a - b);
+        out.push(xs[i - 1] + f * (xs[i] - xs[i - 1]));
+      }
+    }
+    return out;
+  }
+
   // Build a centered spot grid: center ± pct, n points.
   function spotGrid(center, pct, n) {
     pct = pct || 0.03;
@@ -88,5 +102,6 @@
     positionPayoffAt: positionPayoffAt,
     sumPayoff: sumPayoff,
     spotGrid: spotGrid,
+    zeroCrossings: zeroCrossings,
   };
 })(typeof window !== "undefined" ? window : this);

@@ -8,8 +8,8 @@
     .pass { color: #2ec26a; } .fail { color: #ff5d5d; font-weight: bold; }
     h1 { font-size: 16px; }
   </style>
-  <script src="/static/cockpit/payoff.js?v=2"></script>
-  <script src="/static/cockpit/pnl.js?v=2"></script>
+  <script src="/static/cockpit/payoff.js?v=6"></script>
+  <script src="/static/cockpit/pnl.js?v=6"></script>
 </head>
 <body>
   <h1>Cockpit JS tests</h1>
@@ -45,6 +45,15 @@
     ok("PCS max profit = +110", approx(Payoff.positionPayoffAt(pos, 6000, 0, "expiry"), 110, 1e-6));
     // Below both strikes at expiry => max loss = (credit-width)*100 = (1.1-20)*100 = -1890.
     ok("PCS max loss = -1890", approx(Payoff.positionPayoffAt(pos, 5900, 0, "expiry"), -1890, 1e-6));
+
+    // --- Payoff.zeroCrossings (break-evens) ---
+    var zc = Payoff.zeroCrossings([0, 1, 2, 3], [-2, -1, 1, 2]);
+    ok("zeroCrossings interpolates to 1.5", zc.length === 1 && approx(zc[0], 1.5, 1e-9));
+    // PCS break-even = short strike - credit = 5950 - 1.10 = 5948.9
+    var grid = Payoff.spotGrid(5950, 0.01, 401);
+    var exp = Payoff.sumPayoff([pos], grid, 0, "expiry");
+    var be = Payoff.zeroCrossings(grid, exp);
+    ok("PCS break-even ~ 5948.9", be.length === 1 && approx(be[0], 5948.9, 0.5));
 
     // --- Pnl.aggregate ---
     var list = [
