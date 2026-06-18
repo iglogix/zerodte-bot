@@ -8,8 +8,8 @@
     .pass { color: #2ec26a; } .fail { color: #ff5d5d; font-weight: bold; }
     h1 { font-size: 16px; }
   </style>
-  <script src="/static/cockpit/payoff.js?v=6"></script>
-  <script src="/static/cockpit/pnl.js?v=6"></script>
+  <script src="/static/cockpit/payoff.js?v=7"></script>
+  <script src="/static/cockpit/pnl.js?v=7"></script>
 </head>
 <body>
   <h1>Cockpit JS tests</h1>
@@ -54,6 +54,12 @@
     var exp = Payoff.sumPayoff([pos], grid, 0, "expiry");
     var be = Payoff.zeroCrossings(grid, exp);
     ok("PCS break-even ~ 5948.9", be.length === 1 && approx(be[0], 5948.9, 0.5));
+
+    // --- Payoff.atmStraddle (EM proxy) ~ 0.8 * spot*iv*sqrt(t) ---
+    var ref = 6000 * 0.16 * Math.sqrt(0.02);
+    var straddle = Payoff.atmStraddle(6000, 0.02, 0.16);
+    ok("atm straddle ~ 0.8x spot*iv*sqrt(t)", straddle > 0.75 * ref && straddle < 0.85 * ref);
+    ok("atm straddle -> ~0 near expiry", Payoff.atmStraddle(6000, 1e-9, 0.16) < 1);
 
     // --- Pnl.aggregate ---
     var list = [

@@ -17,6 +17,16 @@
     stale: false,
   };
 
+  // Per-strategy colors (avoid blue=Now/EM and amber=break-even). Assigned
+  // stably by sorted strategy name so a strategy keeps its color across redraws.
+  var STRAT_PALETTE = ["#2ec26a", "#b07cff", "#ff6fae", "#36d0c5", "#9aa0ff", "#e8b04b"];
+  function stratColorMap() {
+    var names = Array.from(new Set(state.positions.map(function (p) { return p.strategy; }))).sort();
+    var m = {};
+    names.forEach(function (n, i) { m[n] = STRAT_PALETTE[i % STRAT_PALETTE.length]; });
+    return m;
+  }
+
   var $ = function (id) { return document.getElementById(id); };
   var fmtUsd = function (v) {
     if (v == null || isNaN(v)) return "—";
@@ -147,6 +157,7 @@
     var body = $("pos-body");
     body.innerHTML = "";
     var groups = byStrategy();
+    var colors = stratColorMap();
     var names = Object.keys(groups).sort();
     if (!names.length) {
       body.innerHTML = '<tr><td colspan="5" class="empty">No open positions.</td></tr>';
@@ -160,6 +171,7 @@
       sr.innerHTML =
         '<td><span class="caret">▾</span>' +
         '<input type="checkbox" class="strat-cb" data-strat="' + name + '"> ' +
+        '<span class="dot" style="background:' + colors[name] + '"></span>' +
         name + ' <span class="chip">' + trades.length + '</span></td>' +
         '<td></td><td></td>' +
         '<td class="num" data-strat-pnl="' + name + '">—</td>' +
@@ -352,8 +364,8 @@
 
     // (2) break-evens: where the expiry payoff crosses zero (depends on selection)
     var bes = positions.length ? Payoff.zeroCrossings(spots, expiry) : [];
-    // (3) expected move of the underlying: spot ± EM, EM = spot * iv * sqrt(t)
-    var em = center * avgIv() * Math.sqrt(tYears());
+    // (3) expected move of the underlying: spot ± EM, EM = ATM straddle price
+    var em = Payoff.atmStraddle(center, tYears(), avgIv());
     var emLo = center - em, emHi = center + em;
 
     var shapes = [
@@ -370,7 +382,7 @@
     ];
     var annotations = [
       { x: emHi, y: 1, yref: "paper", yanchor: "bottom", xanchor: "left",
-        text: "EM ±" + em.toFixed(0), showarrow: false,
+        text: "EM ±" + em.toFixed(0) + " (straddle)", showarrow: false,
         font: { size: 9, color: "#4c9aff" } },
     ];
     // (2) break-even vertical lines + labels
@@ -398,25 +410,33 @@
       { x: spots, y: now, type: "scatter", mode: "lines", name: "Now",
         line: { color: "#4c9aff", width: 2 } },
     ];
-    // (4) positions on the chart: a marker per selected leg, on the zero line
+    // (4) positions on the chart: markers per leg, colored by strategy. One
+    // trace per strategy so each gets its own legend entry. Short = filled
+    // diamond, long = open diamond; call/put shown via the up/down triangle.
     if (positions.length) {
-      var lx = [], ly = [], lt = [], lsym = [], lcol = [];
+      var colors = stratColorMap();
+      var byStrat = {};
       positions.forEach(function (p) {
         (p.legs || []).forEach(function (leg) {
           if (leg.strike == null) return;
-          lx.push(leg.strike);
-          ly.push(0);
-          lt.push((leg.side === "short" ? "Short " : "Long ") + leg.qty + " " +
-                  (leg.right === "call" ? "C" : "P") + " " + leg.strike +
-                  "  [" + p.trade_id + "]");
-          lsym.push(leg.side === "short" ? "diamond" : "diamond-open");
-          lcol.push(leg.right === "call" ? "#4c9aff" : "#ff5d5d");
+          var g = byStrat[p.strategy] || (byStrat[p.strategy] = { x: [], y: [], t: [], sym: [] });
+          g.x.push(leg.strike);
+          g.y.push(0);
+          g.t.push((leg.side === "short" ? "Short " : "Long ") + leg.qty + " " +
+                   (leg.right === "call" ? "C" : "P") + " " + leg.strike +
+                   "  [" + p.trade_id + "]");
+          var base = leg.right === "call" ? "triangle-up" : "triangle-down";
+          g.sym.push(leg.side === "short" ? base : base + "-open");
         });
       });
-      traces.push({
-        x: lx, y: ly, type: "scatter", mode: "markers", name: "Strikes",
-        marker: { symbol: lsym, color: lcol, size: 10, line: { color: "#0d1117", width: 1 } },
-        text: lt, hoverinfo: "text",
+      Object.keys(byStrat).sort().forEach(function (name) {
+        var g = byStrat[name];
+        traces.push({
+          x: g.x, y: g.y, type: "scatter", mode: "markers", name: name,
+          marker: { symbol: g.sym, color: colors[name], size: 11,
+                    line: { color: "#0d1117", width: 1 } },
+          text: g.t, hoverinfo: "text",
+        });
       });
     }
 

@@ -126,6 +126,7 @@ tr.leg-row td:first-child { padding-left: 42px; }
 
 td.num { font-variant-numeric: tabular-nums; }
 .chip { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 6px 0 2px; vertical-align: middle; }
 .short { color: var(--red); }
 .long { color: var(--green); }
 

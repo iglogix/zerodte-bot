@@ -68,6 +68,11 @@
     });
   }
 
+  // ATM straddle price (call + put struck at spot) — the 0DTE expected-move proxy.
+  function atmStraddle(spot, tYears, iv) {
+    return bsPrice(spot, spot, tYears, iv, true) + bsPrice(spot, spot, tYears, iv, false);
+  }
+
   // Spots where a payoff series crosses zero (break-evens), linearly interpolated.
   function zeroCrossings(xs, ys) {
     var out = [];
@@ -103,5 +108,6 @@
     sumPayoff: sumPayoff,
     spotGrid: spotGrid,
     zeroCrossings: zeroCrossings,
+    atmStraddle: atmStraddle,
   };
 })(typeof window !== "undefined" ? window : this);
