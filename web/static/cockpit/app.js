@@ -3,6 +3,10 @@
   "use strict";
 
   var POLL_MS = 2000;
+  // Expected move is the *day's* move (full 09:30->16:00 session), not the
+  // shrinking time-to-close — so the band stays meaningful all day instead of
+  // collapsing to ~0 near the close.
+  var EM_HORIZON_YEARS = 390 / 525600;
 
   var state = {
     positions: [],
@@ -364,8 +368,9 @@
 
     // (2) break-evens: where the expiry payoff crosses zero (depends on selection)
     var bes = positions.length ? Payoff.zeroCrossings(spots, expiry) : [];
-    // (3) expected move of the underlying: spot ± EM, EM = ATM straddle price
-    var em = Payoff.atmStraddle(center, tYears(), avgIv());
+    // (3) expected move of the underlying: spot ± EM, EM = the day's ATM
+    // straddle price (full-session horizon, so it doesn't collapse near close)
+    var em = Payoff.atmStraddle(center, EM_HORIZON_YEARS, avgIv());
     var emLo = center - em, emHi = center + em;
 
     var shapes = [
