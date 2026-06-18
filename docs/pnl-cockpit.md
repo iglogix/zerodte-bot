@@ -50,14 +50,9 @@ BOT_WEB_TOKEN=<token> COCKPIT_SIM=1 python -m web --port 8080
 #  - Watch the whole day in ~2 min; SIM_MINUTES_PER_POLL controls the speed
 #    (session-minutes advanced per ~2s poll; default 6).
 #  - POST /api/sim/reset restarts the session from the open and clears history.
-
-# 2. Live (bot running + options_api up):
-BOT_WEB_TOKEN=<token> \
-COCKPIT_DB=data/meic_bot.db \
-OPTIONS_API_URL=http://127.0.0.1:8101 \
-OPTIONS_API_TOKEN=<external_api_token> \
-python -m web --port 8080
 ```
+
+For live/production, see **[Production (live)](#production-live)** below.
 
 ### Environment variables
 
@@ -69,6 +64,57 @@ python -m web --port 8080
 | `COCKPIT_PNL_DB` | `data/cockpit_pnl.db` | where intraday P&L snapshots are stored |
 | `OPTIONS_API_URL` | `http://127.0.0.1:8101` | options_api base URL |
 | `OPTIONS_API_TOKEN` | _(empty)_ | bearer token for the snapshot endpoint |
+
+## Production (live)
+
+Live mode reads open trades from the bot's SQLite and proxies real option marks
+from the sibling `options_api` service. Do **not** set `COCKPIT_SIM`.
+
+### Prerequisites
+1. The **live bot** is running and writing open trades to its `trading_db`
+   (e.g. `data/meic_bot.db`).
+2. The **options_api** service is running (default port `8101`).
+
+### 1. Configure the shared quote token (both sides, same value)
+The snapshot endpoint is bearer-protected; `options_api` rejects it with `503`
+until `EXTERNAL_API_TOKEN` is set, and the cockpit must send the same value.
+
+In `../options_api/.env`:
+```
+EXTERNAL_API_TOKEN=<long-random-token>
+```
+In `0dte_bot/.env` (same token + cockpit wiring):
+```
+OPTIONS_API_TOKEN=<same-long-random-token>
+OPTIONS_API_URL=http://127.0.0.1:8101
+COCKPIT_DB=data/meic_bot.db        # the live bot's trading DB
+COCKPIT_PNL_DB=data/cockpit_pnl.db
+# leave COCKPIT_SIM unset
+```
+`BOT_WEB_TOKEN` must also be set (login token). `python -m web` loads `.env`
+via `load_dotenv()`, so these are picked up automatically.
+
+### 2. Start the services
+```bash
+# options_api (if not already up)
+cd ../options_api && python run.py            # serves :8101
+
+# dashboard + cockpit
+cd ~/Dev/0dte_bot
+python -m web --host 0.0.0.0 --port 8080
+# open http://<host>:8080/cockpit  (log in with BOT_WEB_TOKEN)
+```
+
+Run it under `systemd` for a managed service (see `deploy/systemd/`).
+
+### Caveats
+- **Auth is a single shared token over plain HTTP.** Don't expose port 8080
+  directly to the internet — bind to localhost / a VPN, or front it with a TLS
+  reverse proxy (caddy/nginx). The cockpit page is `no-store`; the session
+  cookie is `httponly`.
+- **One trading DB at a time.** The cockpit reads a single `COCKPIT_DB`. If you
+  run MEIC / Power Hour / ORB as separate bots with separate `trading_db`
+  files, point `COCKPIT_DB` at the one you want — it won't merge multiple DBs.
 
 ## Tests
 

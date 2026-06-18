@@ -26,8 +26,11 @@ BOT_WEB_TOKEN=<token> COCKPIT_SIM=1 python -m web --port 8085
 # open http://localhost:8085/cockpit  (log in, then it replays 09:30 -> 16:00)
 ```
 
-Full details — live mode, options_api wiring, env vars, replay speed, reset,
-tests — are in **[docs/pnl-cockpit.md](../docs/pnl-cockpit.md)**.
+For **production / live** (real positions + real quotes via options_api), see
+the [Production (live)](../docs/pnl-cockpit.md#production-live) runbook —
+including the shared `EXTERNAL_API_TOKEN`/`OPTIONS_API_TOKEN` setup and the
+single-DB caveat. Full details (sim replay, env vars, reset, tests) are in
+**[docs/pnl-cockpit.md](../docs/pnl-cockpit.md)**.
 
 ## Key environment variables
 
