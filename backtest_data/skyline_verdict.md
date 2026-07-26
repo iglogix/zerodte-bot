@@ -200,5 +200,127 @@ working the package may beat mid+25% on some days — but must beat mid+30%
     --tag repro --out sky_repro_nofilter.csv
 .venv/bin/python scripts/skyline_analysis.py
 .venv/bin/python scripts/skyline_wf.py
+.venv/bin/python scripts/skyline_context.py         # market-context / event conditioning
+.venv/bin/python scripts/skyline_opt.py             # structural variants + WF
 .venv/bin/python -m pytest tests/test_skyline_structure.py -q
 ```
+
+---
+
+# Part II — Is it optimizable? Context, events, and what to avoid
+
+**Short answer: not reliably.** A disciplined walk-forward (select on train, gate
+on val, score OOS) over structural variants × context filters returns
+**+$1.47/day, Sharpe +0.03** — zero. Every in-sample filter that looks better
+than that is either selection-biased or, in two cases, a *date filter in
+disguise*.
+
+## 9. The bar any filter has to clear
+
+Mean spread cost is **$43/lot** at mid+25% and **$87/lot** at half-spread,
+against an unconditional mid edge of **$10.77/day**. A filter must roughly
+quadruple the mid edge on the days it keeps, and keep enough days to matter.
+
+## 10. Two traps hit and fixed (worth knowing generally)
+
+A first pass found `VIX1D between 10 and 18` looked excellent (+$65/day at a
+realistic fill). It was fake: **VIX1D history starts 2023-04-24**, so the filter
+silently deleted all of 2022 and early 2023 — the worst period. A coverage guard
+now asserts every conditioning series has >90% per-year coverage, and it caught
+VIX9D too (series stops mid-2026). Filter retention by year exposes the softer
+version of the same trap:
+
+| filter | 2022 | 2023 | 2024 | 2025 | 2026 | |
+|---|---|---|---|---|---|---|
+| `no big event / OPEX` | 80% | 80% | 80% | 82% | 80% | honest |
+| `EM 19–37pt` | 62% | 60% | 64% | 59% | 57% | honest |
+| `VIX 13–22` | **19%** | 85% | 78% | 83% | 77% | ≈ "skip 2022" |
+| `spread cap` | **16%** | 82% | 82% | 62% | 61% | ≈ "skip 2022" |
+
+The two best-looking in-sample configs both leaned on the bottom two rows.
+
+## 11. Walk-forward result
+
+6 structural variants × 8 filters = 48 configs, 5 rolling folds, OOS at mid+25%:
+
+| | n | $/day | Sharpe |
+|---|---|---|---|
+| **Re-optimised each fold (the honest number)** | 373 | **+$1.47** | **+0.03** |
+| Frozen as-taught, no filter | 625 | −$24.19 | −0.63 |
+
+Per-fold OOS: −55, −136, **+146**, 0, +50. One fold carries everything, and no
+config had a positive *train* Sharpe in the first three folds — the whole family
+loses through 2022–2024.
+
+## 12. The geometry is the defect — and it is partly fixable
+
+Full sample at mid+25%:
+
+| variant | contracts | spread $/lot | $/day |
+|---|---|---|---|
+| as taught | 16 | $133 | −$45.84 |
+| EM-scaled offsets (×EM/26.3) | 16 | $130 | −$19.03 |
+| drop the two outer broken-wing flies | 8 | $85 | −$38.53 |
+| **both: inner two flies, EM-scaled** | **8** | **$85** | **−$6.56** |
+
+Two changes recover ~$39/day of the $46/day loss. The reason is visible in the
+move distribution — P&L by realised move in units of that day's implied move (EM):
+
+| \|settle−ATM\| / EM | 0–0.2 | 0.2–0.4 | 0.4–0.6 | 0.6–0.8 | 0.8–1.2 | >1.2 |
+|---|---|---|---|---|---|---|
+| % of days | 13.2% | 11.3% | 11.1% | 12.3% | 19.8% | 32.1% |
+| $/day @mid | **−$723** | −$241 | +$152 | +$384 | **+$442** | −$54 |
+
+The structure wants a 0.6–1.2 EM move. Median EM at 09:45 is 26.3pt but ranges
+17–44pt, so the *fixed* peaks (±20/25/60) sit at a different quantile every day:
+the two outer peaks at ±60 are ~2.3 EM and almost never pay, while the valley at
+±0 sits on the modal outcome. Even fixed, `inner_em` is still breakeven — and it
+is no longer Skyline, it is a two-butterfly EM-scaled structure.
+
+## 13. Patterns to avoid
+
+Mid fills, full sample. **Caveat: only one row clears |t| > 2, and that is about
+what 14 tests produce by chance.** The value here is the consistent direction
+across independent categories, not any single cell.
+
+| Condition | days | $/day *in* | $/day *out* | t |
+|---|---|---|---|---|
+| Flat open (\|09:32→09:45 drive\| < 1.8pt) | 200 | −$53 | +$27 | −1.71 |
+| Overnight gap **down** > 20pt | 191 | −$46 | +$24 | −1.44 |
+| Any of CPI / NFP / GDP / PPI / OPEX | 200 | −$45 | +$25 | −1.45 |
+| Low implied move (EM < 19pt) | 185 | −$35 | +$21 | −1.16 |
+| High implied move (EM > 37pt) | 211 | −$18 | +$18 | −0.79 |
+| Monday or Tuesday | 396 | −$16 | +$28 | −1.14 |
+| Widest-spread quintile (>2.0pt = $360/lot) | 202 | −$46 | — | — |
+| **Overnight gap up > +24pt** | **200** | **+$118** | −$16 | **+2.86** |
+
+Individually: CPI −$62/day, NFP −$57, GDP −$60, OPEX −$56, PPI −$24, FOMC +$35
+(n=32). All five non-FOMC event types are negative, which is more persuasive than
+any one of them. Mechanism is the same throughout — events and gaps produce moves
+that overshoot ±80, quiet opens pin into the ATM valley, and both tails come with
+wider spreads.
+
+**The one candidate signal.** "Only trade after a >+20pt overnight gap up" gives
++$63/day at a realistic fill on 58 days/year, Sharpe 1.69, maxDD $7,169 — and it
+has a smooth threshold plateau from +15 to +30 (not a grid corner). But: it is
+positive in only 3 of 5 OOS folds and carried by one; its **level-invariant %
+version is materially weaker** (+$43 vs +$62/day stitched), which suggests the
+absolute point threshold is partly fitting the index-level trend; the first half
+of the sample is breakeven at realistic fills (+$0.84/day) versus +$102/day in
+the second; and it was chosen after seeing the whole sample. Note the claimant's
+own filter has the right *sign* (avoid gap-downs) but the tradable asymmetry — if
+it is real at all — is on the **up** side, which he explicitly does not condition on.
+
+Stacking every avoid-condition leaves 69 days/year at +$65/day (Sharpe 1.73,
+maxDD $9,195) at a realistic fill. Treat that as an **in-sample upper bound built
+with hindsight**, not a forecast: the same machinery run honestly walk-forward
+returns zero.
+
+## 14. Bottom line on optimizability
+
+The structure pays ~$133/lot of bid-ask every day to buy a lottery ticket whose
+modal outcome is its own max-loss point. Fixing the geometry (EM-scale, drop the
+outer flies) removes most of the loss but stops short of profit. No context or
+event filter survives walk-forward. If something here is worth pursuing it is the
+gap-up condition on an EM-scaled two-butterfly structure — as a *new hypothesis
+needing forward OOS*, not as a validated edge, and not as Skyline.

@@ -1,0 +1,7 @@
+{
+  "best_insample": "('inner_em', 'vix_13_22')",
+  "best_insample_perday": 46.61144284087,
+  "oos_reopt": 1.4655852044235747,
+  "oos_best": 53.380154718137234,
+  "oos_frozen": -24.191249999999997
+}
