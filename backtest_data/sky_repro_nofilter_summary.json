@@ -1,0 +1,56 @@
+{
+  "tag": "repro-2yr-nofilter",
+  "entry": "09:45",
+  "scale": "fixed",
+  "max_drop": null,
+  "comm": 0.65,
+  "n_priced": 491,
+  "n_traded": 491,
+  "metrics": [
+    {
+      "label": "mid",
+      "n": 491,
+      "total": 32589.0,
+      "mean_per_day": 66.37,
+      "sd": 605.3,
+      "sharpe_ann": 1.74,
+      "win_rate": 51.7,
+      "profit_factor": 1.29,
+      "max_dd": 6093.0,
+      "mar_like": 2.74,
+      "cvar5": -915.0,
+      "best": 1283.0,
+      "worst": -945.0
+    },
+    {
+      "label": "mid+25%",
+      "n": 491,
+      "total": 5381.0,
+      "mean_per_day": 10.96,
+      "sd": 610.5,
+      "sharpe_ann": 0.28,
+      "win_rate": 50.1,
+      "profit_factor": 1.04,
+      "max_dd": 12776.0,
+      "mar_like": 0.22,
+      "cvar5": -985.0,
+      "best": 1158.0,
+      "worst": -1222.0
+    },
+    {
+      "label": "half-spread",
+      "n": 491,
+      "total": -21826.0,
+      "mean_per_day": -44.45,
+      "sd": 620.5,
+      "sharpe_ann": -1.14,
+      "win_rate": 46.8,
+      "profit_factor": 0.85,
+      "max_dd": 22228.0,
+      "mar_like": -0.5,
+      "cvar5": -1086.0,
+      "best": 1059.0,
+      "worst": -1640.0
+    }
+  ]
+}

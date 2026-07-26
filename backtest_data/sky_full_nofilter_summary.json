@@ -1,0 +1,56 @@
+{
+  "tag": "FULL-4yr-nofilter",
+  "entry": "09:45",
+  "scale": "fixed",
+  "max_drop": null,
+  "comm": 0.65,
+  "n_priced": 1008,
+  "n_traded": 1008,
+  "metrics": [
+    {
+      "label": "mid",
+      "n": 1008,
+      "total": 10861.0,
+      "mean_per_day": 10.77,
+      "sd": 598.4,
+      "sharpe_ann": 0.29,
+      "win_rate": 48.9,
+      "profit_factor": 1.04,
+      "max_dd": 30401.0,
+      "mar_like": 0.09,
+      "cvar5": -929.0,
+      "best": 1283.0,
+      "worst": -963.0
+    },
+    {
+      "label": "mid+25%",
+      "n": 1008,
+      "total": -46212.0,
+      "mean_per_day": -45.84,
+      "sd": 600.7,
+      "sharpe_ann": -1.21,
+      "win_rate": 46.5,
+      "profit_factor": 0.84,
+      "max_dd": 58477.0,
+      "mar_like": -0.2,
+      "cvar5": -991.0,
+      "best": 1158.0,
+      "worst": -1222.0
+    },
+    {
+      "label": "half-spread",
+      "n": 1008,
+      "total": -103284.0,
+      "mean_per_day": -102.46,
+      "sd": 607.7,
+      "sharpe_ann": -2.68,
+      "win_rate": 43.2,
+      "profit_factor": 0.68,
+      "max_dd": 103284.0,
+      "mar_like": -0.25,
+      "cvar5": -1080.0,
+      "best": 1059.0,
+      "worst": -1640.0
+    }
+  ]
+}
