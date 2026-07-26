@@ -316,11 +316,86 @@ maxDD $9,195) at a realistic fill. Treat that as an **in-sample upper bound buil
 with hindsight**, not a forecast: the same machinery run honestly walk-forward
 returns zero.
 
-## 14. Bottom line on optimizability
+## 14. "Skyline-R" — the rebuilt structure, and a true holdout
 
-The structure pays ~$133/lot of bid-ask every day to buy a lottery ticket whose
-modal outcome is its own max-loss point. Fixing the geometry (EM-scale, drop the
-outer flies) removes most of the loss but stops short of profit. No context or
-event filter survives walk-forward. If something here is worth pursuing it is the
-gap-up condition on an EM-scaled two-butterfly structure — as a *new hypothesis
-needing forward OOS*, not as a validated edge, and not as Skyline.
+Three changes, each from a diagnostic above:
+
+1. **Drop the two outer broken-wing flies** — they sit at ~2.3 EM and almost never
+   pay. 16 contracts → 8, quoted spread $133 → $85/lot.
+2. **Scale the offsets to the day's ATM straddle** so the peaks sit at the same
+   quantile of the move distribution every day.
+3. **Avoid-list**: events/OPEX, EM outside 19–37pt, gap down >20pt, flat open
+   (<1.8pt drive). Regime-neutral retention (32/28/28/34/36% across 2022–26).
+
+| | days/yr | mid | mid+25% | half-spread |
+|---|---|---|---|---|
+| R0 as taught | 252 | +$10.53 (0.28) | −$45.05 (−1.19) | −$100.63 (−2.63) |
+| R1 geometry fix only | 252 | +$28.01 (0.47) | −$7.31 (−0.12) | −$42.64 (−0.72) |
+| **R2 = R1 + avoid-list** | **78** | **+$111.50 (2.12)** | **+$79.47 (1.51)** | **+$47.44 (0.90)** |
+
+R2 is positive in all five calendar years (+47, +4, +58, +149, +150 $/day at
+mid+25%) and — uniquely in this study — **positive at full half-spread**.
+
+**A trap caught in my own composite.** The first version of R2 included a quoted-
+spread cap and scored +$98/day. It failed the §10 coverage guard: the cap retained
+**13% of 2022** vs 74–82% of later years. Removing it lowers the headline to
++$79/day but flips 2022 from −$122/day (n=12) to **+$47/day (n=50)**. The weaker
+number is the trustworthy one.
+
+**True holdout: 29 sessions, 2026-06-12 → 2026-07-24**, postdating the working
+cache entirely — no part of the design saw them. Fetched for **$0.168**
+(Databento OPRA cbbo-1m, ±120pt, `scripts/skyline_holdout_backfill.py`); gate
+passed (parity vs ^GSPC close mean +0.51pt). Frozen code, frozen thresholds:
+
+| | n | mid | mid+25% | half-spread |
+|---|---|---|---|---|
+| R0 as taught | 28 | +$44.26 | −$3.38 | −$51.01 |
+| R1 | 28 | +$126.44 | +$98.14 | +$69.83 |
+| R2 | 12 | +$277.34 | **+$250.99** | +$224.63 |
+
+**That "Sharpe 5.59" is an artifact and must not be quoted.** It is
+mean/sd × √252 on **12 observations** — the same information as **t = 1.22**, with
+a 95% CI of −$152 to +$654/day. Two of the twelve trades supply 79% of the P&L,
+and the month was benign for everything (R0 ran −$3/day against its −$45 full-sample
+average). The holdout **fails to refute** R2 and preserves the R0 < R1 < R2
+ordering out of sample. It validates nothing.
+
+## 15. The number that actually settles it
+
+| R2 in-sample (4.0 yrs) | n | $/day | sd | **t** | trades for t=2 |
+|---|---|---|---|---|---|
+| mid | 308 | +$111.50 | $834 | 2.35 | 224 (~2.9 yr) |
+| mid+25% | 308 | +$79.47 | $835 | **1.67** | 442 (~5.7 yr) |
+| half-spread | 308 | +$47.44 | $836 | **1.00** | 1,243 (~15.9 yr) |
+
+**Even in-sample, after all the searching, R2 is not statistically significant at
+a realistic fill** — and that t is before any correction for having searched ~14
+conditions, 4 structural variants and 8 filter combinations over the same 1,008
+days. "Sharpe 1.51" sounds strong precisely because annualisation hides sample
+size: at 78 trades/year, four years of data is n=308, and a $79/day edge against
+an $835 daily sd is simply not resolvable. Reaching t=2 at a realistic fill would
+take ~5.7 more years of trading; at half-spread, ~16.
+
+## 16. Bottom line on optimizability
+
+**As taught: refuted, and nothing rescues it.** No context or event filter
+survives walk-forward on the 16-leg fixed-offset structure (+$1.47/day, Sharpe
+0.03).
+
+**The geometry is genuinely improvable.** Dropping the outer flies and EM-scaling
+takes it from −$45.05 to −$7.31/day at a realistic fill; adding a regime-neutral
+avoid-list takes it to +$79.47/day, positive in all five years and at every fill
+in the bracket. A $0.168 untouched holdout is directionally consistent.
+
+**But it cannot be demonstrated with the data that exists.** R2's in-sample t is
+1.67 at a realistic fill and 1.00 at half-spread; the holdout's t is 1.22 on 12
+trades. A strategy that trades 78 times a year with an $835 daily sd needs ~5.7
+more years to resolve a $79/day edge. Everything reported here is consistent with
+a real modest edge *and* consistent with zero — and the whole design was fitted to
+the same four years.
+
+Honest status: **Skyline as taught is refuted; Skyline-R is an unproven
+hypothesis that will stay unproven for years.** Worth paper-trading alongside the
+existing sleeves for forward evidence; not worth capital on the strength of this
+study. It is also, at 8 contracts on 31% of sessions with EM-scaled strikes, no
+longer the strategy in the video.

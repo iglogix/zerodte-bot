@@ -45,7 +45,7 @@ def main() -> int:
         d TEXT PRIMARY KEY, open REAL, high REAL, low REAL, close REAL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS provenance(
         k TEXT PRIMARY KEY, v TEXT)""")
-    rows = fetch(date(2022, 4, 1), date(2026, 7, 1))
+    rows = fetch(date(2022, 4, 1), date.today())
     con.executemany("INSERT OR REPLACE INTO gspc_daily VALUES (?,?,?,?,?)", rows)
     con.execute("INSERT OR REPLACE INTO provenance VALUES (?,?)",
                 ("gspc_fetch", f"yahoo chart ^GSPC 1d, fetched {date.today()}"))
