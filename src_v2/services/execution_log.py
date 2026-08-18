@@ -21,8 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionLog:
-    def __init__(self, base_dir: str = "logs"):
-        self._dir = Path(base_dir) / "execution_comparison"
+    """Per-strategy execution records.
+
+    `strategy` namespaces the output as
+    `<base_dir>/execution_comparison/<strategy>/<date>.jsonl`. Without it, two
+    bots sharing a `log_dir` (MEIC and ORB both default to "logs") interleave
+    into one file, and the per-strategy reports then read each other's rows.
+    Separation is enforced here rather than by giving every config a distinct
+    log_dir, so a config that forgets cannot silently re-merge them.
+
+    Passing no strategy keeps the flat legacy path, so historical files and
+    anything reading them still work.
+    """
+
+    def __init__(self, base_dir: str = "logs", strategy: str = ""):
+        self._strategy = strategy or ""
+        root = Path(base_dir) / "execution_comparison"
+        self._dir = root / self._strategy if self._strategy else root
 
     def _path(self) -> Path:
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -30,6 +45,8 @@ class ExecutionLog:
 
     def _append(self, record: Dict[str, Any]) -> None:
         record.setdefault("ts", datetime.now().isoformat())
+        if self._strategy:
+            record.setdefault("strategy", self._strategy)
         try:
             with open(self._path(), "a") as f:
                 f.write(json.dumps(record) + "\n")
@@ -48,15 +65,20 @@ class ExecutionLog:
             "type": "assumed", "trade_id": trade_id, "kind": "entry",
             "quantity": payload.get("quantity"),
             "total_credit": payload.get("total_credit"),
+            "capreq_usd": payload.get("capreq_usd"),
             "stop_amount": payload.get("stop_amount"),
             "legs": {
                 "short_put": {"symbol": put_short_sym,
                               "assumed_credit": put.get("credit"),
                               "short_mid": put.get("short_mid"),
+                              "short_strike": put.get("short_strike"),
+                              "long_strike": put.get("long_strike"),
                               "stop_trigger": put.get("stop_trigger")},
                 "short_call": {"symbol": call_short_sym,
                                "assumed_credit": call.get("credit"),
                                "short_mid": call.get("short_mid"),
+                               "short_strike": call.get("short_strike"),
+                               "long_strike": call.get("long_strike"),
                                "stop_trigger": call.get("stop_trigger")},
             },
         })
@@ -89,6 +111,116 @@ class ExecutionLog:
             if rec.get("type") == "assumed":
                 out.append(rec)
         return out
+
+    def log_entry_fill(
+        self,
+        trade_id: str,
+        side: str,
+        strikes: Dict[str, Any],
+        short_quote: Dict[str, Any],
+        long_quote: Dict[str, Any],
+        modelled_credit: float,
+        result: Dict[str, Any],
+        elapsed_seconds: float,
+    ) -> None:
+        """Counterfactual record for one entry attempt — filled or not.
+
+        This is what turns the paper run into evidence about the open question
+        ("can this fill at <=$0.25/spread?") instead of just a P&L curve. It
+        pins, at the moment of the retest touch: the raw leg quotes, the three
+        reference prices the decision sits between, what the backtest assumed,
+        which ladder rung filled, and what that cost.
+
+        `natural` is the immediate-execution price (sell the short at its bid,
+        buy the long at its ask) — the credit obtainable by crossing outright.
+        Recording no-fills matters as much as fills: a strategy that cannot get
+        filled at the modelled price is a finding, not a gap in the data.
+        """
+        def _q(q):
+            b, a = (q or {}).get("bid"), (q or {}).get("ask")
+            b = None if b is None else float(b)
+            a = None if a is None else float(a)
+            mid = None if (b is None or a is None) else round((b + a) / 2, 3)
+            spread = None if (b is None or a is None) else round(a - b, 3)
+            return {"bid": b, "ask": a, "mid": mid, "spread": spread}
+
+        s, l = _q(short_quote), _q(long_quote)
+        mid_credit = (None if (s["mid"] is None or l["mid"] is None)
+                      else round(s["mid"] - l["mid"], 3))
+        natural = (None if (s["bid"] is None or l["ask"] is None)
+                   else round(s["bid"] - l["ask"], 3))
+
+        self._append({
+            "type": "entry_fill",
+            "trade_id": trade_id,
+            "side": side,
+            "strikes": strikes,
+            "short_quote": s,
+            "long_quote": l,
+            # Reference prices the entry decision sits between.
+            "mid_credit": mid_credit,
+            "natural_credit": natural,
+            "modelled_credit": modelled_credit,   # what the backtest assumed
+            # Outcome.
+            "filled": bool(result.get("filled")),
+            "fill_credit": result.get("fill_credit"),
+            "rung": result.get("rung"),
+            "requested_credit": result.get("requested_credit"),
+            "slippage_per_spread": result.get("slippage_per_spread"),
+            "time_to_fill_seconds": round(elapsed_seconds, 2),
+            "attempts": result.get("attempts"),
+            "order_id": result.get("order_id"),
+        })
+
+    def log_exit_fill(
+        self,
+        trade_id: str,
+        symbol: str,
+        reason: str,
+        quantity: int,
+        exit_quote: Optional[Dict[str, Any]],
+        result: Dict[str, Any],
+    ) -> None:
+        """What one leg actually cost to close, against its quote at that moment.
+
+        The counterpart to log_entry_fill. Exit realism is the load-bearing
+        unknown for this strategy — the WF study priced exits at MID and its own
+        notes flag breach-exit fills as needing a live study — so a fill with no
+        record of the quote it crossed answers nothing.
+
+        Emitted for every close attempt including no-ops (a leg already flat),
+        because a close that did not happen is itself a finding.
+        """
+        bid = (exit_quote or {}).get("bid")
+        ask = (exit_quote or {}).get("ask")
+        bid = None if bid is None else float(bid)
+        ask = None if ask is None else float(ask)
+        mid = None if (bid is None or ask is None) else round((bid + ask) / 2, 4)
+
+        fill = result.get("fill_price")
+        fill = None if fill in (None, "") else float(fill)
+        # Closing a SHORT leg means buying it back: paying above mid is the cost.
+        # Sign is left to the reader — role is not known at this layer — so the
+        # raw distance is recorded and interpreted per leg.
+        slip = None if (fill is None or mid is None) else round(fill - mid, 4)
+
+        self._append({
+            "type": "exit_fill",
+            "trade_id": trade_id,
+            "symbol": symbol,
+            "reason": reason,
+            "quantity": quantity,
+            "bid": bid,
+            "ask": ask,
+            "mid": mid,
+            "spread": None if (bid is None or ask is None) else round(ask - bid, 4),
+            "fill_price": fill,
+            "fill_vs_mid": slip,
+            "filled": bool(result.get("filled")),
+            "skipped": bool(result.get("skipped")),
+            "status": result.get("status"),
+            "order_id": result.get("order_id"),
+        })
 
     def log_quote(self, trade_id: str, leg: Dict[str, Any],
                   bid: float, ask: float) -> None:

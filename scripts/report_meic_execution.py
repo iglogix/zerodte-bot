@@ -26,7 +26,7 @@ from src_v2.services.execution_log import compare, compare_quotes
 def main():
     p = argparse.ArgumentParser(description="MEIC execution comparison report")
     p.add_argument("--date", default=date.today().isoformat())
-    p.add_argument("--dir", default="logs/execution_comparison")
+    p.add_argument("--dir", default="logs/execution_comparison/meic")
     args = p.parse_args()
 
     path = Path(args.dir) / f"{args.date}.jsonl"
