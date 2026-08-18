@@ -48,18 +48,26 @@ PINNED = dict(short_em_mult=1.0, wing_em_frac=0.5, stop_pct_of_total_credit=0.70
 STARTS = ("11:00", "11:30", "12:00", "12:30")  # overridden by --starts
 EXITS = ("hold",)  # overridden by --exits
 CACHE_DIR = None  # overridden by --cache-dir
-FILL_SLIP = {"nominal": 0.10, "stress": 0.25}
+# Per-fill execution knobs. stop_execution=combo (realistic spread close) is set
+# always; stop_slippage bites only stop_hold, entry/tp slippage the rest.
+FILL = {
+    "nominal": {"slippage_per_spread": 0.10, "stop_slippage_per_spread": 0.25},
+    "stress": {"slippage_per_spread": 0.25, "stop_slippage_per_spread": 1.00},
+}
 
 _G = {}
 
 
 def parse_exit(tag):
-    """exit tag -> (exit_mode, tp_pct). 'hold' | 'tpNN' (NN% of credit)."""
+    """exit tag -> (exit_mode, strategy-override dict).
+    'hold' | 'tpNN' (take-profit at NN% credit) | 'slNx' (stop at N x total credit)."""
     if tag == "hold":
-        return ("hold_to_expiry", None)
+        return ("hold_to_expiry", {})
     if tag.startswith("tp"):
-        return ("take_profit", int(tag[2:]) / 100.0)
-    raise ValueError(f"bad exit tag {tag!r} (use 'hold' or 'tpNN')")
+        return ("take_profit", {"tp_pct_of_credit": int(tag[2:]) / 100.0})
+    if tag.startswith("sl") and tag.endswith("x"):
+        return ("stop_hold", {"stop_pct_of_total_credit": float(tag[2:-1])})
+    raise ValueError(f"bad exit tag {tag!r} (use 'hold' | 'tpNN' | 'slNx')")
 
 
 def ladder(start_hhmm, n=13, step_min=20, last="15:40"):
@@ -78,26 +86,29 @@ def ladder(start_hhmm, n=13, step_min=20, last="15:40"):
 
 
 def combos():
-    """[(tag, schedule, exit_mode, tp_pct)] — start x exit grid."""
+    """[(tag, schedule, exit_mode, overrides)] — start x exit grid."""
     out = []
     for s in STARTS:
         for ex in EXITS:
-            mode, tp = parse_exit(ex)
-            out.append((f"s{s.replace(':', '')}_{ex}", ladder(s), mode, tp))
+            mode, overrides = parse_exit(ex)
+            out.append((f"s{s.replace(':', '')}_{ex}", ladder(s), mode, overrides))
     return out
 
 
-def _init_parent(slip):
+def _init_parent(fill_name):
     from src_v2.backtest.data_loader import BarLoader
 
     base = yaml.safe_load((ROOT / "config/config_meic_spx.yaml").read_text())
-    # pin params + uniform static sizing so start time is the ONLY variable
+    # pin params + uniform static sizing so start/exit is the ONLY variable
     st = base["strategy"]
     st.update(PINNED)
     st["sizing_mode"] = "static"
     st["tranche_sizing"] = {}
     st["default_tranche_qty"] = 1
-    base["options"]["slippage_per_spread"] = slip
+    knobs = FILL[fill_name]
+    base["options"]["slippage_per_spread"] = knobs["slippage_per_spread"]
+    base["options"]["stop_slippage_per_spread"] = knobs["stop_slippage_per_spread"]
+    base["options"]["stop_execution"] = "combo"  # realistic close, not optimistic trigger
     base["backtest"]["end_date"] = str(END)
     if CACHE_DIR:
         base["backtest"]["cbbo_cache_dir"] = CACHE_DIR
@@ -108,7 +119,7 @@ def _init_parent(slip):
     print(
         f"{len(days)} trading days, chunk={CHUNK_DAYS} "
         f"-> {(len(days) + CHUNK_DAYS - 1) // CHUNK_DAYS} chunks x "
-        f"{len(combos())} combos, slip={slip}",
+        f"{len(combos())} combos, fill={fill_name} {knobs}",
         flush=True,
     )
     _G["base"] = base
@@ -128,7 +139,7 @@ def run_chunk(ci, parts_dir):
     mem = CbboStore.preload_cache(cbbo_dir, start=days[0].session_date, end=days[-1].session_date)
     cbbo = CbboStore(cbbo_dir, preloaded=mem)
     done = 0
-    for tag, schedule, exit_mode, tp_pct in combos():
+    for tag, schedule, exit_mode, overrides in combos():
         part = parts_dir / tag / f"{ci:03d}.csv"
         if part.exists():
             continue
@@ -136,8 +147,7 @@ def run_chunk(ci, parts_dir):
         cfg = copy.deepcopy(_G["base"])
         cfg["entry"]["schedule"] = schedule
         cfg["strategy"]["exit_mode"] = exit_mode
-        if tp_pct is not None:
-            cfg["strategy"]["tp_pct_of_credit"] = tp_pct
+        cfg["strategy"].update(overrides)
         engine = BacktestEngine(cfg, MeicStrategy())
         engine._cbbo = cbbo
         results = engine.run(days)
@@ -161,7 +171,7 @@ def merge(out_dir, parts_dir):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--fill", choices=list(FILL_SLIP), default="nominal")
+    ap.add_argument("--fill", choices=list(FILL), default="nominal")
     ap.add_argument("--start", default=str(START))
     ap.add_argument("--end", default=str(END))
     ap.add_argument(
@@ -190,7 +200,7 @@ if __name__ == "__main__":
     parts_dir = out_dir / "parts"
     out_dir.mkdir(parents=True, exist_ok=True)
     parts_dir.mkdir(parents=True, exist_ok=True)
-    _init_parent(FILL_SLIP[a.fill])
+    _init_parent(a.fill)
     n_chunks = (len(_G["days"]) + CHUNK_DAYS - 1) // CHUNK_DAYS
     with Pool(WORKERS) as pool:
         for msg in pool.imap_unordered(partial(run_chunk, parts_dir=parts_dir), range(n_chunks)):

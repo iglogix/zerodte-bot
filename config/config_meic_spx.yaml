@@ -37,7 +37,13 @@ strategy:
   # NOTE: f=0.03 is conservative (~20% DD) but has a ~$1M granularity floor; below
   # that, integer lots skip the (profitable) high-vol tranches. Smaller accounts
   # need a higher f (more drawdown). See docs/spx_0dte_meic_strategy.md §6.
-  sizing_mode: fixed_fractional
+  # PAPER RUNS USE STATIC: fixed_fractional needs account net-liq wired into the
+  # live orchestrator (_equity_fn is set ONLY by the backtest engine), so in
+  # manual/live it fails safe to qty=0 and the bot would generate ZERO orders.
+  # static = the tranche_sizing weight map below, which is also what every
+  # backtest/WF-validated number was computed on. Restore fixed_fractional only
+  # after wiring live equity, as a prerequisite to any real-money flip.
+  sizing_mode: static
   sizing_fraction: 0.03
   am_pm_cutoff: "12:30"
   short_em_mult: 1.0
@@ -93,6 +99,10 @@ options:
   chain_half_span_pts: 400
 
 llm:
+  # Paper run must match the WF-validated (ungated) backtest, which enters every
+  # valid slot. The LLM anomaly/regime gates are not part of that validation, so
+  # they are off here. Deterministic guards (dislocation, stability) still apply.
+  advisors_enabled: false
   advisor_model: "openai/gpt-4.1-mini"
   debrief_model: "openai/gpt-4.1"
 

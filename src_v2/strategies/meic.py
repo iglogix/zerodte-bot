@@ -377,9 +377,13 @@ class MeicStrategy(LiveStrategy):
         # The un-taken remainder rides to EOD and settles at expiry intrinsic in
         # the engine (same as hold_to_expiry) — never assumed worthless.
         take_profit_only = self._exit_mode == "take_profit"
+        # stop_hold: hold_to_expiry PLUS a disaster stop (close a side when its
+        # short breaches the stop trigger). NO scale-out, NO take-profit; un-stopped
+        # survivors ride to EOD and settle at intrinsic (engine).
+        stop_hold = self._exit_mode == "stop_hold"
 
         trade_id = trade.get("trade_id", "")
-        if not take_profit_only:
+        if not (take_profit_only or stop_hold):
             tiers, fractions = self._tiers_for(trade)
 
         legs_to_close: List[str] = []
@@ -424,6 +428,19 @@ class MeicStrategy(LiveStrategy):
                     else:
                         reasons.append(f"{side}_abandon_long")
                 reasons.append(f"{side}_tp@{pnl_pct:.2f}")
+                continue
+
+            # --- stop_hold mode: disaster stop only (no tiers), else hold ---
+            if stop_hold:
+                stop_price = trade.get(stop_key)
+                if stop_price is not None and short_ask >= stop_price:
+                    stop_hit = True
+                    legs_to_close.append(short_sym)
+                    leg_qty[short_sym] = open_qty
+                    if long_sym:
+                        legs_to_close.append(long_sym)
+                        leg_qty[long_sym] = open_qty
+                    reasons.append(f"{side}_stop@{short_ask:.2f}")
                 continue
 
             # --- Stop-loss check (short ask >= stop trigger) ---

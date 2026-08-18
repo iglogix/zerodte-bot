@@ -112,3 +112,31 @@ def test_tp_pct_default_and_config():
     s = MeicStrategy()
     s.configure({"strategy": {"exit_mode": "take_profit"}, "options": {}})
     assert s._tp_pct == 0.50
+
+
+# --- stop_hold: disaster stop + hold-to-expiry settlement, no scale-out ----
+
+
+def _stop_strategy() -> MeicStrategy:
+    s = MeicStrategy()
+    s.configure({"strategy": {"exit_mode": "stop_hold"}, "options": {}})
+    return s
+
+
+def test_stop_hold_stops_when_short_breaches_trigger():
+    # _call_trade has short_call_stop_price 9.0; short_ask 10 >= 9 -> stop
+    action = _stop_strategy().check_exit(_call_trade(), _quotes(short_ask=10.0))
+    assert action.action == "stop_loss"
+    assert action.leg_quantities["SPXW  240320C05000000"] == 4   # full short close
+    assert action.leg_quantities["SPXW  240320C05015000"] == 4   # long closed too
+
+
+def test_stop_hold_holds_below_trigger():
+    action = _stop_strategy().check_exit(_call_trade(), _quotes(short_ask=2.5))
+    assert action.action == "hold"
+
+
+def test_stop_hold_never_takes_profit():
+    # deeply profitable (short decayed to 0.1) must still hold — stop_hold only stops
+    action = _stop_strategy().check_exit(_call_trade(), _quotes(short_ask=0.1))
+    assert action.action == "hold"
