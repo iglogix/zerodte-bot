@@ -92,14 +92,23 @@ def get_front_month_contract(
     return f"ES{month_code}{year_suffix}", expiry
 
 
-def get_dxlink_symbol(reference_date: date | None = None) -> str:
+def get_dxlink_symbol(
+    reference_date: date | None = None,
+    roll_days_before_expiry: int = 0,
+) -> str:
     """
     Return the DXLink symbol for the front-month ES contract.
 
     Format: /ES{month}{year}:XCME
     Example: /ESH26:XCME for March 2026
+
+    roll_days_before_expiry: roll to the next cycle this many trading days
+        before expiry. Default 0 keeps the contract through expiry day (correct
+        when trading ES options that settle into it). Use a small positive value
+        when ES is only a price/signal source — the expiring front month's quotes
+        go silent as liquidity rolls to the next cycle.
     """
-    contract, _ = get_front_month_contract(reference_date)
+    contract, _ = get_front_month_contract(reference_date, roll_days_before_expiry)
     return f"/{contract}:XCME"
 
 

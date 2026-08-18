@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
@@ -30,7 +31,11 @@ logger = logging.getLogger(__name__)
 _SANDBOX_URL = "https://api.cert.tastyworks.com"
 _PRODUCTION_URL = "https://api.tastyworks.com"
 _USER_AGENT = "0dte-iron-condor-bot/1.0"
-_TT_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=20.0, read=20.0, write=20.0, pool=20.0)
+# Plain float, not httpx.Timeout: the tastytrade SDK (>=13.2.2) forwards this
+# into its httpx2 fork, which treats a foreign Timeout object as a raw number
+# and crashes in anyio. Both libraries expand a float to all four timeout
+# categories, so semantics are unchanged.
+_TT_HTTP_TIMEOUT = 20.0
 
 
 VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
@@ -98,6 +103,15 @@ class TastyTradeClient:
         # Symbols that should bypass DXLink and go straight to REST
         # (futures options with spaces don't stream via DXLink)
         self._dxlink_rest_only: set = set()
+        # Adaptive REST fallback: a symbol whose DXLink stream goes silent (e.g.
+        # an expiring front-month future the day before roll) would otherwise
+        # eat a full 5s timeout on EVERY poll and flood the log. After
+        # N consecutive DXLink timeouts we pin the symbol to REST for a cooldown,
+        # then re-probe DXLink once the cooldown elapses (self-healing).
+        self._dxlink_fail_counts: Dict[str, int] = {}
+        self._dxlink_rest_until: Dict[str, float] = {}  # symbol -> monotonic deadline
+        self._dxlink_max_consec_fails = 3
+        self._dxlink_rest_cooldown_s = 300.0
 
     async def __aenter__(self):
         await self.connect()
@@ -332,13 +346,47 @@ class TastyTradeClient:
         # Futures options like "./ESH6 EW2H6 260313P6630" don't stream via DXLink
         if " " in symbol or symbol in self._dxlink_rest_only:
             return await self._get_quote_via_rest(symbol)
-        try:
-            return await self._get_quote_via_dxlink(symbol)
-        except Exception as exc:
-            # Transient fallback only — do NOT pin the symbol to REST; the
-            # owner task reconnects the streamer and DXLink resumes serving.
-            logger.warning("DXLink quote failed for %s: %s — falling back to REST", symbol, exc)
+        # Symbol pinned to REST after repeated DXLink timeouts? Skip the 5s probe
+        # until the cooldown elapses, then allow one re-probe (self-healing).
+        if self._dxlink_rest_pinned(symbol):
             return await self._get_quote_via_rest(symbol)
+        try:
+            quote = await self._get_quote_via_dxlink(symbol)
+            self._dxlink_fail_counts.pop(symbol, None)  # healthy — reset streak
+            return quote
+        except Exception as exc:
+            fails = self._dxlink_fail_counts.get(symbol, 0) + 1
+            self._dxlink_fail_counts[symbol] = fails
+            if fails >= self._dxlink_max_consec_fails:
+                # Stream is persistently silent for this symbol — pin to REST for
+                # a cooldown and log ONCE instead of warning on every poll.
+                self._dxlink_rest_until[symbol] = (
+                    time.monotonic() + self._dxlink_rest_cooldown_s
+                )
+                logger.warning(
+                    "DXLink quote for %s failed %d× consecutively (%s) — "
+                    "REST-only for %.0fs (likely illiquid/expiring contract)",
+                    symbol, fails, exc, self._dxlink_rest_cooldown_s,
+                )
+            else:
+                logger.warning(
+                    "DXLink quote failed for %s: %s — falling back to REST", symbol, exc
+                )
+            return await self._get_quote_via_rest(symbol)
+
+    def _dxlink_rest_pinned(self, symbol: str) -> bool:
+        """True while *symbol* is in its post-failure REST cooldown. When the
+        cooldown elapses, clear the pin + streak so the next call re-probes
+        DXLink once — if the stream recovered, a success resets cleanly."""
+        until = self._dxlink_rest_until.get(symbol)
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            self._dxlink_rest_until.pop(symbol, None)
+            self._dxlink_fail_counts.pop(symbol, None)
+            logger.info("DXLink REST cooldown elapsed for %s — re-probing stream", symbol)
+            return False
+        return True
 
     # -- Persistent DXLink quote streamer ------------------------------------
 
