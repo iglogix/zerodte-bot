@@ -1,15 +1,65 @@
 """
-LLM client wrapper using LiteLLM for unified API access.
-Supports Claude Sonnet 4.6 (primary) and GPT-5.2 (validator).
+LLM client wrapper.
+
+Two backends:
+- **Claude Agent SDK** (subscription auth) — used when CLAUDE_CODE_OAUTH_TOKEN is set.
+  Routes text completions through the local `claude` CLI on your Claude Pro/Max/Team
+  plan's Agent SDK credits (no pay-as-you-go API key). Generate the token once with
+  `claude setup-token` and put CLAUDE_CODE_OAUTH_TOKEN in .env.
+- **LiteLLM** (API key) — fallback when no OAuth token is set, or for tool-calling
+  requests (legacy DualLLMValidator paths). Uses ANTHROPIC_API_KEY / OPENAI_API_KEY.
+
+The advisors (AnomalyDetector, RegimeClassifier, EodDebrief) all use text JSON output
+via chat(tools=None), so the Agent SDK backend serves them as a drop-in.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# The claude CLI prefers ANTHROPIC_API_KEY over the subscription OAuth token. If a
+# (possibly dead) key is in the env it silently shadows CLAUDE_CODE_OAUTH_TOKEN, so
+# we strip it from this process once before the first Agent-SDK call.
+_API_KEY_UNSHADOWED = False
+
+
+# A model string that names its provider is an explicit routing instruction and
+# must win over the subscription backend. Without this, CLAUDE_CODE_OAUTH_TOKEN
+# being merely PRESENT hijacks every text completion — so a config pointing at
+# openrouter/... silently never reaches OpenRouter, and a dead token takes the
+# advisors down with it (401 x10 retries, ~12s per call, then fail-open).
+_EXPLICIT_PROVIDER_PREFIXES = (
+    "openrouter/", "openai/", "azure/", "gemini/", "vertex_ai/",
+    "groq/", "together_ai/", "bedrock/", "ollama/",
+)
+
+
+def _agent_sdk_enabled(model: str = "") -> bool:
+    """True when this model should go through the subscription Agent SDK.
+
+    The Agent SDK only serves Anthropic-native model names on subscription auth,
+    so an explicitly-routed model falls through to LiteLLM.
+    """
+    if model.startswith(_EXPLICIT_PROVIDER_PREFIXES):
+        return False
+    return bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+
+
+def _unshadow_api_key() -> None:
+    global _API_KEY_UNSHADOWED
+    if _API_KEY_UNSHADOWED:
+        return
+    if os.environ.pop("ANTHROPIC_API_KEY", None):
+        logger.info(
+            "LLMClient: removed ANTHROPIC_API_KEY from process env so the Claude "
+            "subscription OAuth token (CLAUDE_CODE_OAUTH_TOKEN) is used by the Agent SDK"
+        )
+    _API_KEY_UNSHADOWED = True
 
 
 class LLMClient:
@@ -27,6 +77,8 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self._backend = "agent_sdk" if _agent_sdk_enabled(model) else "litellm"
+        logger.info("LLMClient: model=%s backend=%s", model, self._backend)
 
     async def chat(
         self,
@@ -41,6 +93,17 @@ class LLMClient:
             "content": str | None,
           }
         """
+        # Subscription path: text-only completions via the Claude Agent SDK.
+        # Tool-calling requests fall through to LiteLLM (legacy validator only).
+        if self._backend == "agent_sdk" and not tools:
+            content = await self._agent_sdk_complete(messages)
+            return {"tool_calls": None, "content": content}
+        if self._backend == "agent_sdk" and tools:
+            logger.warning(
+                "LLMClient: tool-calling not supported on the Agent SDK backend; "
+                "falling back to LiteLLM (needs a valid ANTHROPIC_API_KEY)"
+            )
+
         import litellm
 
         _new_models = ("gpt-5", "o1", "o3", "o4")
@@ -57,6 +120,44 @@ class LLMClient:
 
         response = await litellm.acompletion(**call_kwargs)
         return self._normalize(response)
+
+    async def _agent_sdk_complete(self, messages: List[Dict[str, Any]]) -> str:
+        """Single-shot text completion via the Claude Agent SDK (subscription auth).
+
+        Flattens OpenAI-style messages into (system_prompt, prompt), runs one turn
+        with no tools, and returns the assistant text. setting_sources=[] keeps the
+        user's global CLAUDE.md / MCP config out of the advisor's context.
+        """
+        from claude_agent_sdk import (
+            AssistantMessage,
+            ClaudeAgentOptions,
+            TextBlock,
+            query,
+        )
+
+        _unshadow_api_key()
+
+        system_parts = [m.get("content") for m in messages if m.get("role") == "system"]
+        user_parts = [m.get("content") for m in messages if m.get("role") == "user"]
+        system_prompt = "\n\n".join(p for p in system_parts if p) or None
+        prompt = "\n\n".join(p for p in user_parts if p)
+        sdk_model = self.model.split("/", 1)[-1]  # strip "anthropic/" LiteLLM prefix
+
+        options = ClaudeAgentOptions(
+            model=sdk_model,
+            system_prompt=system_prompt,
+            allowed_tools=[],          # advisors need no tools — pure text JSON
+            max_turns=1,               # single shot, no agentic loop
+            setting_sources=[],        # ignore user/project settings + MCP
+        )
+
+        chunks: List[str] = []
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        chunks.append(block.text)
+        return "".join(chunks).strip()
 
     def _normalize(self, response: Any) -> Dict[str, Any]:
         """Normalize LiteLLM response to a consistent format."""
