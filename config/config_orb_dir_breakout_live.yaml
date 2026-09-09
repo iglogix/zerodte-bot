@@ -1,0 +1,97 @@
+bot:
+  name: "spx-0dte-orb-dir-breakout"
+  timezone: "America/New_York"
+  mode: "manual"            # graduate: manual -> live (TT cert can't trade SPXW 0DTE)
+  symbol: "ES"             # ES futures for the ORB signal (DXLink continuous front month)
+  strategy: "orb_em_directional"
+
+# ORB EM directional credit spread — the ONLY survivor of the 8AM ORB family on the
+# full 2022-2026 CBBO re-run (docs/wf_cv_findings_orb_em_directional_spx_2026-06-16.md):
+# breakout-level retest, mtol=3.0, min_em=20. OOS untouched-test plateau Sharpe ~1-2,
+# positive 4/5 yrs, robust to full bid/ask exit crossing (Sharpe 2.61). Paper-trading
+# in manual mode for forward OOS + live-fill evidence (needs <=~$0.25/spread fills).
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 3.0          # breakout-retest tolerance (WF survivor)
+  retest_mode: "breakout_level"       # wait for retest of broken level (continuation)
+  orb_range_filter:
+    min_pts: 2.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+  # On a regime skip_trade (temporary — "improves within 1-2 hours"), defer entry
+  # and re-check the regime after this many minutes rather than ending the session.
+  # Only skip_session (and EOD) terminate the watch. 0 would re-check every poll.
+  regime_recheck_minutes: 30
+  # ES is the ORB signal only (SPXW is traded), so roll the futures contract off
+  # the front month this many trading days before expiry — the expiring contract's
+  # DXLink quotes go silent as liquidity rolls to the next cycle (e.g. ESM26 went
+  # quiet on 2026-06-18, the day before its 06-19 expiry).
+  es_roll_days_before_expiry: 2
+
+# Single with-trend credit spread (PCS on long breakout, CCS on short).
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  min_credit_per_spread: 0.05
+  tp_pct_of_credit: 0.75
+  sl_mult_of_credit: 0                # no stop; exit on breach / TP / EOD
+  hold_put_breach: true               # WF survivor — puts ride breaches to EOD
+  em_with_trend: 0.5                  # short strike = spot ± 0.5 × ATM_straddle (~0.20-0.25Δ)
+  width_with_trend: 20                # 20pt spread (collects real ~$3-4 CBBO credit)
+  min_em_pts: 20                      # skip calm days (ATM straddle < 20pts) — essential
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  commission_per_contract_per_leg: 1.0
+  quantity: 1                         # paper: 1 contract until live-fill evidence
+  chain_half_span_pts: 400
+  assumed_iv: 0.15
+
+entry:
+  schedule: ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"]
+  skip_non_trading_days: true
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 5.0
+  max_buying_power_percent: 50.0
+
+monitor:
+  poll_interval_seconds: 30
+  eod_close_time: "15:50"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+llm:
+  # OFF: the anomaly/regime gates are not part of ANY WF-validated config —
+  # the backtest enters every valid slot — so an enabled gate makes the
+  # forward record non-comparable to the study (n=233, $13,751, Sharpe ~1.55
+  # trade-frequency-adjusted). Matches config_meic_spx / config_power_hour_live.
+  # The OpenRouter path below is verified working; flip this to true to use it.
+  advisors_enabled: false
+  # Routed via OpenRouter: the subscription OAuth token is 401-invalid and
+  # ANTHROPIC_API_KEY has no credits. An explicit provider prefix also stops
+  # the Agent SDK backend hijacking the call (see llm_client._agent_sdk_enabled).
+  advisor_model: "openrouter/anthropic/claude-haiku-4.5"
+  debrief_model: "openrouter/anthropic/claude-sonnet-4.5"
+
+cache:
+  option_chain_ttl: 60
+  quote_ttl: 10
+  account_info_ttl: 60
+
+database:
+  trading_db: "data/orb_dir_bot.db"
+  cache_db: "data/market_cache.db"
+
+logging:
+  log_dir: "logs"
+  level: "INFO"

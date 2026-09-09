@@ -307,11 +307,20 @@ class BacktestToolHandlers:
         order_type: str = "market",
         quantity: int = 1,
         reason: str = "",
+        exit_quote: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Update trade status in mock DB and record exit quotes.
 
         Per-symbol close: records exit quote AND clears that symbol from the
         trade dict so check_exit won't keep firing for the same leg.
+
+        Must accept every keyword the live ToolHandlers.close_position accepts:
+        PositionMonitor drives BOTH, so a kwarg added on one side raises
+        TypeError on the other — and _close_leg swallows it, silently disabling
+        exit management. `exit_quote` is accepted and ignored here because the
+        backtest prices exits from its own CBBO exit_log.
+        Pinned by tests/test_alpaca_execution.py::test_backtest_handlers_accept_
+        every_live_close_kwarg.
         """
         now = self._clock.now(ET)
         if close_all and trade_id:

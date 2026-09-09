@@ -88,7 +88,9 @@ class OrderFillListener:
 
     async def start(self):
         """Start the listener loop. No-op in dry_run / manual mode."""
-        if self.mode in ("dry_run", "manual"):
+        # alpaca_paper: fills come back from the Alpaca order poll, not the
+        # TastyTrade websocket — the TT account holds no position to report on.
+        if self.mode in ("dry_run", "manual", "alpaca_paper"):
             logger.info(
                 "OrderFillListener: mode=%s — websocket disabled, polling is sole mechanism",
                 self.mode.upper(),

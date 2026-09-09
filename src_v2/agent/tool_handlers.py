@@ -28,9 +28,15 @@ class ToolHandlers:
         dry_run: Optional[bool] = None,
         execution_log=None,
         on_entry=None,
+        es_roll_days_before_expiry: int = 2,
     ):
         self._execution_log = execution_log
         self._on_entry = on_entry
+        # ES is used here only as the ORB *signal* (the traded instrument is
+        # SPXW), so we roll the futures contract off the front month a couple of
+        # trading days before expiry — its DXLink quotes go silent as liquidity
+        # rolls to the next cycle. Strike alignment is irrelevant (options are SPX).
+        self._es_roll_days_before_expiry = es_roll_days_before_expiry
         if mode is not None:
             self.mode = mode
         elif dry_run is not None:
@@ -104,7 +110,9 @@ class ToolHandlers:
         try:
             if symbol == "ES":
                 from src_8am.utils.contract_utils import get_dxlink_symbol
-                symbol = get_dxlink_symbol()
+                symbol = get_dxlink_symbol(
+                    roll_days_before_expiry=self._es_roll_days_before_expiry
+                )
             cached = await self.cache.get_cached_quote(symbol, max_age_seconds=10)
             if cached is not None:
                 return cached
@@ -323,6 +331,29 @@ class ToolHandlers:
         """Return all open iron condor positions."""
         trades = await self.db.get_open_trades()
         return trades if trades else []
+
+    async def get_broker_positions(self) -> Optional[List[Dict[str, Any]]]:
+        """Open option positions as the BROKER sees them, or None if unknowable.
+
+        Distinct from get_open_positions(), which returns local *trade rows* and
+        carries no per-leg `symbol`. Callers asking "is this leg still open?"
+        need the broker's answer; checking a leg symbol against trade rows
+        matches nothing and reports every leg as closed.
+
+        Returns None (not []) when there is no broker to ask — dry_run/manual,
+        or a client without a positions endpoint — so callers can tell "flat"
+        apart from "cannot verify".
+        """
+        if self._block_submission() or self.api_client is None:
+            return None
+        getter = getattr(self.api_client, "get_positions", None)
+        if getter is None:
+            return None
+        try:
+            return await getter() or []
+        except Exception:
+            logger.exception("Failed to read broker positions")
+            return None
 
     async def check_buying_power(
         self,
@@ -652,26 +683,110 @@ class ToolHandlers:
         quantity: int = 1,
         order_type: str = "market",
         close_all: bool = False,
+        reason: str = "",
+        exit_quote: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Close a position or specific leg."""
+        """Close a position or specific leg.
+
+        `reason` is passed by PositionMonitor._close_leg on every take-profit /
+        stop-loss close; it is recorded, not acted on. It was previously absent
+        from this signature, so those calls raised a TypeError that the caller's
+        `except Exception` swallowed — positions never took profit and instead
+        rode to the EOD force-close.
+        """
+        details = {"symbol": symbol, "trade_id": trade_id, "quantity": quantity,
+                   "order_type": order_type, "close_all": close_all, "reason": reason}
         if self._block_submission():
-            details = {"symbol": symbol, "trade_id": trade_id, "quantity": quantity, "order_type": order_type, "close_all": close_all}
             if self.dry_run:
-                return {"order_id": f"DRY-CL-{datetime.now().strftime('%Y%m%d%H%M%S')}", "dry_run": True, "simulated": True}
+                return {"order_id": f"DRY-CL-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                        "dry_run": True, "simulated": True, **details}
             return self._manual_order_result("close_position", details)
 
+        # close_all carries only a trade_id, so resolve the trade's actual legs
+        # here (this layer owns the DB) and close each explicitly. Sending
+        # close_trade downstream produced an order with an EMPTY symbol.
         if close_all and trade_id:
-            return await self.api_client.place_order({
-                "order_type": "close_trade",
-                "trade_id": trade_id,
-                "close_all": True,
-            })
+            legs = await self._resolve_trade_legs(trade_id)
+            if not legs:
+                logger.error(
+                    "close_all: no legs resolved for trade %s — nothing submitted",
+                    trade_id,
+                )
+                return {"error": "no_legs_resolved", "trade_id": trade_id}
+            results = []
+            for leg_symbol, leg_qty in legs:
+                res = await self.api_client.place_order({
+                    "order_type": f"close_{order_type}",
+                    "symbol": leg_symbol,
+                    "quantity": leg_qty,
+                })
+                self._log_exit_fill(trade_id, leg_symbol, reason or "eod_close",
+                                    leg_qty, None, res)
+                # Stamp the leg we asked to close so the caller can book P&L
+                # without depending on the broker's symbol spelling.
+                results.append({**res, "leg_symbol": leg_symbol}
+                               if isinstance(res, dict) else res)
+            return {"trade_id": trade_id, "closed_legs": len(results), "results": results}
 
-        return await self.api_client.place_order({
+        if not symbol:
+            logger.error("close_position called without a symbol — nothing submitted")
+            return {"error": "no_symbol"}
+
+        result = await self.api_client.place_order({
             "order_type": f"close_{order_type}",
             "symbol": symbol,
             "quantity": quantity,
         })
+        self._log_exit_fill(trade_id, symbol, reason, quantity, exit_quote, result)
+        return result
+
+    def _log_exit_fill(self, trade_id, symbol, reason, quantity, exit_quote, result
+                       ) -> None:
+        """Record what this leg actually cost to close, vs its quote."""
+        if self._execution_log is None:
+            return
+        try:
+            self._execution_log.log_exit_fill(
+                trade_id=trade_id or "", symbol=symbol, reason=reason,
+                quantity=quantity, exit_quote=exit_quote,
+                result=result if isinstance(result, dict) else {},
+            )
+        except Exception:
+            logger.exception("Failed to write exit-fill record for %s", symbol)
+
+    async def _resolve_trade_legs(self, trade_id: str) -> List[tuple]:
+        """Open option legs of a persisted trade as [(symbol, quantity), ...].
+
+        Reads the symbols the entry path stored in `strategy_data`, covering
+        both the single-spread (ORB directional) and two-sided (IC/MEIC) shapes.
+        """
+        if self.db is None:
+            return []
+        try:
+            trade = await self.db.get_trade(trade_id)
+        except Exception:
+            logger.exception("Failed to load trade %s for close_all", trade_id)
+            return []
+        if not trade:
+            return []
+
+        data = trade.get("strategy_data") or "{}"
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (ValueError, TypeError):
+                data = {}
+
+        legs: List[tuple] = []
+        for side in ("put", "call"):
+            qty = int(data.get(f"{side}_open_qty", 0) or 0)
+            if qty <= 0:
+                continue
+            for role in ("short", "long"):
+                sym = data.get(f"{role}_{side}_symbol") or trade.get(f"{role}_{side}_symbol")
+                if sym:
+                    legs.append((sym, qty))
+        return legs
 
     async def cancel_order(self, order_id: str) -> Dict[str, Any]:
         """Cancel a pending order."""
@@ -688,6 +803,8 @@ class ToolHandlers:
             return await self.place_two_spread_ic(order_payload)
         if order_payload.get("order_type") == "power_hour_ic":
             return await self.place_power_hour_ic(order_payload)
+        if order_payload.get("order_type") in ("put_credit_spread", "call_credit_spread"):
+            return await self._place_single_spread(order_payload)
         if self._block_submission():
             if self.dry_run:
                 order_id = f"DRY-{order_payload.get('order_type', 'ORD').upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -696,6 +813,152 @@ class ToolHandlers:
             return self._manual_order_result("place_order", order_payload)
 
         return await self.api_client.place_order(order_payload)
+
+    async def _place_single_spread(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Place (or paper-track) a single directional credit spread (PCS/CCS).
+
+        Persists an assumed-fill trade so PositionMonitor owns the exit lifecycle
+        (TP / breach / EOD) — the same paper-lifecycle pattern as place_power_hour_ic.
+        Used by the ORB directional strategy. In manual/dry_run the order is NOT
+        submitted but the trade is tracked; in live the spread is submitted.
+        """
+        side = payload.get("side") or (
+            "put" if payload.get("order_type") == "put_credit_spread" else "call"
+        )
+        is_call = side == "call"
+        qty = int(payload.get("quantity", 1))
+        short_k = payload[f"short_{side}_strike"]
+        long_k = payload[f"long_{side}_strike"]
+        credit = float(payload.get("credit") or 0.0)
+        exp = date.today()
+        short_sym = format_osi(exp, short_k, is_call=is_call)
+        long_sym = format_osi(exp, long_k, is_call=is_call)
+        trade_id = datetime.now().strftime(f"orbdir-{side}-%H%M%S")
+        width = int(abs(long_k - short_k))
+
+        # Persist the assumed fill so the monitor owns the exit lifecycle. The
+        # absent side's strikes are 0 so the strategy's check_exit only evaluates
+        # the present spread.
+        if self.db is not None:
+            strategy_data = {
+                f"short_{side}_symbol": short_sym,
+                f"long_{side}_symbol": long_sym,
+                f"{side}_credit": credit,
+                f"{side}_open_qty": qty,
+                "side": side,
+                "strategy_type": "orb_em_directional",
+            }
+            try:
+                await self.db.create_trade({
+                    "trade_id": trade_id,
+                    "entry_time": datetime.now(),
+                    "expiration_date": exp,
+                    "underlying": "SPX",
+                    "underlying_price_at_entry": float(payload.get("underlying_at_entry") or 0.0),
+                    "short_call_strike": short_k if is_call else 0,
+                    "long_call_strike": long_k if is_call else 0,
+                    "short_put_strike": 0 if is_call else short_k,
+                    "long_put_strike": 0 if is_call else long_k,
+                    "call_spread_premium": credit if is_call else 0.0,
+                    "put_spread_premium": 0.0 if is_call else credit,
+                    "total_premium": credit,
+                    "call_wing_width": width if is_call else 0,
+                    "put_wing_width": 0 if is_call else width,
+                    "status": "open",
+                    "strategy_data": json.dumps(strategy_data),
+                })
+                logger.info(
+                    "ORB directional trade persisted: %s (%s spread %.2f credit, short %s)",
+                    trade_id, side, credit, short_sym,
+                )
+            except Exception:
+                logger.exception("Failed to persist orb directional trade %s", trade_id)
+
+        if self._block_submission():
+            if self.dry_run:
+                logger.info("[DRY RUN] Simulated %s: %s", payload.get("order_type"), trade_id)
+                return {"order_id": f"DRY-{trade_id}", "trade_id": trade_id,
+                        "dry_run": True, "simulated": True, **payload}
+            res = self._manual_order_result("place_order", payload)
+            res["trade_id"] = trade_id
+            return res
+
+        # LIVE: submit the single credit spread, walking the fill ladder.
+        started = datetime.now()
+        result = await self.place_credit_spread(side, short_k, long_k, qty, credit=credit)
+        result["trade_id"] = trade_id
+
+        # Counterfactual record — written for fills AND no-fills, because "could
+        # not fill at the modelled price" is the answer to the open question,
+        # not a missing data point.
+        if self._execution_log is not None:
+            try:
+                self._execution_log.log_entry_fill(
+                    trade_id=trade_id,
+                    side=side,
+                    strikes={f"short_{side}": short_k, f"long_{side}": long_k},
+                    short_quote=payload.get("short_quote") or {},
+                    long_quote=payload.get("long_quote") or {},
+                    modelled_credit=credit,
+                    result=result,
+                    elapsed_seconds=(datetime.now() - started).total_seconds(),
+                )
+            except Exception:
+                logger.exception("Failed to write entry-fill record for %s", trade_id)
+
+        await self._reconcile_entry_fill(trade_id, side, credit, result)
+        return result
+
+    async def _reconcile_entry_fill(
+        self, trade_id: str, side: str, assumed_credit: float, result: Dict[str, Any],
+    ) -> None:
+        """Replace the assumed entry credit with what the broker actually filled.
+
+        The trade is persisted at the assumed credit *before* submission so the
+        monitor can own the exit lifecycle. Against a real book that number is a
+        guess: the fill can be worse, or never happen. Producing the real one is
+        the entire reason for routing orders to a broker instead of tracking
+        them locally, so an unfilled order voids the trade rather than leaving a
+        phantom position for the monitor to manage.
+        """
+        if self.db is None or "filled" not in result:
+            return
+
+        fill_credit = result.get("fill_credit")
+        if result.get("filled") and fill_credit:
+            slippage = assumed_credit - float(fill_credit)
+            logger.info(
+                "[FILL] %s %s spread filled at $%.2f (assumed $%.2f, slippage $%.2f/spread)",
+                trade_id, side, float(fill_credit), assumed_credit, slippage,
+            )
+            try:
+                await self.db.update_trade(trade_id, {
+                    f"{'call' if side == 'call' else 'put'}_spread_premium": float(fill_credit),
+                    "total_premium": float(fill_credit),
+                })
+            except Exception:
+                logger.exception("Failed to write actual fill credit for %s", trade_id)
+            return
+
+        # Not filled — cancel any resting order and void the local trade so the
+        # monitor does not manage a position that was never opened.
+        order_id = result.get("order_id")
+        if order_id:
+            try:
+                await self.api_client.cancel_order(order_id)
+            except Exception:
+                logger.exception("Failed to cancel unfilled order %s", order_id)
+        logger.warning(
+            "[NO-FILL] %s did not fill at $%.2f credit — voiding the local trade",
+            trade_id, assumed_credit,
+        )
+        try:
+            await self.db.update_trade(trade_id, {
+                "status": "cancelled",
+                "close_reason": "entry_not_filled",
+            })
+        except Exception:
+            logger.exception("Failed to void unfilled trade %s", trade_id)
 
     # -------------------------------------------------------------------------
     # IC-specific methods removed — now in IronCondorStrategy
@@ -1072,10 +1335,14 @@ class ToolHandlers:
         if self._orb_levels is not None:
             return self._orb_levels
         try:
-            # Resolve bare "ES" to DXLink futures symbol (e.g. "/ESM26:XCME")
+            # Resolve bare "ES" to DXLink futures symbol (e.g. "/ESM26:XCME").
+            # Same early-roll as get_futures_price so the ORB levels and the
+            # breakout/retest price polling always reference the SAME contract.
             if symbol == "ES":
                 from src_8am.utils.contract_utils import get_dxlink_symbol
-                symbol = get_dxlink_symbol()
+                symbol = get_dxlink_symbol(
+                    roll_days_before_expiry=self._es_roll_days_before_expiry
+                )
             candles = await self.cache.get_candles(symbol, interval="5m", start=start, end=end)
             if not candles:
                 return {"error": "no_orb_candles"}

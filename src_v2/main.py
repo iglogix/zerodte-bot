@@ -62,7 +62,7 @@ def _load_prompt(prompt_path: str = "bot_prompt.md") -> str:
         return f.read()
 
 
-VALID_MODES = {"dry_run", "manual", "sandbox", "live"}
+VALID_MODES = {"dry_run", "manual", "sandbox", "live", "alpaca_paper"}
 
 
 class BotOrchestrator:
@@ -71,15 +71,31 @@ class BotOrchestrator:
     runs the scheduled entry loop.
 
     mode:
-      dry_run - no API calls at all, fully simulated responses
-      manual  - live market data + full order generation, orders NOT submitted
-      sandbox - real orders to TastyTrade cert environment
-      live    - real orders to TastyTrade production
+      dry_run      - no API calls at all, fully simulated responses
+      manual       - live market data + full order generation, orders NOT submitted
+      sandbox      - real orders to TastyTrade cert environment
+      live         - real orders to TastyTrade production
+      alpaca_paper - hybrid: live TastyTrade market data, orders submitted to
+                     the Alpaca PAPER account. Exists because TT cert cannot
+                     trade SPXW 0DTE, so `manual` can only assume fills.
+                     Alpaca has no futures, so the ES opening-range signal
+                     still comes from TastyTrade/DXLink.
     """
 
     def __init__(self, config: Dict[str, Any], mode: str = "dry_run"):
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode {mode!r}. Must be one of: {VALID_MODES}")
+
+        # Refuse to run an Alpaca-execution config against a different venue.
+        # BOT_MODE (loaded from .env) outranks the config file, so a stale
+        # BOT_MODE=sandbox would otherwise silently send these orders to the
+        # TastyTrade cert environment instead of Alpaca.
+        if config.get("broker", {}).get("execution") == "alpaca" and mode != "alpaca_paper":
+            raise ValueError(
+                f"config sets broker.execution=alpaca but the resolved mode is "
+                f"{mode!r}. Orders would go to the wrong venue. Pass --alpaca "
+                f"(or unset BOT_MODE, which overrides bot.mode in the config)."
+            )
         self.config = config
         self.mode = mode
         self.dry_run = mode == "dry_run"
@@ -146,15 +162,45 @@ class BotOrchestrator:
         from src_v2.services.position_monitor import PositionMonitor
         from src_v2.services.order_fill_listener import OrderFillListener
 
-        api_client = TastyTradeClient(
-            mode=self.mode,
-        )
+        # alpaca_paper is a HYBRID: TastyTrade supplies market data (Alpaca has
+        # no futures, so the ES opening-range signal cannot come from there),
+        # and Alpaca receives the orders. The TT client is built in `manual` —
+        # live production market data — and is never asked to write, because
+        # AlpacaExecutionClient overrides every write method.
+        if self.mode == "alpaca_paper":
+            from src_v2.services.alpaca_client import AlpacaExecutionClient
+
+            broker_cfg = self.config.get("broker", {})
+            entry_fill = dict(broker_cfg.get("entry_fill", {}))
+            # Rung 1 must reproduce the backtest's assumed fill, so the ladder
+            # is anchored to the same slippage the strategy already subtracts.
+            entry_fill.setdefault(
+                "base_slippage",
+                self.config.get("options", {}).get("slippage_per_spread", 0.10),
+            )
+            data_client = TastyTradeClient(mode="manual")
+            api_client = AlpacaExecutionClient(
+                data_client=data_client,
+                base_url=os.environ.get("APCA_API_BASE_URL", ""),
+                fill_timeout_seconds=broker_cfg.get("fill_timeout_seconds", 30.0),
+                entry_fill=entry_fill,
+            )
+        else:
+            api_client = TastyTradeClient(
+                mode=self.mode,
+            )
         await api_client.connect()
         self._cache.api_client = api_client
 
         from src_v2.services.execution_log import ExecutionLog
         from src_v2.services.quote_comparator import QuoteComparator
-        self._execution_log = ExecutionLog(base_dir=log_cfg.get("log_dir", "logs"))
+        # Namespaced per strategy: MEIC and ORB both default to log_dir "logs",
+        # so a shared file interleaves their records and each strategy's report
+        # then reads the other's rows.
+        self._execution_log = ExecutionLog(
+            base_dir=log_cfg.get("log_dir", "logs"),
+            strategy=self.config.get("bot", {}).get("strategy", ""),
+        )
         self._quote_comparator = QuoteComparator(
             execution_log=self._execution_log,
             poll_interval_seconds=monitor_cfg.get("poll_interval_seconds", 15),
@@ -167,6 +213,7 @@ class BotOrchestrator:
             mode=self.mode,
             execution_log=self._execution_log,
             on_entry=self._quote_comparator.register,
+            es_roll_days_before_expiry=strategy_cfg.get("es_roll_days_before_expiry", 2),
         )
         # Comparator reads the same chain source the strategy uses.
         self._quote_comparator._th = self._tool_handlers
@@ -204,14 +251,25 @@ class BotOrchestrator:
             base_dir=str(Path(log_cfg.get("log_dir", "logs")) / "decisions")
         )
 
-        anomaly_detector = AnomalyDetector(
-            llm_client=advisor_llm,
-            tool_handlers=self._tool_handlers,
-        )
-        regime_classifier = RegimeClassifier(
-            llm_client=advisor_llm,
-            tool_handlers=self._tool_handlers,
-        )
+        # LLM advisor gates (anomaly + regime) are OPTIONAL. They are NOT part of
+        # any backtest/WF-validated config (the backtest engine enters every valid
+        # slot), so paper runs that must stay comparable to the backtest disable
+        # them via `llm.advisors_enabled: false`. Deterministic guards (Markov
+        # gate, dislocation, stability) are unaffected. Default true = legacy.
+        if llm_cfg.get("advisors_enabled", True):
+            anomaly_detector = AnomalyDetector(
+                llm_client=advisor_llm,
+                tool_handlers=self._tool_handlers,
+            )
+            regime_classifier = RegimeClassifier(
+                llm_client=advisor_llm,
+                tool_handlers=self._tool_handlers,
+            )
+        else:
+            anomaly_detector = None
+            regime_classifier = None
+            logger.info("LLM advisor gates DISABLED (llm.advisors_enabled=false) "
+                        "— entering on deterministic guards only")
 
         deps = EngineDeps(
             tool_handlers=self._tool_handlers,
@@ -260,6 +318,9 @@ class BotOrchestrator:
         elif strategy_name == "orb_em_ic":
             from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
             strategy = OrbEmIronCondorStrategy()
+        elif strategy_name == "orb_em_directional":
+            from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+            strategy = OrbEmDirectionalStrategy()
         elif strategy_name == "meic":
             from src_v2.strategies.meic import MeicStrategy
             strategy = MeicStrategy()
@@ -308,7 +369,14 @@ class BotOrchestrator:
         comparator_task = asyncio.create_task(self._quote_comparator.start())
 
         try:
-            await self._engine.run()
+            result = await self._engine.run()
+            # The engine's CycleResult is the ONLY record of why a session
+            # ended (no_candidates, validation_failed, eod_no_entry, ...).
+            # Discarding it made 2026-08-21's silent 09:27 exit undiagnosable.
+            logger.info(
+                "Engine session complete: outcome=%s reason=%s",
+                getattr(result, "outcome", "?"), getattr(result, "reason", ""),
+            )
         finally:
             await self._fill_listener.stop()
             await self._monitor.stop()
@@ -346,6 +414,9 @@ def _resolve_mode(args: argparse.Namespace, config: Dict[str, Any]) -> str:
     if args.manual:
         logger.info("Mode: manual (from CLI --manual)")
         return "manual"
+    if getattr(args, "alpaca", False):
+        logger.info("Mode: alpaca_paper (from CLI --alpaca)")
+        return "alpaca_paper"
     env_mode = os.environ.get("BOT_MODE", "").strip().lower()
     if env_mode in VALID_MODES:
         logger.info("Mode: %s (from BOT_MODE env var — overrides config)", env_mode)
@@ -393,6 +464,7 @@ Examples:
   python -m src.main --manual         # live data, orders generated but NOT submitted
   python -m src.main --sandbox        # TastyTrade cert environment
   python -m src.main --live           # TastyTrade production
+  python -m src.main --alpaca         # TT market data, orders to Alpaca paper
   python -m src.main --manual --once  # one manual cycle""",
     )
     mode_group = parser.add_mutually_exclusive_group()
@@ -410,6 +482,11 @@ Examples:
         "--live",
         action="store_true",
         help="Use TastyTrade production environment (real money)",
+    )
+    mode_group.add_argument(
+        "--alpaca",
+        action="store_true",
+        help="Hybrid paper: TastyTrade market data, orders to the Alpaca PAPER account",
     )
     parser.add_argument(
         "--once",

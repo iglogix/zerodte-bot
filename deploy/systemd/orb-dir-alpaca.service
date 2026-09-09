@@ -1,0 +1,25 @@
+[Unit]
+Description=ORB EM directional SPX 0DTE bot — Alpaca PAPER session (orders submitted to Alpaca)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=~/Dev/0dte_bot
+# Runs ALONGSIDE orb-dir-manual.service as its control: identical ES signal,
+# but this one actually submits to Alpaca paper while the manual run only
+# assumes fills. Verified 2026-08-17 that two concurrent TastyTrade sessions
+# and two concurrent DXLink ES streams coexist without evicting each other.
+# Separate trading_db, cache_db and log_dir keep the two runs from colliding.
+#
+# Run until 16:10 ET; timeout's exit 124 is the normal end-of-day outcome.
+# If (re)started after 16:10 (crash recovery / Persistent catch-up), exit 0
+# immediately — never trade outside the session window.
+ExecStart=/bin/bash -c 'now=$(date +%%s); end=$(date -d 16:10 +%%s); [ "$end" -le "$now" ] && exit 0; exec timeout $((end-now)) .venv/bin/python -m src_v2.main --alpaca --config config/config_orb_dir_breakout_alpaca.yaml'
+SuccessExitStatus=124
+# mid-session crash (e.g. feed drop) -> restart and resume the entry watch
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,133 @@
+bot:
+  name: "spx-0dte-orb-dir-breakout-alpaca"
+  timezone: "America/New_York"
+  mode: "alpaca_paper"    # hybrid: TT market data, orders to Alpaca PAPER
+  symbol: "ES"             # ES futures for the ORB signal (DXLink continuous front month)
+  strategy: "orb_em_directional"
+
+# ORB EM directional credit spread — the ONLY survivor of the 8AM ORB family on the
+# full 2022-2026 CBBO re-run (docs/wf_cv_findings_orb_em_directional_spx_2026-06-16.md):
+# breakout-level retest, mtol=3.0, min_em=20. OOS untouched-test plateau Sharpe ~1-2,
+# positive 4/5 yrs, robust to full bid/ask exit crossing (Sharpe 2.61). Paper-trading
+# in manual mode for forward OOS + live-fill evidence (needs <=~$0.25/spread fills).
+strategy:
+  orb_window_start: "08:00"
+  orb_window_end:   "08:15"
+  market_open:      "09:30"
+  eod_force_close:  "15:50"
+  midline_tolerance_pts: 3.0          # breakout-retest tolerance (WF survivor)
+  retest_mode: "breakout_level"       # wait for retest of broken level (continuation)
+  orb_range_filter:
+    min_pts: 2.0
+    max_pts: 30.0
+  skip_nfp_fridays: true
+  skip_fomc_days: true
+  skip_cpi_days: true
+  # On a regime skip_trade (temporary — "improves within 1-2 hours"), defer entry
+  # and re-check the regime after this many minutes rather than ending the session.
+  # Only skip_session (and EOD) terminate the watch. 0 would re-check every poll.
+  regime_recheck_minutes: 30
+  # ES is the ORB signal only (SPXW is traded), so roll the futures contract off
+  # the front month this many trading days before expiry — the expiring contract's
+  # DXLink quotes go silent as liquidity rolls to the next cycle (e.g. ESM26 went
+  # quiet on 2026-06-18, the day before its 06-19 expiry).
+  es_roll_days_before_expiry: 2
+
+# Single with-trend credit spread (PCS on long breakout, CCS on short).
+options:
+  option_root: "SPXW"
+  strike_step_pts: 5
+  min_credit_per_spread: 0.05
+  tp_pct_of_credit: 0.75
+  sl_mult_of_credit: 0                # no stop; exit on breach / TP / EOD
+  hold_put_breach: true               # WF survivor — puts ride breaches to EOD
+  em_with_trend: 0.5                  # short strike = spot ± 0.5 × ATM_straddle (~0.20-0.25Δ)
+  width_with_trend: 20                # 20pt spread (collects real ~$3-4 CBBO credit)
+  min_em_pts: 20                      # skip calm days (ATM straddle < 20pts) — essential
+  slippage_per_spread: 0.10
+  contract_multiplier: 100
+  commission_per_contract_per_leg: 1.0
+  quantity: 1                         # paper: 1 contract until live-fill evidence
+  chain_half_span_pts: 400
+  assumed_iv: 0.15
+
+entry:
+  schedule: ["09:45", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15"]
+  skip_non_trading_days: true
+
+risk:
+  max_loss_per_trade_usd: 50000
+  max_concurrent_trades: 1
+  max_daily_risk_percent: 5.0
+  max_buying_power_percent: 50.0
+
+monitor:
+  poll_interval_seconds: 30
+  eod_close_time: "15:50"
+
+market:
+  trading_days_per_year: 252
+  trading_hours_per_day: 6.5
+  market_close: "16:00"
+
+llm:
+  # OFF: the anomaly/regime gates are not part of ANY WF-validated config —
+  # the backtest enters every valid slot — so an enabled gate makes the
+  # forward record non-comparable to the study (n=233, $13,751, Sharpe ~1.55
+  # trade-frequency-adjusted). Matches config_meic_spx / config_power_hour_live.
+  # The OpenRouter path below is verified working; flip this to true to use it.
+  advisors_enabled: false
+  # Routed via OpenRouter: the subscription OAuth token is 401-invalid and
+  # ANTHROPIC_API_KEY has no credits. An explicit provider prefix also stops
+  # the Agent SDK backend hijacking the call (see llm_client._agent_sdk_enabled).
+  advisor_model: "openrouter/anthropic/claude-haiku-4.5"
+  debrief_model: "openrouter/anthropic/claude-sonnet-4.5"
+
+cache:
+  option_chain_ttl: 60
+  quote_ttl: 10
+  account_info_ttl: 60
+
+database:
+  trading_db: "data/orb_dir_alpaca.db"
+  cache_db: "data/market_cache_alpaca.db"
+
+logging:
+  log_dir: "logs/alpaca"
+  level: "INFO"
+
+# Execution broker. Alpaca has no futures, so the ES opening-range signal still
+# comes from TastyTrade/DXLink — only the ORDERS go to Alpaca. Index options
+# landed in Alpaca paper on 2026-07-23; SPXW 0DTE is listed and multi-leg needs
+# options level 3. Credentials come from APCA_API_* in .env.
+#
+# CAVEAT: Alpaca paper fills are a SIMULATOR ("fills, liquidity, latency and
+# order handling can differ from live" — their docs) and simulators skew
+# optimistic. This run does NOT settle the <=~$0.25/spread fill question that
+# gates the strategy. What it does buy: forward OOS signal validation and a
+# real end-to-end order-lifecycle exercise.
+broker:
+  execution: "alpaca"
+  # How long to wait on the FINAL rung before giving up. Nothing is left resting.
+  fill_timeout_seconds: 30
+
+  # Entry fill ladder. The budget is spent on PRICE, not TIME: a resting
+  # credit-spread limit fills when the spread's value rises — i.e. when the
+  # underlying moves toward the short strike — so simply waiting longer fills
+  # you on the days the trade immediately goes against you and misses the days
+  # it works. That adverse selection is not in the backtest; a bounded price
+  # concession is.
+  #
+  # Rungs are TOTAL entry slippage off mid ($/spread). Rung 1 (0.10) equals
+  # options.slippage_per_spread, i.e. exactly what the WF study priced, so the
+  # forward record stays comparable to Sharpe 3.29. The floor (0.25) is the
+  # validated stress point from the WF fill matrix
+  # (docs/wf_cv_findings_orb_em_directional_spx_2026-06-16.md):
+  #     $0.10 entry / mid exit    -> Sharpe 3.29
+  #     $0.15 entry / half-spread -> Sharpe 2.80
+  #     $0.25 entry / full cross  -> Sharpe 2.24
+  #     ~$0.50 flat               -> edge gone
+  # Never raise the last rung above 0.25 without re-running that matrix.
+  entry_fill:
+    rungs: [0.10, 0.18, 0.25]
+    rung_seconds: 20

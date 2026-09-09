@@ -1,0 +1,13 @@
+[Unit]
+Description=Start ORB EM directional manual session weekdays 09:25 ET
+
+[Timer]
+# 09:25 ET: fetch the 08:00-08:15 ES ORB + be watching breakout/retest from the
+# open; first scheduled entry window is 09:45.
+OnCalendar=Mon..Fri *-*-* 09:25:00 America/New_York
+# late boot mid-window: still start (service window-guard exits if past 16:10)
+Persistent=true
+Unit=orb-dir-manual.service
+
+[Install]
+WantedBy=timers.target

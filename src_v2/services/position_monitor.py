@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 _MARKET_CLOSE = time(15, 55)
 _EXPIRY_CUTOFF = time(16, 15)
 
+_CONTRACT_MULTIPLIER = 100.0
+_SHORT_LEG_KEYS = ("short_put_symbol", "short_call_symbol")
+_LONG_LEG_KEYS = ("long_put_symbol", "long_call_symbol")
+
+
+class TradeOutlivedExpiry(RuntimeError):
+    """A trade is being closed on a later date than the option it holds expires.
+
+    On a 0DTE book this is never benign: the contract already settled, so the
+    close is booking a fiction. Two ORB trades did exactly this
+    (orbdir-call-093125 07-09 -> 07-10, orbdir-call-144640 07-29 -> 07-30) and
+    both were recorded as an ordinary `eod_forced_close`; the first was a
+    deterministic max loss.
+    """
+
 
 class PositionMonitor:
     """
@@ -197,18 +212,36 @@ class PositionMonitor:
 
             if exit_action.action == "take_profit":
                 logger.info("[TAKE-PROFIT] %s: %s", trade_id, exit_action.reason)
+                results = []
                 for sym in exit_action.legs_to_close:
                     qty = exit_action.leg_quantities.get(sym, 1)
-                    await self._close_leg(trade_id, sym, "take_profit_leg",
-                                          reason="take_profit", quantity=qty)
+                    results.append(await self._close_leg(
+                        trade_id, sym, "take_profit_leg",
+                        reason="take_profit", quantity=qty,
+                        exit_quote=quotes.get(sym)))
+                # Take-profit closes every leg, so the trade is done — record
+                # that. Without it the row stays "open" forever: the monitor
+                # re-fires take-profit on every poll, and the entry concurrency
+                # guard sees a phantom open trade and blocks the NEXT session.
+                if results and all(self._leg_is_flat(r) for r in results):
+                    await self._finalize_trade(trade, exit_action.reason, results)
+                    logger.info("[TAKE-PROFIT] %s closed out", trade_id)
+                else:
+                    logger.warning(
+                        "[TAKE-PROFIT] %s: not all legs confirmed flat — leaving "
+                        "the trade open for the next cycle", trade_id,
+                    )
                 return
 
             if exit_action.action == "stop_loss":
                 logger.warning("[STOP-LOSS] %s: %s", trade_id, exit_action.reason)
+                results = []
                 for sym in exit_action.legs_to_close:
                     qty = exit_action.leg_quantities.get(sym, 1)
-                    await self._close_leg(trade_id, sym, "stop_loss_leg",
-                                          reason="stop_loss", quantity=qty)
+                    results.append(await self._close_leg(
+                        trade_id, sym, "stop_loss_leg",
+                        reason="stop_loss", quantity=qty,
+                        exit_quote=quotes.get(sym)))
                 # Mark trade fully closed only if ALL legs are now closed.
                 # Otherwise leave it open so the remaining side keeps being monitored
                 # (intraday breaches / TP / trailing logic still apply).
@@ -217,10 +250,7 @@ class PositionMonitor:
                     open_trades = await self.db.get_open_trades()
                     refreshed = next((t for t in open_trades if t.get("trade_id") == trade_id), None)
                 if refreshed is None or not self._any_legs_remain(refreshed):
-                    await self.db.update_trade(trade_id, {
-                        "status": "closed",
-                        "close_reason": exit_action.reason,
-                    })
+                    await self._finalize_trade(trade, exit_action.reason, results)
                 return
 
             # Trailing stop update
@@ -317,11 +347,8 @@ class PositionMonitor:
                 close_all=True,
                 order_type="market",
             )
-            await self.db.update_trade(trade_id, {
-                "status": "closed",
-                "close_reason": "eod_forced_close",
-                "exit_time": self._clock.now(),
-            })
+            leg_results = result.get("results") if isinstance(result, dict) else None
+            await self._finalize_trade(trade, "eod_forced_close", leg_results)
             if self.notifier:
                 await self.notifier.notify_trade_closed({
                     "trade_id": trade_id,
@@ -342,11 +369,8 @@ class PositionMonitor:
         """Mark any remaining open trades as expired after 4:15 ET."""
         for trade in trades:
             trade_id = trade.get("trade_id", "")
-            await self.db.update_trade(trade_id, {
-                "status": "expired",
-                "close_reason": "option_expiry",
-                "exit_time": self._clock.now(),
-            })
+            await self._finalize_trade(trade, "option_expiry", None,
+                                       status="expired")
             logger.info("[EXPIRED] Trade %s marked as expired", trade_id)
 
     # -------------------------------------------------------------------------
@@ -354,15 +378,46 @@ class PositionMonitor:
     # -------------------------------------------------------------------------
 
     async def _get_all_quotes(self, trade: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Fetch quotes for all leg symbols in a trade."""
-        quotes = {}
-        for key in ("short_call_symbol", "long_call_symbol",
-                     "short_put_symbol", "long_put_symbol"):
-            sym = trade.get(key)
-            if sym:
-                q = await self._get_quote(sym)
-                if q:
-                    quotes[sym] = q
+        """Quotes for every leg of a trade, keyed by the trade's leg symbol.
+
+        Resolved from the 0DTE CHAIN by (strike, right), which is the same
+        source the strategy prices entries from. The old per-symbol lookup went
+        to `get_cached_quote`, an in-memory dict that only ever holds "SPX" and
+        the ES futures symbol — an option leg was never in it, so this returned
+        {} and check_exit's take-profit branch bailed on `mid is None` every
+        time. Take-profit could therefore never fire, in any mode; positions
+        only ever left via breach or the EOD close.
+
+        QuoteComparator already avoids per-symbol lookups for this reason: they
+        "break on OCC-vs-DXLink symbology".
+        """
+        from src_v2.backtest.osi_symbol import parse_osi
+
+        symbols = [s for s in (
+            trade.get(k) for k in ("short_call_symbol", "long_call_symbol",
+                                   "short_put_symbol", "long_put_symbol")
+        ) if s]
+
+        quotes: Dict[str, Dict[str, Any]] = {}
+        by_strike = await self._chain_by_strike() if symbols else {}
+        for sym in symbols:
+            opt = None
+            try:
+                strike, is_call = parse_osi(sym.strip().ljust(21))
+                opt = by_strike.get((float(strike), is_call))
+            except Exception:
+                logger.debug("Could not resolve %s from the chain", sym)
+            if opt is None:
+                opt = await self._get_quote(sym)  # legacy cached path
+            if opt:
+                quotes[sym] = opt
+
+        if len(quotes) < len(symbols):
+            logger.warning(
+                "Only %d/%d leg quotes resolved — take-profit cannot be "
+                "evaluated this cycle", len(quotes), len(symbols),
+            )
+
         # Add underlying price if available
         try:
             spx = await self.tool_handlers.get_spx_price()
@@ -372,6 +427,21 @@ class PositionMonitor:
             pass
         return quotes
 
+    async def _chain_by_strike(self) -> Dict[tuple, Dict[str, Any]]:
+        """0DTE chain keyed by (strike, is_call)."""
+        if self.tool_handlers is None:
+            return {}
+        try:
+            chain = await self.tool_handlers.get_option_chain(expiration="0DTE")
+        except Exception:
+            logger.exception("Option chain fetch failed — cannot price legs")
+            return {}
+        out: Dict[tuple, Dict[str, Any]] = {}
+        for o in chain or []:
+            is_call = str(o.get("option_type", o.get("type", ""))).lower().startswith("c")
+            out[(float(o.get("strike", 0) or 0), is_call)] = o
+        return out
+
     async def _get_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
         try:
             return await self.cache.get_cached_quote(symbol, max_age_seconds=60)
@@ -380,16 +450,203 @@ class PositionMonitor:
             return None
 
     async def _is_position_closed(self, symbol: str) -> bool:
-        """
-        Check if a short option position has been closed (stop triggered).
-        Returns True if the position no longer exists in open positions.
+        """Has this short leg been closed (i.e. its stop triggered)?
+
+        Answered from the BROKER's positions. It previously compared the leg
+        symbol against `get_open_positions()`, which returns local trade rows
+        with no `symbol` key — so the set was {None}, every leg looked closed,
+        and the first poll after entry declared a false stop-out and tried to
+        dump the hedge leg. Invisible in manual mode (orders are not submitted);
+        it fired the moment orders became real.
+
+        Returns False when the broker cannot be asked: never claim a stop-out
+        that has not been verified. A missed detection just leaves the position
+        under normal TP/breach/EOD management; a false one sells the hedge.
         """
         try:
-            positions = await self.tool_handlers.get_open_positions()
-            symbols = {p.get("symbol") for p in positions}
-            return symbol not in symbols
+            positions = await self.tool_handlers.get_broker_positions()
+            if positions is None:
+                return False
+            # Trade records hold the space-padded 21-char OSI; brokers report
+            # the compact form. Normalise both sides before comparing.
+            held = {str(p.get("symbol", "")).replace(" ", "") for p in positions}
+            return symbol.replace(" ", "") not in held
         except Exception:
+            logger.exception("Could not determine whether %s is closed", symbol)
             return False
+
+    # -------------------------------------------------------------------------
+    # Close bookkeeping — every close MUST funnel through _finalize_trade
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _norm_symbol(symbol: Any) -> str:
+        """OCC symbols reach us in two spellings for the same contract.
+
+        The trade record holds the padded OCC form (`SPXW  260826C07680000`)
+        while Alpaca echoes the unpadded one (`SPXW260826C07680000`). Matching
+        raw would book nothing for every Alpaca trade.
+        """
+        return str(symbol).replace(" ", "").upper() if symbol else ""
+
+    @staticmethod
+    def _trade_legs(trade: Dict[str, Any]) -> Dict[str, int]:
+        """Leg symbol -> sign, where +1 is bought back and -1 is sold out.
+
+        Closing a credit spread pays the short leg and collects the long one, so
+        exit debit = sum(short fills) - sum(long fills).
+        """
+        legs: Dict[str, int] = {}
+        for key in _SHORT_LEG_KEYS:
+            if trade.get(key):
+                legs[PositionMonitor._norm_symbol(trade[key])] = 1
+        for key in _LONG_LEG_KEYS:
+            if trade.get(key):
+                legs[PositionMonitor._norm_symbol(trade[key])] = -1
+        return legs
+
+    @staticmethod
+    def _close_quantity(trade: Dict[str, Any]) -> int:
+        for key in ("quantity", "call_open_qty", "put_open_qty"):
+            qty = trade.get(key)
+            if isinstance(qty, (int, float)) and qty > 0:
+                return int(qty)
+        return 1
+
+    @staticmethod
+    def _realized_pnl(
+        trade: Dict[str, Any],
+        leg_results: Optional[List[Any]],
+        multiplier: float = _CONTRACT_MULTIPLIER,
+    ) -> Optional[float]:
+        """(entry credit - exit debit) x multiplier x qty, or None if unknowable.
+
+        Returns None rather than a plausible number whenever the close carries
+        no price: manual/dry_run (nothing was submitted), an already-flat leg,
+        a missing entry credit, or a leg that reports more than one fill. A NULL
+        P&L is recoverable from the execution log; a fabricated one is not
+        recoverable at all, and silently becomes "performance".
+        """
+        credit = trade.get("total_premium")
+        if not isinstance(credit, (int, float)):
+            return None
+
+        legs = PositionMonitor._trade_legs(trade)
+        if not legs:
+            return None
+
+        fills: Dict[str, float] = {}
+        for result in leg_results or []:
+            if not isinstance(result, dict):
+                continue
+            symbol = PositionMonitor._norm_symbol(
+                result.get("leg_symbol") or result.get("symbol")
+            )
+            price = result.get("fill_price")
+            if symbol not in legs or not isinstance(price, (int, float)):
+                continue
+            if symbol in fills:
+                logger.warning(
+                    "Refusing to book P&L for %s: leg %s reported multiple "
+                    "fills", trade.get("trade_id", ""), symbol,
+                )
+                return None
+            fills[symbol] = float(price)
+
+        if set(fills) != set(legs):
+            return None
+
+        exit_debit = sum(fills[sym] * sign for sym, sign in legs.items())
+        qty = PositionMonitor._close_quantity(trade)
+        # Round to cents: option prices are 2dp, so anything finer is float
+        # noise that later reads as precision in a currency column.
+        return round((float(credit) - exit_debit) * multiplier * qty, 2)
+
+    @staticmethod
+    def _as_date(value: Any) -> Optional[date]:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value[:10])
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _check_not_past_expiry(trade: Dict[str, Any], now: datetime) -> None:
+        """Raise if this close lands on a later date than the option's expiry."""
+        expiry = PositionMonitor._as_date(trade.get("expiration_date"))
+        closed_on = PositionMonitor._as_date(now)
+        if expiry is None or closed_on is None or closed_on <= expiry:
+            return
+        raise TradeOutlivedExpiry(
+            f"{trade.get('trade_id', '')} expired {expiry.isoformat()} but is "
+            f"being closed {closed_on.isoformat()} — it survived past its own "
+            f"expiration and any P&L booked here is fiction"
+        )
+
+    async def _finalize_trade(
+        self,
+        trade: Dict[str, Any],
+        close_reason: str,
+        leg_results: Optional[List[Any]] = None,
+        status: str = "closed",
+    ) -> None:
+        """The single funnel every trade close passes through.
+
+        Kept as one primitive rather than three copies of the same dict literal
+        because the guards below were previously absent from ALL of them, and a
+        guard that lives in one branch gets forgotten by the next.
+        """
+        trade_id = trade.get("trade_id", "")
+        now = self._clock.now()
+
+        try:
+            self._check_not_past_expiry(trade, now)
+        except TradeOutlivedExpiry as exc:
+            # Loud, but never fatal: killing the monitor loop would strand every
+            # other open position. Record it on the row so it cannot be mistaken
+            # for a normal close after the fact.
+            logger.error("[EXPIRY-INVARIANT] %s", exc)
+            close_reason = f"{close_reason} [PAST_EXPIRY]"
+
+        updates: Dict[str, Any] = {
+            "status": status,
+            "close_reason": close_reason,
+            "exit_time": now,
+        }
+        pnl = self._realized_pnl(trade, leg_results)
+        if pnl is None:
+            logger.info(
+                "[PNL] %s closed with no bookable P&L (no fill prices) — "
+                "realized_pnl left NULL", trade_id,
+            )
+        else:
+            updates["realized_pnl"] = pnl
+            logger.info("[PNL] %s realized $%.2f", trade_id, pnl)
+
+        await self.db.update_trade(trade_id, updates)
+
+    @staticmethod
+    def _leg_is_flat(result: Any) -> bool:
+        """Is this leg confirmed no longer held after a close attempt?
+
+        Covers a real fill, a leg that was already gone (`skipped`), and the
+        simulated results manual/dry_run return instead of submitting.
+        A raised exception yields None, which is NOT flat.
+        """
+        if not isinstance(result, dict):
+            return False
+        return bool(
+            result.get("filled")
+            or result.get("skipped")
+            or result.get("status") == "no_position"
+            or result.get("manual")
+            or result.get("dry_run")
+        )
 
     @staticmethod
     def _any_legs_remain(trade: Dict[str, Any]) -> bool:
@@ -406,21 +663,35 @@ class PositionMonitor:
         leg_name: str,
         reason: str,
         quantity: int = 1,
+        exit_quote: Optional[Dict[str, Any]] = None,
     ):
-        """Close a single option leg at market."""
+        """Close a single option leg at market.
+
+        `exit_quote` is the leg's bid/ask at the moment the exit was decided —
+        passed through so the execution log can score the fill against the quote
+        it actually crossed. Without it an exit fill is an unanchored number.
+        """
         try:
             result = await self.tool_handlers.close_position(
                 symbol=symbol,
+                trade_id=trade_id,
                 order_type="market",
                 quantity=quantity,
                 reason=reason,
+                exit_quote=exit_quote,
             )
             logger.info(
                 "[CLOSE-LEG] %s %s (%s): %s",
                 trade_id, leg_name, reason, result,
             )
+            if isinstance(result, dict):
+                # Stamp the symbol we ASKED to close. The broker's echo uses its
+                # own spelling, so P&L booking must not depend on it.
+                result = {**result, "leg_symbol": symbol}
+            return result
         except Exception:
             logger.exception("Failed to close leg %s for trade %s", leg_name, trade_id)
+            return None
 
     async def _update_stop_order(
         self,

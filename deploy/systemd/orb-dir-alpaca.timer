@@ -1,0 +1,15 @@
+[Unit]
+Description=Start ORB EM directional Alpaca-paper session weekdays 09:26 ET
+
+[Timer]
+# 09:26 ET — one minute after orb-dir-manual so the two runs don't hit
+# TastyTrade auth and the DXLink connect at the same instant. Both are watching
+# the same 08:00-08:15 ES ORB; first scheduled entry window is 09:45, so the
+# stagger costs nothing.
+OnCalendar=Mon..Fri *-*-* 09:26:00 America/New_York
+# late boot mid-window: still start (service window-guard exits if past 16:10)
+Persistent=true
+Unit=orb-dir-alpaca.service
+
+[Install]
+WantedBy=timers.target

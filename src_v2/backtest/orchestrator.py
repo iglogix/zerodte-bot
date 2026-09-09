@@ -61,6 +61,10 @@ class BacktestOrchestrator:
         self._multiplier = opt.get("contract_multiplier", 100)
         self._qty = opt.get("quantity", 1)
         self._slippage = opt.get("slippage_per_spread", 0.10)
+        # Exit fill realism: fraction of each leg's bid/ask spread crossed when
+        # closing. 0.0 = mid (legacy/optimistic); 1.0 = worst case (buy short back
+        # at ask, sell long at bid). Breach exits widen near ITM → this bites there.
+        self._exit_fill_frac = opt.get("exit_fill_frac", 0.0)
         # Commission per contract per leg (e.g. TT SPX: $1 open only, $0 close)
         self._commission_per_leg = opt.get("commission_per_contract_per_leg", 1.0)
         self._eod_str = strat.get("eod_force_close", "15:50")
@@ -191,6 +195,28 @@ class BacktestOrchestrator:
             mode="backtest",
         )
 
+        # INVARIANT: an executed entry must leave post-entry session for the
+        # monitor to manage. The engine runs to completion BEFORE this loop, and
+        # every sim-clock sleep advances time — so an engine that idles to EOD
+        # (as the live one does, to outlive run_scheduled) hands over a clock
+        # already at/after the close. The monitor's first cycle then goes
+        # straight to _close_all_eod and every intraday exit (take-profit,
+        # breach) silently disappears, inflating results.
+        #
+        # Checked on the CLOCK, not on bars remaining: the engine leaves bars in
+        # the list, so a has_bars_remaining() check looks fine and catches
+        # nothing. Verified by removing the backtest no-op and confirming this
+        # raises.
+        entry_time_et = clock.now(ET)
+        if entry_time_et.time() >= eod_time:
+            raise RuntimeError(
+                f"{sd}: entry executed but the sim clock is already at "
+                f"{entry_time_et.time()} (EOD {eod_time}) — the engine consumed "
+                "the post-entry session (see OrbEngine._idle_until_eod, which "
+                "must no-op in backtest). Take-profit and breach exits would be "
+                "skipped entirely and P&L booked at the final bar."
+            )
+
         # Walk remaining bars through PositionMonitor until EOD
         while bt_handlers.has_bars_remaining():
             bt_handlers.advance_bar()
@@ -245,12 +271,17 @@ class BacktestOrchestrator:
                 # Close debit: spread = max(0, s_mid - l_mid) capped at width;
                 # naked short = max(0, s_mid) uncapped.
                 if s_exit and (l_exit or not has_long):
+                    f = self._exit_fill_frac
                     s_mid = (s_exit["bid"] + s_exit["ask"]) / 2
+                    # buy short back: pay between mid and ask
+                    s_fill = s_mid + f * (s_exit["ask"] - s_mid)
                     if has_long:
                         l_mid = (l_exit["bid"] + l_exit["ask"]) / 2
-                        debit = round(min(max(s_mid - l_mid, 0), width), 2)
+                        # sell long: receive between mid and bid
+                        l_fill = l_mid - f * (l_mid - l_exit["bid"])
+                        debit = round(min(max(s_fill - l_fill, 0), width), 2)
                     else:
-                        debit = round(max(s_mid, 0), 2)
+                        debit = round(max(s_fill, 0), 2)
                     reason = s_exit.get("reason", "closed")
                     exit_time = s_exit.get("time")
                     if "take_profit" in reason or "tp" in reason.lower():

@@ -117,7 +117,13 @@ class OrbEmDirectionalStrategy(LiveStrategy):
                 "width": self._width,
                 "orb_bias": orb_bias,
                 "side": side,
+                "spot_at_entry": round(spot, 2),
                 f"{side}_delta": abs(short_opt.get("delta", 0)),  # type: ignore
+                # Raw leg quotes at the retest touch, carried through so the
+                # execution log can record the counterfactual (mid / natural /
+                # modelled) against whatever actually filled.
+                "short_quote": {"bid": short_opt.get("bid"), "ask": short_opt.get("ask")},
+                "long_quote": {"bid": long_opt.get("bid"), "ask": long_opt.get("ask")},
             },
         )
         return {"candidates_found": 1, "top_candidate": setup, "candidates": [setup]}
@@ -168,9 +174,18 @@ class OrbEmDirectionalStrategy(LiveStrategy):
         order_type = "put_credit_spread" if side == "put" else "call_credit_spread"
         return {
             "order_type": order_type,
+            "side": side,
             f"short_{side}_strike": setup.strikes[f"short_{side}"],
             f"long_{side}_strike": setup.strikes[f"long_{side}"],
+            # credit + entry spot carried through so the manual/dry paper lifecycle
+            # can persist a monitorable trade (PositionMonitor owns the exit).
+            "credit": setup.total_credit,
+            "underlying_at_entry": setup.extra.get("spot_at_entry", 0.0),
             "quantity": self._quantity,
+            # Counterfactual inputs for the execution log (see
+            # ExecutionLog.log_entry_fill) — not part of the broker payload.
+            "short_quote": setup.extra.get("short_quote"),
+            "long_quote": setup.extra.get("long_quote"),
         }
 
     # ------------------------------------------------------------------
@@ -218,6 +233,16 @@ class OrbEmDirectionalStrategy(LiveStrategy):
                 continue
             mark = s_mid_q - l_mid_q
             credit = trade.get(f"{side}_credit", 0)
+            # tp_pct here is the exit MARK as a fraction of credit, NOT the
+            # fraction of credit captured: tp_pct=0.75 exits at 0.75*credit,
+            # i.e. having banked 25%. That naming disagrees with every sibling
+            # (power_hour.py, meic.py use 1 - tp_pct), so it reads like a bug.
+            #
+            # DO NOT "fix" it. The 2026-06-16 WF study that produced the
+            # deployed config (+$13,751, n=233) ran THIS formula — reproduced
+            # exactly at commit 8b09b04 on 2026-08-18. Changing it makes live
+            # diverge from the only validated result this strategy has.
+            # Renaming the parameter is safe; changing the arithmetic is not.
             tp_debit = credit * self._tp_pct
             if credit > 0 and mark <= tp_debit:
                 return ExitAction(
