@@ -21,12 +21,8 @@ entry:
   # hand-tune values here; they are overwritten at each re-opt. Causal:
   # prior-session closes only. Fails open if the daily feed is down.
   markov_gate:
-    enabled: true
-    window: 15
-    bull_threshold: 0.06
-    bear_threshold: -0.06
-    rule: non_sw
-    # re-opt 2026-06-12 (quarterly method, trailing-130d sweep)
+    enabled: false
+    # re-opt 2026-09-14: 'none' won the sweep — gate disabled
 
 strategy:
   tranches:
@@ -63,6 +59,10 @@ options:
 # OpenAI primary for now — Anthropic API account is out of credits (2026-06-11);
 # both gates failed open on the first manual run. Switch back once topped up.
 llm:
+  # Off so the paper run matches the validated config; the Power Hour edge was
+  # never validated with LLM gates. The deterministic, WF-validated Markov gate
+  # (entry.markov_gate) is independent of this and stays ON.
+  advisors_enabled: false
   advisor_model: "openai/gpt-4.1-mini"
   debrief_model: "openai/gpt-4.1"
 
