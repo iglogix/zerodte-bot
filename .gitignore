@@ -74,3 +74,20 @@ condition.json
 # IC SL-by-day artifact (regenerated from trade log)
 data/ic_sl_dollars_by_day.csv
 data/ic_sl_dollars_by_day.meta.json
+
+# Pickled backtest/run outputs (regenerable; many are >1 MB)
+/backtest_data/*.pkl
+
+# Third-party video transcripts and video summaries (not ours to publish)
+/docs/*_transcript.txt
+/docs/volume_profile.md
+
+# Licensed market data (Databento) — never commit, at any depth
+glbx-*
+GLBX-*
+*.dbn
+*.zst
+
+# Binary documents (course slides, PDFs)
+*.pdf
+*.pptx
