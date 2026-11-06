@@ -8,7 +8,7 @@ import pytest
 from datetime import datetime, time
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-from agentic_ic.services.order_fill_listener import FillEvent
+from trading_core.services.order_fill_listener import FillEvent
 from agentic_ic.services.position_monitor import PositionMonitor
 
 

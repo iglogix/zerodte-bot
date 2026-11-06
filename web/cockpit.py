@@ -83,7 +83,7 @@ class _State:
         if _sim_enabled():
             return self.sim.trades()
         if self._db_service is None:
-            from zerodte.services.db_service import DatabaseService
+            from trading_core.services.db_service import DatabaseService
 
             svc = DatabaseService(_bot_db_path())
             svc.initialize()

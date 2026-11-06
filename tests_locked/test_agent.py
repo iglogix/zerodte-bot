@@ -22,7 +22,7 @@ class TestToolLoopExecution:
     @pytest.mark.asyncio
     async def test_tool_loop_executes_max_iterations(self):
         """Test that tool loop respects max iteration limit."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         tool_calls_made = []
         
@@ -56,7 +56,7 @@ class TestToolLoopExecution:
     @pytest.mark.asyncio
     async def test_tool_loop_stops_when_llm_done(self):
         """Test that tool loop stops when LLM indicates completion."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         responses = [
             {"tool_calls": [{"name": "get_spx_price", "arguments": {}}], "content": None},
@@ -87,7 +87,7 @@ class TestToolLoopExecution:
     @pytest.mark.asyncio
     async def test_tool_loop_handles_no_tool_calls(self):
         """Test that tool loop handles LLM response with no tool calls."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(return_value={
@@ -118,7 +118,7 @@ class TestToolResultFeedback:
     @pytest.mark.asyncio
     async def test_tool_result_added_to_messages(self):
         """Test that tool results are added to message history."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         messages_sent = []
         
@@ -159,7 +159,7 @@ class TestToolResultFeedback:
     @pytest.mark.asyncio
     async def test_multiple_tool_results_accumulated(self):
         """Test that multiple tool results are accumulated in history."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         call_count = [0]
         
@@ -194,7 +194,7 @@ class TestToolResultFeedback:
     @pytest.mark.asyncio
     async def test_tool_error_fed_back_to_llm(self):
         """Test that tool errors are fed back to LLM."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         messages_received = []
         
@@ -238,7 +238,7 @@ class TestDecisionLogging:
     @pytest.mark.asyncio
     async def test_decision_logged_to_database(self, sample_llm_decision_enter):
         """Test that agent decisions are logged to database."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(return_value={
@@ -266,7 +266,7 @@ class TestDecisionLogging:
     @pytest.mark.asyncio
     async def test_decision_includes_reasoning(self, sample_llm_decision_enter):
         """Test that logged decision includes LLM reasoning."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         logged_decisions = []
         
@@ -300,7 +300,7 @@ class TestDecisionLogging:
     @pytest.mark.asyncio
     async def test_tool_calls_logged(self):
         """Test that tool calls are logged for audit."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         logged_tool_calls = []
         
@@ -342,7 +342,7 @@ class TestDryRunMode:
     @pytest.mark.asyncio
     async def test_dry_run_prevents_order_execution(self):
         """Test that dry-run mode prevents actual order placement."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(side_effect=[
@@ -371,7 +371,7 @@ class TestDryRunMode:
     @pytest.mark.asyncio
     async def test_dry_run_logs_simulated_actions(self):
         """Test that dry-run mode logs simulated actions."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         logged_actions = []
         
@@ -409,7 +409,7 @@ class TestDryRunMode:
     @pytest.mark.asyncio
     async def test_dry_run_still_fetches_market_data(self):
         """Test that dry-run mode still fetches real market data."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         tool_calls_made = []
         
@@ -447,7 +447,7 @@ class TestDryRunMode:
     @pytest.mark.asyncio
     async def test_live_mode_executes_real_orders(self):
         """Test that live mode executes real orders."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(side_effect=[
@@ -480,7 +480,7 @@ class TestPromptLoading:
     @pytest.mark.asyncio
     async def test_loads_bot_prompt_as_system_message(self):
         """Test that bot_prompt.md is loaded as system message."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         messages_received = []
         
@@ -515,7 +515,7 @@ class TestPromptLoading:
     @pytest.mark.asyncio
     async def test_market_data_included_in_user_message(self):
         """Test that market data is included in user message."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         messages_received = []
         
@@ -553,7 +553,7 @@ class TestAgentIntegrationWithValidator:
     @pytest.mark.asyncio
     async def test_agent_uses_validator_before_execution(self, sample_llm_decision_enter):
         """Test that agent uses validator before executing trades."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(return_value={
@@ -585,7 +585,7 @@ class TestAgentIntegrationWithValidator:
     @pytest.mark.asyncio
     async def test_agent_blocks_on_validator_disagreement(self, sample_llm_decision_enter):
         """Test that agent blocks execution when validator disagrees."""
-        from agentic_ic.agent.trading_agent import TradingAgent
+        from trading_core.agent.trading_agent import TradingAgent
         
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(return_value={

@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from agentic_ic.agent.decision_engine import DecisionEngine, CycleResult
-from agentic_ic.agent.anomaly_detector import AnomalyDetector
-from agentic_ic.agent.regime_classifier import RegimeClassifier
+from trading_core.agent.anomaly_detector import AnomalyDetector
+from trading_core.agent.regime_classifier import RegimeClassifier
 
 
 # ---------------------------------------------------------------------------

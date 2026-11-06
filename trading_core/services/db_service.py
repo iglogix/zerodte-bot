@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, date, time as dt_time
 from typing import Any, Dict, List, Optional
 
-from zerodte.models.database import (
+from trading_core.models.database import (
     AgentDecision,
     IronCondorTrade,
     MarketDataCache,

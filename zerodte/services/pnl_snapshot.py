@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import Column, DateTime, Float, Integer, String
 
-from zerodte.models.database import Base, get_engine, get_session
+from trading_core.models.database import Base, get_engine, get_session
 
 
 class PnlSnapshot(Base):

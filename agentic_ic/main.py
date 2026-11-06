@@ -89,16 +89,16 @@ class BotOrchestrator:
 
     async def initialize(self):
         """Initialize all services."""
-        from agentic_ic.services.market_data import CachedMarketData
-        from agentic_ic.services.db_service import DatabaseService
+        from trading_core.services.market_data import CachedMarketData
+        from trading_core.services.db_service import DatabaseService
         from agentic_ic.services.risk_manager import RiskManager
-        from agentic_ic.services.notifications import NotificationService
+        from trading_core.services.notifications import NotificationService
         from agentic_ic.services.llm_client import LLMClient
-        from agentic_ic.services.decision_logger import DecisionFileLogger
+        from trading_core.services.decision_logger import DecisionFileLogger
         from agentic_ic.agent.tool_handlers import ToolHandlers
         from agentic_ic.agent.decision_engine import DecisionEngine
-        from agentic_ic.agent.anomaly_detector import AnomalyDetector
-        from agentic_ic.agent.regime_classifier import RegimeClassifier
+        from trading_core.agent.anomaly_detector import AnomalyDetector
+        from trading_core.agent.regime_classifier import RegimeClassifier
         from agentic_ic.agent.eod_debrief import EodDebrief
 
         db_cfg = self.config.get("database", {})
@@ -133,7 +133,7 @@ class BotOrchestrator:
 
         from agentic_ic.services.tastytrade_client import TastyTradeClient
         from agentic_ic.services.position_monitor import PositionMonitor
-        from agentic_ic.services.order_fill_listener import OrderFillListener
+        from trading_core.services.order_fill_listener import OrderFillListener
 
         api_client = TastyTradeClient(
             mode=self.mode,

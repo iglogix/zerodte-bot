@@ -65,19 +65,18 @@ zerodte/
 │   ├── scheduled_engine.py          # ScheduledEngine — time-window entries
 │   ├── orb_engine.py                # OrbEngine — 3-phase ORB entries
 │   ├── decision_engine.py           # CycleResult + backward-compat DecisionEngine alias
-│   ├── tool_handlers.py             # Market data + ORB tools + order routing
-│   ├── anomaly_detector.py          # LLM pre-flight check
-│   └── regime_classifier.py         # LLM market regime judgment
+│   └── tool_handlers.py             # Market data + ORB tools + order routing
 ├── services/
 │   ├── position_monitor.py          # Exit logic (delegates to strategy)
 │   ├── risk_manager.py              # Generic risk checks only
 │   ├── tastytrade_client.py         # TastyTrade REST + WebSocket
-│   ├── order_fill_listener.py       # WebSocket fill events
-│   ├── market_data.py               # SQLite-cached market data
 │   └── llm_client.py                # LiteLLM wrapper
-└── models/
-    └── database.py                  # Trade (generic) + IronCondorTrade (legacy)
 ```
+
+Shared with `agentic_ic`, in `trading_core/`: `agent/{anomaly_detector,regime_classifier}.py`
+(LLM pre-flight check, market regime judgment), `services/{order_fill_listener,market_data}.py`
+(WebSocket fill events, SQLite-cached market data) and `models/database.py`
+(Trade (generic) + IronCondorTrade (legacy)).
 
 ## Engine System
 

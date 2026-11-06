@@ -18,7 +18,7 @@ from datetime import datetime, time, date
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentic_ic.services.order_fill_listener import FillEvent
+    from trading_core.services.order_fill_listener import FillEvent
 
 logger = logging.getLogger(__name__)
 

@@ -59,7 +59,7 @@ class TradingAgent:
           - tool_calls_made: list of tool calls executed
           - blocked: True if validator blocked execution
         """
-        from zerodte.agent.tool_definitions import TOOL_DEFINITIONS
+        from trading_core.agent.tool_definitions import TOOL_DEFINITIONS
 
         messages = self._build_initial_messages(prompt, market_data)
         tool_calls_made = []

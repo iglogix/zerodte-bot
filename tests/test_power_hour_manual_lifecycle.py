@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from zerodte.agent.tool_handlers import ToolHandlers
-from zerodte.services.db_service import DatabaseService
+from trading_core.services.db_service import DatabaseService
 from zerodte.strategies.power_hour import PowerHourStrategy
 
 ET = ZoneInfo("America/New_York")

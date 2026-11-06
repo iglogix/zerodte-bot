@@ -116,16 +116,16 @@ class BotOrchestrator:
 
     async def initialize(self):
         """Initialize all services."""
-        from zerodte.services.market_data import CachedMarketData
-        from zerodte.services.db_service import DatabaseService
+        from trading_core.services.market_data import CachedMarketData
+        from trading_core.services.db_service import DatabaseService
         from zerodte.services.risk_manager import RiskManager
-        from zerodte.services.notifications import NotificationService
+        from trading_core.services.notifications import NotificationService
         from zerodte.services.llm_client import LLMClient
-        from zerodte.services.decision_logger import DecisionFileLogger
+        from trading_core.services.decision_logger import DecisionFileLogger
         from zerodte.agent.tool_handlers import ToolHandlers
         from zerodte.agent.base_engine import EngineDeps
-        from zerodte.agent.anomaly_detector import AnomalyDetector
-        from zerodte.agent.regime_classifier import RegimeClassifier
+        from trading_core.agent.anomaly_detector import AnomalyDetector
+        from trading_core.agent.regime_classifier import RegimeClassifier
         from zerodte.agent.eod_debrief import EodDebrief
 
         db_cfg = self.config.get("database", {})
@@ -160,7 +160,7 @@ class BotOrchestrator:
 
         from zerodte.services.tastytrade_client import TastyTradeClient
         from zerodte.services.position_monitor import PositionMonitor
-        from zerodte.services.order_fill_listener import OrderFillListener
+        from trading_core.services.order_fill_listener import OrderFillListener
 
         # alpaca_paper is a HYBRID: TastyTrade supplies market data (Alpaca has
         # no futures, so the ES opening-range signal cannot come from there),

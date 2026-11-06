@@ -113,7 +113,7 @@ class EodDebrief:
         # Read trade outcomes from DB
         if self.db:
             try:
-                from zerodte.services.db_service import DatabaseService
+                from trading_core.services.db_service import DatabaseService
                 all_trades = await self.db.get_all_trades_for_date(session_date)
                 for t in all_trades:
                     summary["trades"].append({

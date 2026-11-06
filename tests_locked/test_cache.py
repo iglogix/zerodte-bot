@@ -24,7 +24,7 @@ class TestCacheWrite:
     @pytest.mark.asyncio
     async def test_cache_write_option_prices(self, temp_cache_db_path, sample_option_chain):
         """Test writing option prices with 60s TTL."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -40,7 +40,7 @@ class TestCacheWrite:
     @pytest.mark.asyncio
     async def test_cache_write_5min_candles_permanent(self, temp_cache_db_path, sample_5min_candles):
         """Test writing 5-min candles with permanent storage (no TTL)."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -56,7 +56,7 @@ class TestCacheWrite:
     @pytest.mark.asyncio
     async def test_cache_write_spx_quote(self, temp_cache_db_path, sample_spx_price):
         """Test writing SPX quote with 60s TTL."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -72,7 +72,7 @@ class TestCacheWrite:
     @pytest.mark.asyncio
     async def test_cache_write_account_info(self, temp_cache_db_path, sample_account_info):
         """Test writing account info with 60s TTL."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -92,7 +92,7 @@ class TestCacheRead:
     @pytest.mark.asyncio
     async def test_cache_read_by_symbol(self, temp_cache_db_path, sample_option_chain):
         """Test reading cached data by symbol."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -111,7 +111,7 @@ class TestCacheRead:
     @pytest.mark.asyncio
     async def test_cache_read_by_timestamp_range(self, temp_cache_db_path, sample_5min_candles):
         """Test reading cached candles by timestamp range."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -130,7 +130,7 @@ class TestCacheRead:
     @pytest.mark.asyncio
     async def test_cache_read_returns_none_when_empty(self, temp_cache_db_path):
         """Test that cache returns None when no data exists."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -143,7 +143,7 @@ class TestCacheRead:
     @pytest.mark.asyncio
     async def test_cache_read_latest_entry(self, temp_cache_db_path):
         """Test that cache returns the latest entry when multiple exist."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -166,7 +166,7 @@ class TestCacheExpiry:
     @pytest.mark.asyncio
     async def test_option_chain_expires_after_60s(self, temp_cache_db_path, sample_option_chain):
         """Test that option chain cache expires after 60 seconds."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -184,7 +184,7 @@ class TestCacheExpiry:
     @pytest.mark.asyncio
     async def test_quote_expires_after_60s(self, temp_cache_db_path, sample_spx_price):
         """Test that quote cache expires after 60 seconds."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -202,7 +202,7 @@ class TestCacheExpiry:
     @pytest.mark.asyncio
     async def test_is_cache_valid_method(self, temp_cache_db_path):
         """Test the is_cache_valid helper method."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -224,7 +224,7 @@ class TestPermanentCandleStorage:
     @pytest.mark.asyncio
     async def test_candles_never_expire(self, temp_cache_db_path, sample_5min_candles):
         """Test that 5-min candles never expire (permanent storage)."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -240,7 +240,7 @@ class TestPermanentCandleStorage:
     @pytest.mark.asyncio
     async def test_candles_append_only(self, temp_cache_db_path):
         """Test that candles are append-only (no overwrites)."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -261,7 +261,7 @@ class TestPermanentCandleStorage:
     @pytest.mark.asyncio
     async def test_candles_deduplicated_by_timestamp(self, temp_cache_db_path):
         """Test that duplicate candles (same timestamp) are not stored twice."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -280,7 +280,7 @@ class TestPermanentCandleStorage:
     @pytest.mark.asyncio
     async def test_candles_queryable_for_backtesting(self, temp_cache_db_path):
         """Test that historical candles can be queried for backtesting."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         cache = CachedMarketData(cache_db_path=temp_cache_db_path)
         await cache.initialize()
@@ -314,7 +314,7 @@ class TestRateLimitPrevention:
     @pytest.mark.asyncio
     async def test_cache_hit_prevents_api_call(self, temp_cache_db_path, sample_option_chain):
         """Test that a cache hit prevents an API call."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         mock_api = AsyncMock()
         mock_api.get_option_chain = AsyncMock(return_value=sample_option_chain)
@@ -334,7 +334,7 @@ class TestRateLimitPrevention:
     @pytest.mark.asyncio
     async def test_cache_miss_triggers_api_call(self, temp_cache_db_path, sample_option_chain):
         """Test that a cache miss triggers an API call."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         mock_api = AsyncMock()
         mock_api.get_option_chain = AsyncMock(return_value=sample_option_chain)
@@ -352,7 +352,7 @@ class TestRateLimitPrevention:
     @pytest.mark.asyncio
     async def test_expired_cache_triggers_api_call(self, temp_cache_db_path, sample_option_chain):
         """Test that an expired cache triggers an API call."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         mock_api = AsyncMock()
         mock_api.get_option_chain = AsyncMock(return_value=sample_option_chain)
@@ -372,7 +372,7 @@ class TestRateLimitPrevention:
     @pytest.mark.asyncio
     async def test_api_result_cached_after_fetch(self, temp_cache_db_path, sample_option_chain):
         """Test that API results are cached after fetching."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         mock_api = AsyncMock()
         mock_api.get_option_chain = AsyncMock(return_value=sample_option_chain)
@@ -391,7 +391,7 @@ class TestRateLimitPrevention:
     @pytest.mark.asyncio
     async def test_multiple_symbols_cached_independently(self, temp_cache_db_path):
         """Test that different symbols are cached independently."""
-        from agentic_ic.services.market_data import CachedMarketData
+        from trading_core.services.market_data import CachedMarketData
         
         spx_chain = [{"symbol": "SPX", "strike": 5850.0}]
         spy_chain = [{"symbol": "SPY", "strike": 585.0}]

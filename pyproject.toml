@@ -49,7 +49,7 @@ dev = [
 0dte-bot = "agentic_ic.main:main"
 
 [tool.setuptools.packages.find]
-include = ["agentic_ic*", "zerodte*", "es_8am*", "touch_turn*"]
+include = ["trading_core*", "agentic_ic*", "zerodte*", "es_8am*", "touch_turn*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -59,7 +59,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["agentic_ic"]
+source = ["agentic_ic", "trading_core"]
 omit = ["tests/*", "tests_locked/*"]
 
 [tool.coverage.report]

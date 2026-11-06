@@ -3,6 +3,6 @@
   "pythonPlatform": "Linux",
   "venvPath": ".",
   "extraPaths": ["agentic_ic", "es_8am", "."],
-  "include": ["agentic_ic", "es_8am", "zerodte", "tests", "tests_locked", "tests_v2"],
+  "include": ["trading_core", "agentic_ic", "es_8am", "zerodte", "tests", "tests_locked", "tests_v2"],
   "exclude": ["**/__pycache__"]
 }

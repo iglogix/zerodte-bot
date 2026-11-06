@@ -5,7 +5,7 @@ import pytest
 from datetime import datetime, date
 from unittest.mock import AsyncMock, MagicMock
 
-from zerodte.models.database import Trade, Base, get_engine, init_db
+from trading_core.models.database import Trade, Base, get_engine, init_db
 from zerodte.strategies.iron_condor import IronCondorStrategy
 from zerodte.strategies.iron_fly import IronFlyStrategy
 from zerodte.strategies.base import LiveTradeSetup, OrderLeg

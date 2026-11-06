@@ -58,18 +58,21 @@ python -m agentic_ic.main --manual --once  # single cycle and exit
 ├── agentic_ic/
 │   ├── main.py                 # Entry point, BotOrchestrator, CLI
 │   ├── agent/
+│   │   └── tool_handlers.py    # Tool implementations (mode-aware)
+│   └── services/
+│       ├── tastytrade_client.py# TastyTrade REST API client
+│       ├── risk_manager.py     # Pre-trade risk validation
+│       └── llm_client.py       # LiteLLM wrapper
+├── trading_core/               # Modules shared by agentic_ic and zerodte
+│   ├── agent/
 │   │   ├── trading_agent.py    # LLM tool loop
 │   │   ├── dual_validator.py   # Dual-LLM agreement check
-│   │   ├── tool_definitions.py # Tool schemas passed to LLM
-│   │   └── tool_handlers.py    # Tool implementations (mode-aware)
+│   │   └── tool_definitions.py # Tool schemas passed to LLM
 │   ├── models/
 │   │   └── database.py         # SQLAlchemy ORM models
 │   └── services/
 │       ├── market_data.py      # SQLite-cached market data layer
-│       ├── tastytrade_client.py# TastyTrade REST API client
-│       ├── risk_manager.py     # Pre-trade risk validation
 │       ├── db_service.py       # Async database service
-│       ├── llm_client.py       # LiteLLM wrapper
 │       └── notifications.py    # Email / webhook alerts
 ├── tests_locked/               # IMMUTABLE — 128 tests, protected by pre-commit hook
 │   ├── conftest.py

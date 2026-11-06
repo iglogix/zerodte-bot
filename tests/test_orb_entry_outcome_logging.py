@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from zerodte.agent.base_engine import EngineDeps
 from zerodte.agent.decision_engine import CycleResult
 from zerodte.agent.orb_engine import OrbEngine
-from zerodte.services.decision_logger import DecisionFileLogger
+from trading_core.services.decision_logger import DecisionFileLogger
 
 ET = ZoneInfo("America/New_York")
 

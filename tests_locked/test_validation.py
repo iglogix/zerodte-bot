@@ -25,7 +25,7 @@ class TestBothLLMsAgreeOnEntry:
     @pytest.mark.asyncio
     async def test_both_agree_enter_trade_executes(self, sample_llm_decision_enter):
         """Test that trade executes when both LLMs agree to enter."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = sample_llm_decision_enter.copy()
         secondary_decision = sample_llm_decision_enter.copy()
@@ -53,7 +53,7 @@ class TestBothLLMsAgreeOnEntry:
     @pytest.mark.asyncio
     async def test_both_agree_wait_does_not_execute(self, sample_llm_decision_wait):
         """Test that no trade executes when both LLMs agree to wait."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = sample_llm_decision_wait.copy()
         secondary_decision = sample_llm_decision_wait.copy()
@@ -85,7 +85,7 @@ class TestBothLLMsAgreeOnTiming:
     @pytest.mark.asyncio
     async def test_both_agree_timing_now_executes(self, sample_llm_decision_enter):
         """Test that trade executes when both agree on 'now' timing."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "timing": "now"}
         secondary_decision = {**sample_llm_decision_enter, "timing": "now"}
@@ -112,7 +112,7 @@ class TestBothLLMsAgreeOnTiming:
     @pytest.mark.asyncio
     async def test_timing_disagreement_blocks(self, sample_llm_decision_enter):
         """Test that timing disagreement blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "timing": "now"}
         secondary_decision = {**sample_llm_decision_enter, "timing": "wait_5_min"}
@@ -148,7 +148,7 @@ class TestBothLLMsAgreeOnOrderSequence:
     @pytest.mark.asyncio
     async def test_both_agree_call_spread_first_executes(self, sample_llm_decision_enter):
         """Test that trade executes when both agree call spread first."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "order_sequence": ["call_spread", "put_spread"]}
         secondary_decision = {**sample_llm_decision_enter, "order_sequence": ["call_spread", "put_spread"]}
@@ -176,7 +176,7 @@ class TestBothLLMsAgreeOnOrderSequence:
     @pytest.mark.asyncio
     async def test_order_sequence_disagreement_blocks(self, sample_llm_decision_enter):
         """Test that order sequence disagreement blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "order_sequence": ["call_spread", "put_spread"]}
         secondary_decision = {**sample_llm_decision_enter, "order_sequence": ["put_spread", "call_spread"]}
@@ -212,7 +212,7 @@ class TestBothLLMsAgreeOnStopLoss:
     @pytest.mark.asyncio
     async def test_both_agree_stop_loss_executes(self, sample_llm_decision_enter):
         """Test that trade executes when both agree on stop-loss."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "stop_loss_amount": 3.00}
         secondary_decision = {**sample_llm_decision_enter, "stop_loss_amount": 3.00}
@@ -239,7 +239,7 @@ class TestBothLLMsAgreeOnStopLoss:
     @pytest.mark.asyncio
     async def test_stop_loss_disagreement_blocks(self, sample_llm_decision_enter):
         """Test that stop-loss disagreement blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "stop_loss_amount": 3.00}
         secondary_decision = {**sample_llm_decision_enter, "stop_loss_amount": 4.50}
@@ -275,7 +275,7 @@ class TestAnyDisagreementBlocks:
     @pytest.mark.asyncio
     async def test_entry_disagreement_blocks(self, sample_llm_decision_enter, sample_llm_decision_wait):
         """Test that entry decision disagreement blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(return_value=sample_llm_decision_enter)
@@ -304,7 +304,7 @@ class TestAnyDisagreementBlocks:
     @pytest.mark.asyncio
     async def test_strike_disagreement_blocks(self, sample_llm_decision_enter):
         """Test that strike price disagreement blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "short_call_strike": 5890.0}
         secondary_decision = {**sample_llm_decision_enter, "short_call_strike": 5900.0}
@@ -335,7 +335,7 @@ class TestAnyDisagreementBlocks:
     @pytest.mark.asyncio
     async def test_notification_sent_on_any_disagreement(self, sample_llm_decision_enter):
         """Test that notification is sent on any disagreement."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_decision = {**sample_llm_decision_enter, "timing": "now"}
         secondary_decision = {**sample_llm_decision_enter, "timing": "wait"}
@@ -371,7 +371,7 @@ class TestPrimaryLLMFailure:
     @pytest.mark.asyncio
     async def test_primary_failure_blocks_no_fallback(self, sample_llm_decision_enter):
         """Test that primary LLM failure blocks execution (no fallback for safety)."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(side_effect=Exception("Primary LLM API Error"))
@@ -400,7 +400,7 @@ class TestPrimaryLLMFailure:
     @pytest.mark.asyncio
     async def test_primary_timeout_blocks(self, sample_llm_decision_enter):
         """Test that primary LLM timeout blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         import asyncio
         
         async def slow_response():
@@ -437,7 +437,7 @@ class TestBothLLMsFailure:
     @pytest.mark.asyncio
     async def test_both_fail_blocks_and_notifies(self):
         """Test that both LLMs failing blocks execution and notifies."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(side_effect=Exception("Primary API Error"))
@@ -466,7 +466,7 @@ class TestBothLLMsFailure:
     @pytest.mark.asyncio
     async def test_both_return_invalid_response_blocks(self):
         """Test that both LLMs returning invalid responses blocks execution."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(return_value={"invalid": "response"})
@@ -497,7 +497,7 @@ class TestSecondaryLLMIndependence:
     @pytest.mark.asyncio
     async def test_secondary_receives_same_data_no_primary_output(self, sample_llm_decision_enter):
         """Test that secondary LLM receives same data but not primary's output."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         primary_calls = []
         secondary_calls = []
@@ -534,7 +534,7 @@ class TestSecondaryLLMIndependence:
     @pytest.mark.asyncio
     async def test_llms_called_in_parallel(self, sample_llm_decision_enter):
         """Test that both LLMs are called in parallel for efficiency."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         import asyncio
         import time
         
@@ -578,7 +578,7 @@ class TestDecisionLogging:
     @pytest.mark.asyncio
     async def test_agreement_logged(self, sample_llm_decision_enter):
         """Test that agreement decisions are logged."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(return_value=sample_llm_decision_enter)
@@ -604,7 +604,7 @@ class TestDecisionLogging:
     @pytest.mark.asyncio
     async def test_disagreement_logged_with_details(self, sample_llm_decision_enter, sample_llm_decision_wait):
         """Test that disagreement decisions are logged with details."""
-        from agentic_ic.agent.dual_validator import DualLLMValidator
+        from trading_core.agent.dual_validator import DualLLMValidator
         
         mock_primary = AsyncMock()
         mock_primary.get_decision = AsyncMock(return_value=sample_llm_decision_enter)

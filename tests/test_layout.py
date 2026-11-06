@@ -97,3 +97,30 @@ def test_no_legacy_package_names():
 def test_descriptive_packages_exist(pkg):
     assert importlib.util.find_spec(pkg) is not None
     assert (ROOT / pkg / "__init__.py").is_file()
+
+
+# The 12 modules both bots share — one copy, in trading_core (measured 2026-11-05:
+# byte-identical, or v2 is a strict superset / carries only v2's fixes).
+# services/llm_client.py stays per bot: v2 adds a subscription (Agent SDK) backend
+# that would change v1's LLM auth path.
+SHARED_MODULES = [
+    "services/live_token_provider.py",
+    "services/decision_logger.py",
+    "services/notifications.py",
+    "services/order_fill_listener.py",
+    "services/market_data.py",
+    "services/db_service.py",
+    "agent/tool_definitions.py",
+    "agent/trading_agent.py",
+    "agent/dual_validator.py",
+    "agent/regime_classifier.py",
+    "agent/anomaly_detector.py",
+    "models/database.py",
+]
+
+
+@pytest.mark.parametrize("rel", SHARED_MODULES)
+def test_shared_modules_exist_once(rel):
+    assert (ROOT / "trading_core" / rel).is_file(), f"trading_core/{rel} missing"
+    for bot in ("agentic_ic", "zerodte"):
+        assert not (ROOT / bot / rel).exists(), f"{bot}/{rel} duplicates trading_core/{rel}"

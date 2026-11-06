@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_, create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
-from agentic_ic.models.database import Base, MarketDataCache, get_engine, get_session
+from trading_core.models.database import Base, MarketDataCache, get_engine, get_session
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +212,56 @@ class CachedMarketData:
         data = await self.api_client.get_account_info()
         await self.cache_account_info(data)
         return data
+
+    # -------------------------------------------------------------------------
+    # Candle fetch (delegates to API client, caches results)
+    # -------------------------------------------------------------------------
+
+    async def get_candles(
+        self,
+        symbol: str,
+        interval: str = "5m",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        count: int = 10,
+    ) -> List[Dict]:
+        """Fetch candles from API client by time range or count.
+
+        Args:
+            symbol: Ticker symbol
+            interval: Candle interval (e.g. "5m")
+            start: Start time as "HH:MM" (today assumed) or ISO string
+            end: End time as "HH:MM" (today assumed) or ISO string
+            count: Number of candles if no start/end given
+        """
+        if self.api_client is None:
+            return []
+
+        from_time = None
+        if start:
+            from_time = self._parse_time(start)
+
+        candles = await self.api_client.get_candles(
+            symbol, interval=interval, from_time=from_time, count=count,
+        )
+
+        if candles and end:
+            end_dt = self._parse_time(end)
+            candles = [
+                c for c in candles
+                if datetime.fromisoformat(str(c.get("timestamp", ""))) < end_dt
+            ]
+
+        return candles or []
+
+    @staticmethod
+    def _parse_time(t: str) -> datetime:
+        """Parse 'HH:MM' (today) or full ISO timestamp."""
+        if len(t) <= 5:
+            now = datetime.now()
+            h, m = int(t[:2]), int(t[3:5])
+            return now.replace(hour=h, minute=m, second=0, microsecond=0)
+        return datetime.fromisoformat(t)
 
     # -------------------------------------------------------------------------
     # 5-min candles (permanent, append-only, deduplicated)
