@@ -24,6 +24,8 @@ options:
   strategy_type: "cbbo_em"
   spread_mode: "iron_condor"
   option_root: "SPXW"
+  chain_symbol: "SPX"
+  chain_type: "index"
   em_multiplier: 1.0              # strikes at N × expected move from spot
   spread_width_pts: 10
   strike_step_pts: 5

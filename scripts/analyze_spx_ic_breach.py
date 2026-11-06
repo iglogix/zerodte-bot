@@ -55,7 +55,7 @@ def load_and_run():
     data_file = config["backtest"]["data_file"]
     price_scale = config.get("backtest", {}).get("price_scale", 10.0)
     print(f"Loading bars from {data_file} (scale={price_scale})...")
-    loader = BarLoader(data_file, price_scale=price_scale)
+    loader = BarLoader(data_file, price_scale=price_scale, symbol="SPX")
     days = list(loader.iter_days(start_date=CV_START, end_date=CV_END))
     print(f"  {len(days)} day-symbol chunks")
 

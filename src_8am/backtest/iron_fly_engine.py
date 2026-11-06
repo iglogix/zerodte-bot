@@ -17,6 +17,7 @@ from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from src_8am.config_keys import require
 from src_8am.backtest.strategy_iron_fly import IronFlyStrategy
 from src_8am.backtest.strategy_base import TradeSetup
 from src_8am.backtest.pricing import spread_value
@@ -145,7 +146,7 @@ class IronFlyEngine:
     def _run_day(self, session_date: date, bars: List[Dict],
                  session_iv: float) -> IronFlyResult:
         """Simulate one trading day."""
-        symbol = self._config.get("bot", {}).get("symbol", "SPX")
+        symbol = require(self._config, "bot.symbol")
         tid = f"IFL-{session_date}-{uuid.uuid4().hex[:6].upper()}"
 
         # Step 0: Calendar filters

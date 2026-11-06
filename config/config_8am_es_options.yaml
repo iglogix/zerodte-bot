@@ -24,6 +24,7 @@ strategy:
 # Exit: TP at 50% credit | SL at 200% credit | EOD expire/close
 options:
   option_root: "EW"               # symbol root for 0DTE options (EW = ES weekly, SPXW = SPX weekly)
+  chain_type: "futures"
   spread_width_pts: 5             # distance between short and long strike
   strike_step_pts: 5              # round strikes to nearest N points (SPX uses 5)
   target_short_delta: 0.12        # fallback delta (used when use_straddle_em=false)

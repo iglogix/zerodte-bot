@@ -51,7 +51,7 @@ def load_data(config: dict):
     end = date.fromisoformat(bt.get("end_date", "2026-02-26"))
 
     print(f"Loading SPY bars from {data_file} (scale={price_scale})...")
-    loader = BarLoader(data_file, price_scale=price_scale)
+    loader = BarLoader(data_file, price_scale=price_scale, symbol="SPX")
     days_data = []
     for day in loader.iter_days(start_date=start, end_date=end):
         if day.session_date in cbbo_dates:

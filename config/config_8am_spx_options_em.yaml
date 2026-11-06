@@ -22,6 +22,8 @@ strategy:
 # CBBO-optimized params (2026-04-01, 125 days SPX CBBO backtest)
 options:
   option_root: "SPXW"              # SPX weekly 0DTE options
+  chain_symbol: "SPX"
+  chain_type: "index"
   index_quote_symbol: "SPX"        # for API fallback when put-call parity fails
   spread_width_pts: 5              # default width (overridden by with/against trend)
   strike_step_pts: 5               # SPX strikes at 5-pt intervals

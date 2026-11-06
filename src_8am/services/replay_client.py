@@ -18,6 +18,8 @@ import logging
 import math
 from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional
+
+from src_8am.config_keys import require
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ class ReplayTTClient:
         self._config = config or {}
         self._bars = sorted(bars, key=lambda b: b["ts_et"])
         self._cbbo = cbbo_quotes or {}  # {(minute_str, strike, is_call): (bid, ask)}
-        self._option_root = self._config.get("options", {}).get("option_root", "SPXW")
+        self._option_root = require(self._config, "options.option_root")
         self._strike_step = self._config.get("options", {}).get("strike_step_pts", 5)
         self._atm_filter = self._config.get("options", {}).get("atm_filter_width_pts", 150)
 

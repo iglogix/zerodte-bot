@@ -17,6 +17,8 @@ import logging
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from src_8am.config_keys import require
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,11 +61,13 @@ class OrbOptionsService:
         Fetch 0DTE option chain filtered to near-ATM strikes (±150 pts).
         Supports both futures options (ES/EW) and equity/index options (SPX/SPXW).
         """
+        # Resolved outside the try: a missing key must fail loudly, not as [].
+        chain_type = require(self._cfg, "options.chain_type")
+        chain_symbol = require(self._cfg, "options.chain_symbol") if chain_type == "index" else None
         try:
-            option_root = self._opt_cfg.get("option_root", "EW")
-            if option_root in ("SPXW", "SPX"):
+            if chain_type == "index":
                 # Index options — use equity option chain
-                chain = await self._tt.get_option_chain("SPX")
+                chain = await self._tt.get_option_chain(chain_symbol)
             else:
                 # Futures options (ES)
                 chain = await self._tt.get_future_option_chain(

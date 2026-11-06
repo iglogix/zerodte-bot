@@ -21,6 +21,8 @@ strategy:
 # Same ORB logic as ES variant, but with SPX option specs
 options:
   option_root: "SPXW"              # SPX weekly options
+  chain_symbol: "SPX"
+  chain_type: "index"
   spread_width_pts: 5              # SPX uses 5-pt wide spreads
   strike_step_pts: 5               # SPX strikes at 5-pt intervals
   target_short_delta: 0.12         # starting point, will be optimized

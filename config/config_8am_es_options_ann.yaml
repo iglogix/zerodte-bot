@@ -21,6 +21,7 @@ strategy:
 # Uses trained ANN to predict IV = f(moneyness, TTE, is_call) instead of flat IV + skew table
 options:
   option_root: "EW"
+  chain_type: "futures"
   spread_width_pts: 5
   strike_step_pts: 5
   target_short_delta: 0.12        # optimized (WF-CV 2026-03-12)

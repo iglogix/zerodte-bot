@@ -49,12 +49,12 @@ class BarLoader:
     (same format as Databento CSV, written by download_spy_data.py).
 
     Usage:
-        loader = BarLoader("data/spy_1m.csv", price_scale=10.0, symbol="SPX")
+        loader = BarLoader("data/spy_1m.csv", price_scale=10.0, symbol=bot_symbol)
         for day in loader.iter_days(start_date, end_date):
             ...day.bars...  # prices are raw_close * price_scale
     """
 
-    def __init__(self, data_path: str, price_scale: float = 10.0, symbol: str = "SPX"):
+    def __init__(self, data_path: str, price_scale: float = 10.0, *, symbol: str):
         self.data_path = Path(data_path)
         self._price_scale = price_scale
         self._symbol = symbol

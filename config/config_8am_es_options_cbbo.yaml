@@ -21,6 +21,8 @@ strategy:
 options:
   strategy_type: "cbbo"
   option_root: "SPXW"
+  chain_symbol: "SPX"
+  chain_type: "index"
   spread_width_pts: 5
   strike_step_pts: 5
   target_short_delta: 0.16

@@ -45,7 +45,7 @@ def run_backtest(config_path, params, start, end):
 
     if data_source == "spy":
         price_scale = config.get("backtest", {}).get("price_scale", 10.0)
-        loader = BarLoader(data_file, price_scale=price_scale)
+        loader = BarLoader(data_file, price_scale=price_scale, symbol="SPX")
     else:
         loader = DatabentoLoader(data_file)
 
