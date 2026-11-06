@@ -1,5 +1,5 @@
 # tests/test_gex_dependent.py
-from src_v2.backtest.gex_dependent import realized_move
+from zerodte.backtest.gex_dependent import realized_move
 
 def _bar(h, m, o, hi, lo, c):
     from datetime import datetime

@@ -4,7 +4,7 @@
 ORB signal → SPXW 0DTE iron condor at scheduled windows)
 **Data:** SPY 1-min signal bars + SPX CBBO 1-min quotes, **2022-06-08 → 2026-06-11
 (~4 years, 350 trade-days)** — vs the original 2026-04-13 run's 125 days.
-**Framework:** `src_v2/backtest/` orchestrator (real OrbEngine + PositionMonitor).
+**Framework:** `zerodte/backtest/` orchestrator (real OrbEngine + PositionMonitor).
 **Method:** three-tier walk-forward METHOD validation per `docs/wf-cv.md`
 (`scripts/run_wf_method_strategy.py`), not the val-leaked `WalkForwardOptimizer`.
 
@@ -107,10 +107,10 @@ for c in "80 40" "100 50" "130 65"; do set -- $c; \
 
 ## Put-dominance claim ("puts 84W/0L flawless") — REFUTED (per-side decomposition)
 
-The src_8am CBBO IC reported the put leg as 84W/0L (+$11,696), Sharpe 14.6
-([[project_cbbo_backtest]]). That was the src_8am **EOD-mislabeling bug**: with
-`hold_put_breach=True` a breached put rides to EOD, and src_8am booked the ITM ones
-as $0 ("expired_worthless"). The src_v2 orchestrator emits one result per side
+The es_8am CBBO IC reported the put leg as 84W/0L (+$11,696), Sharpe 14.6
+([[project_cbbo_backtest]]). That was the es_8am **EOD-mislabeling bug**: with
+`hold_put_breach=True` a breached put rides to EOD, and es_8am booked the ITM ones
+as $0 ("expired_worthless"). The zerodte orchestrator emits one result per side
 (`spread_type` = put_/call_credit_spread) with real intrinsic booking. Canonical IC
 (em0.5/ea0.75/w5/w10/tp0.5, hold_put_breach=True) over the full 4yr:
 

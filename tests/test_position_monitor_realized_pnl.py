@@ -26,7 +26,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.services.position_monitor import PositionMonitor, TradeOutlivedExpiry
+from zerodte.services.position_monitor import PositionMonitor, TradeOutlivedExpiry
 
 
 # -----------------------------------------------------------------------------

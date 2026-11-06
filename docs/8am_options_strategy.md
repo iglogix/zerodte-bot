@@ -188,10 +188,10 @@ DEFAULT_GRID = {
 |------|---------|
 | `config/config_8am_es_options.yaml` | ES strategy configuration |
 | `config/config_8am_spx_options.yaml` | SPX strategy configuration |
-| `src_8am/backtest/options_engine.py` | Backtest engine |
-| `src_8am/backtest/optimizer.py` | Walkforward optimizer |
-| `src_8am/backtest/market_data.py` | SPY/VIX data loader |
-| `src_8am/backtest/data_loader.py` | ES bars loader (Databento) |
+| `es_8am/backtest/options_engine.py` | Backtest engine |
+| `es_8am/backtest/optimizer.py` | Walkforward optimizer |
+| `es_8am/backtest/market_data.py` | SPY/VIX data loader |
+| `es_8am/backtest/data_loader.py` | ES bars loader (Databento) |
 | `data/spy_daily.csv` | SPY OHLC (SPX proxy) |
 | `data/vix_daily.csv` | VIX daily close |
 | `data/vix9d_daily.csv` | VIX9D daily close (preferred) |

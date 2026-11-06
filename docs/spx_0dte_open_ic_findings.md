@@ -198,11 +198,11 @@ These aren't predictable from entry-time data — they're the structural cost of
 
 ## Critical bugs discovered along the way
 
-1. **PositionMonitor double-close bug** ([src_v2/services/position_monitor.py](src_v2/services/position_monitor.py)) — when one side stop_lossed, the whole trade was marked closed, stranding the other side unmonitored. This was both a backtest distortion (fake 100% per-day WR) AND a live-bot bug. Fixed: trade.status=closed only fires when all legs are actually closed (`_any_legs_remain` helper).
+1. **PositionMonitor double-close bug** ([zerodte/services/position_monitor.py](zerodte/services/position_monitor.py)) — when one side stop_lossed, the whole trade was marked closed, stranding the other side unmonitored. This was both a backtest distortion (fake 100% per-day WR) AND a live-bot bug. Fixed: trade.status=closed only fires when all legs are actually closed (`_any_legs_remain` helper).
 
-2. **CBBO chain range filter** ([src_v2/backtest/bt_tool_handlers.py](src_v2/backtest/bt_tool_handlers.py)) — chain was capped at ±200 pts from spot for performance, excluding far-OTM strikes needed for em_mult ≥ 0.6 in volatile regimes. Widened to ±500 pts.
+2. **CBBO chain range filter** ([zerodte/backtest/bt_tool_handlers.py](zerodte/backtest/bt_tool_handlers.py)) — chain was capped at ±200 pts from spot for performance, excluding far-OTM strikes needed for em_mult ≥ 0.6 in volatile regimes. Widened to ±500 pts.
 
-3. **Strategy breach check spammed log** ([src_v2/strategies/open_ic.py](src_v2/strategies/open_ic.py)) — after a side closed, breach check still fired with empty leg list on every bar. Fixed: require `_call_leg_symbols(trade)` non-empty before firing.
+3. **Strategy breach check spammed log** ([zerodte/strategies/open_ic.py](zerodte/strategies/open_ic.py)) — after a side closed, breach check still fired with empty leg list on every bar. Fixed: require `_call_leg_symbols(trade)` non-empty before firing.
 
 ## Tooling
 

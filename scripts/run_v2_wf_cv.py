@@ -1,5 +1,5 @@
 """
-Walk-forward cross-validation optimizer for src_v2 backtest.
+Walk-forward cross-validation optimizer for zerodte backtest.
 
 Usage:
   python -m scripts.run_v2_wf_cv --config config/config_orb_em_ic_spx.yaml
@@ -19,9 +19,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.wf_optimizer import WalkForwardOptimizer
 
 
 # Stage 2 — tail-risk-aware grid (2026-04-17)
@@ -50,13 +50,13 @@ MEIC_PARAM_GRID = {
 def _strategy_cls(config):
     name = config.get("bot", {}).get("strategy", "orb_em_ic")
     if name == "orb_em_ic":
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
         return OrbEmIronCondorStrategy
     if name == "orb_em_directional":
-        from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+        from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
         return OrbEmDirectionalStrategy
     if name == "meic":
-        from src_v2.strategies.meic import MeicStrategy
+        from zerodte.strategies.meic import MeicStrategy
         return MeicStrategy
     raise ValueError(f"Unsupported strategy: {name}")
 
@@ -83,7 +83,7 @@ def _format_metrics(m):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="src_v2 Walk-Forward CV Optimizer")
+    parser = argparse.ArgumentParser(description="zerodte Walk-Forward CV Optimizer")
     parser.add_argument("--config", required=True)
     parser.add_argument("--start", default=None)
     parser.add_argument("--end", default=None)

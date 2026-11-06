@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.backtest.signal_detector import (
+from zerodte.backtest.signal_detector import (
     SignalEvent,
     compute_orb_levels,
     detect_signals_for_day,

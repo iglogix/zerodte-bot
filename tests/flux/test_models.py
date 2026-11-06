@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from src_v2.flux.models import OptionRow, ChainSnapshot, RatioPoint, ScanRow
+from zerodte.flux.models import OptionRow, ChainSnapshot, RatioPoint, ScanRow
 
 
 def test_optionrow_and_chain():

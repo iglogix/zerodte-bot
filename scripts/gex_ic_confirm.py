@@ -16,11 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest import gex_regime as gr
-from src_v2.backtest.gex import iv_from_em
-from src_v2.backtest.canonical_ic import price_ic
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest import gex_regime as gr
+from zerodte.backtest.gex import iv_from_em
+from zerodte.backtest.canonical_ic import price_ic
 
 ENTRY = "11:00"
 

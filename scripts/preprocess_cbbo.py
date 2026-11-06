@@ -17,7 +17,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src_8am.backtest.cbbo_store import CbboStore
+from es_8am.backtest.cbbo_store import CbboStore
 
 
 def main():

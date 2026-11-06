@@ -1,7 +1,7 @@
 # tests/flux/test_marketdata.py
 from datetime import date
 
-from src_v2.flux.sources.marketdata import MarketDataSource
+from zerodte.flux.sources.marketdata import MarketDataSource
 
 # Columnar response like marketdata.app returns (columns= set, so NO "s" key)
 CANNED = {

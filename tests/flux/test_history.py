@@ -1,10 +1,10 @@
 # tests/flux/test_history.py
 from datetime import date, datetime, timezone
 
-from src_v2.flux.models import OptionRow, ChainSnapshot
-from src_v2.flux.sources.base import FluxSource
-from src_v2.flux.history import daily_ratio_series
-from src_v2.backtest.dc_time_machine.trading_calendar import nth_trading_day_after
+from zerodte.flux.models import OptionRow, ChainSnapshot
+from zerodte.flux.sources.base import FluxSource
+from zerodte.flux.history import daily_ratio_series
+from zerodte.backtest.dc_time_machine.trading_calendar import nth_trading_day_after
 
 
 class FakeSource(FluxSource):

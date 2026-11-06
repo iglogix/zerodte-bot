@@ -19,11 +19,11 @@ import sys
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.strategies.open_ic import OpenIcStrategy
-from src_8am.backtest.pricing import bs_call_delta
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.strategies.open_ic import OpenIcStrategy
+from es_8am.backtest.pricing import bs_call_delta
 
 EM_MULTS = [0.20, 0.35, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00]
 WING = 30

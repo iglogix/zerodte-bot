@@ -99,9 +99,9 @@ Delta-mode strangles trade much less (116 vs 304) because the 0.30-delta short t
 
 | Component | File | Status |
 |---|---|---|
-| Strategy | [src_v2/strategies/open_strangle.py](../src_v2/strategies/open_strangle.py) | ✓ 12 unit tests passing |
+| Strategy | [zerodte/strategies/open_strangle.py](../zerodte/strategies/open_strangle.py) | ✓ 12 unit tests passing |
 | Config | [config/config_spx_0dte_open_strangle.yaml](../config/config_spx_0dte_open_strangle.yaml) | ✓ tuned to IC p75 |
-| Backtest support (2-leg) | [src_v2/backtest/orchestrator.py](../src_v2/backtest/orchestrator.py), [src_v2/backtest/bt_tool_handlers.py](../src_v2/backtest/bt_tool_handlers.py) | ✓ naked-short branches |
+| Backtest support (2-leg) | [zerodte/backtest/orchestrator.py](../zerodte/backtest/orchestrator.py), [zerodte/backtest/bt_tool_handlers.py](../zerodte/backtest/bt_tool_handlers.py) | ✓ naked-short branches |
 | SL artifact extractor | [scripts/extract_ic_sl_dollars.py](../scripts/extract_ic_sl_dollars.py) | ✓ 270-day artifact, p75=$2,397.50 |
 | WF-CV runner | [scripts/run_v2_wf_cv_open_ic.py](../scripts/run_v2_wf_cv_open_ic.py), [scripts/run_v2_wf_cv_open_strangle.py](../scripts/run_v2_wf_cv_open_strangle.py) | ✓ `--mode em_mult` / `delta` |
 | Trade-log analyzer | [scripts/analyze_open_strangle_trades.py](../scripts/analyze_open_strangle_trades.py) | ✓ forked from IC analyzer |
@@ -144,4 +144,4 @@ Delta-mode strangles trade much less (116 vs 304) because the 0.30-delta short t
 - Sweep `eod_force_close ∈ {15:30, 15:45, 15:55}` — would only matter if strangle were a contender, which it isn't.
 - Re-derive entry gates specifically for strangle returns — same.
 - **Asymmetric strangle (further-OTM call than put)** — the IC findings showed 65% of losses were call-side breaches in 2022-2023. A skewed strangle might do better on call-side tails, but a 3× Sharpe gap is unlikely to close.
-- The orchestrator's naked-short support shipped in [src_v2/backtest/orchestrator.py](../src_v2/backtest/orchestrator.py) and [src_v2/backtest/bt_tool_handlers.py](../src_v2/backtest/bt_tool_handlers.py) — usable by any future 2-leg strategy (covered call, naked put, etc.) without further changes.
+- The orchestrator's naked-short support shipped in [zerodte/backtest/orchestrator.py](../zerodte/backtest/orchestrator.py) and [zerodte/backtest/bt_tool_handlers.py](../zerodte/backtest/bt_tool_handlers.py) — usable by any future 2-leg strategy (covered call, naked put, etc.) without further changes.

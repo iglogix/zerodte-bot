@@ -22,7 +22,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.cbbo_store import CbboStore
+from zerodte.backtest.cbbo_store import CbboStore
 
 ENTRY_MIN = "09:50"   # IC at 09:35 + ~15 min (Pulver adds defense 5-15 min later)
 EXIT_MIN = "15:59"

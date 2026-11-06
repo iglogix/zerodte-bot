@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.strategies.meic import MeicStrategy
+from zerodte.strategies.meic import MeicStrategy
 
 
 def _strategy(exit_mode: str = "take_profit", tp_pct: float = 0.50) -> MeicStrategy:

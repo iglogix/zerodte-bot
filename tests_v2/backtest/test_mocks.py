@@ -13,7 +13,7 @@ ET = ZoneInfo("America/New_York")
 
 @pytest.mark.asyncio
 async def test_db_add_and_get_open():
-    from src_v2.backtest.mock_db import BacktestDb
+    from zerodte.backtest.mock_db import BacktestDb
     db = BacktestDb()
     await db.add_trade({"trade_id": "T1", "status": "open", "credit": 1.5})
     trades = await db.get_open_trades()
@@ -23,7 +23,7 @@ async def test_db_add_and_get_open():
 
 @pytest.mark.asyncio
 async def test_db_update_trade():
-    from src_v2.backtest.mock_db import BacktestDb
+    from zerodte.backtest.mock_db import BacktestDb
     db = BacktestDb()
     await db.add_trade({"trade_id": "T1", "status": "open"})
     await db.update_trade("T1", {"status": "closed", "exit_reason": "tp"})
@@ -35,7 +35,7 @@ async def test_db_update_trade():
 
 @pytest.mark.asyncio
 async def test_db_get_open_excludes_closed():
-    from src_v2.backtest.mock_db import BacktestDb
+    from zerodte.backtest.mock_db import BacktestDb
     db = BacktestDb()
     await db.add_trade({"trade_id": "T1", "status": "open"})
     await db.add_trade({"trade_id": "T2", "status": "closed"})
@@ -61,9 +61,9 @@ def cbbo_cache(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cache_returns_quote(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
-    from src_v2.backtest.mock_cache import BacktestCache
-    from src_v2.backtest.sim_clock import SimClock
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.mock_cache import BacktestCache
+    from zerodte.backtest.sim_clock import SimClock
 
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
@@ -80,9 +80,9 @@ async def test_cache_returns_quote(cbbo_cache):
 
 @pytest.mark.asyncio
 async def test_cache_returns_none_for_missing(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
-    from src_v2.backtest.mock_cache import BacktestCache
-    from src_v2.backtest.sim_clock import SimClock
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.mock_cache import BacktestCache
+    from zerodte.backtest.sim_clock import SimClock
 
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))

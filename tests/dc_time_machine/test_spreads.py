@@ -3,8 +3,8 @@ from datetime import date
 
 import pytest
 
-from src_v2.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
-from src_v2.backtest.dc_time_machine.spreads import half_spread_stats
+from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
+from zerodte.backtest.dc_time_machine.spreads import half_spread_stats
 
 S = date(2026, 2, 2)
 F = date(2026, 2, 11)   # 9 DTE

@@ -1,4 +1,4 @@
-"""Regression tests for the Power Hour backtest engine (src_v2/backtest/power_hour.py).
+"""Regression tests for the Power Hour backtest engine (zerodte/backtest/power_hour.py).
 
 Synthetic quote days verify the spec mechanics from docs/0DTE-Power-Hour-Strategy.md:
 fixed-credit strike selection, never-invert floor, the §6 worked ratchet example,
@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.power_hour import PowerHourEngine
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.power_hour import PowerHourEngine
 
 ET = ZoneInfo("America/New_York")
 DAY = date(2023, 6, 6)  # not a FOMC day

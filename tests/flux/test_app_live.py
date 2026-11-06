@@ -2,9 +2,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from src_v2.flux.models import OptionRow, ChainSnapshot
-from src_v2.flux.sources.base import FluxSource
-from src_v2.flux.app import create_app
+from zerodte.flux.models import OptionRow, ChainSnapshot
+from zerodte.flux.sources.base import FluxSource
+from zerodte.flux.app import create_app
 
 
 class FakeLive(FluxSource):
@@ -45,7 +45,7 @@ def test_live_endpoints_off_when_no_live_source():
 class FakeIntraday:
     def intraday(self, session, front_exp, back_exp, ref_delta, atm_hint):
         from datetime import datetime, timezone
-        from src_v2.flux.models import RatioPoint
+        from zerodte.flux.models import RatioPoint
         return [RatioPoint(datetime(2026, 6, 5, 13, 40, tzinfo=timezone.utc),
                            front_exp, back_exp, ref_delta, 0.22, 0.20, 1.1),
                 RatioPoint(datetime(2026, 6, 5, 13, 50, tzinfo=timezone.utc),
@@ -91,7 +91,7 @@ def test_dc_submit_refused_in_manual():
 
 
 def test_dc_submit_combo_in_sandbox_passes_qty():
-    from src_v2.flux.submit import MockSubmitter
+    from zerodte.flux.submit import MockSubmitter
     s = MockSubmitter("sandbox")
     c = create_app(intraday_source=FakeIntradayChains(), submitter=s).test_client()
     b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=combo&qty=3").get_json()
@@ -100,7 +100,7 @@ def test_dc_submit_combo_in_sandbox_passes_qty():
 
 
 def test_dc_submit_legin_places_four():
-    from src_v2.flux.submit import MockSubmitter
+    from zerodte.flux.submit import MockSubmitter
     c = create_app(intraday_source=FakeIntradayChains(), submitter=MockSubmitter("live")).test_client()
     b = c.post("/api/dc_submit?front=2026-06-17&back=2026-06-18&execution=legin").get_json()
     assert b["ok"] and len(b["order_ids"]) == 4 and b["mode"] == "live"
@@ -121,7 +121,7 @@ class FakeDcSubmitter:
         self.calls = []
 
     def open_double_calendars(self):
-        from src_v2.flux.positions import DoubleCalendar
+        from zerodte.flux.positions import DoubleCalendar
         return [DoubleCalendar("SPXW", date(2026, 6, 22), date(2026, 6, 23), 7335.0, 7505.0, 1)]
 
     def working_orders(self):
@@ -130,7 +130,7 @@ class FakeDcSubmitter:
                  "legs": [{"symbol": "SPY   260618P00734000", "action": "Sell to Open", "qty": 1}]}]
 
     def submit(self, ticket, execution="combo"):
-        from src_v2.flux.submit import SubmitResult
+        from zerodte.flux.submit import SubmitResult
         self.calls.append((ticket, execution))
         n = len(ticket.legs) if execution == "legin" else 1
         return SubmitResult(True, [f"MOCK-{i+1}" for i in range(n)], f"mock {execution}")

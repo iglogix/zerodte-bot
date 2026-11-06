@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.vix_loader import load_vix_series
+from zerodte.backtest.vix_loader import load_vix_series
 from scripts.analytical_ic_eval import _load_data, _evaluate
 
 

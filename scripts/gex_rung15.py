@@ -17,12 +17,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest import gex_regime as gr
-from src_v2.backtest.gex import iv_from_em
-from src_v2.backtest.gex_dependent import realized_move
-from src_v2.backtest.gex_stats import partial_effect, oos_partial_effect
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest import gex_regime as gr
+from zerodte.backtest.gex import iv_from_em
+from zerodte.backtest.gex_dependent import realized_move
+from zerodte.backtest.gex_stats import partial_effect, oos_partial_effect
 
 ENTRY = "11:00"
 

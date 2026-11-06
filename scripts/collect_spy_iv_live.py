@@ -300,7 +300,7 @@ async def main_async():
     args = parser.parse_args()
 
     # Authenticate
-    from src.services.tastytrade_client import TastyTradeClient
+    from agentic_ic.services.tastytrade_client import TastyTradeClient
 
     print("Authenticating to TastyTrade (production for live market data)...")
     tt = TastyTradeClient(mode="manual")  # live data, no orders

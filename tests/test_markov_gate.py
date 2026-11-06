@@ -1,4 +1,4 @@
-"""Tests for the Markov regime entry gate (src_v2/agent/markov_gate.py).
+"""Tests for the Markov regime entry gate (zerodte/agent/markov_gate.py).
 
 Gate rule (WF-CV validated, results/markov_gate_wf_cv_2026-06-11.txt):
 block the session iff the SPX trailing-window state is SIDEWAYS now AND was
@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from src_v2.agent.base_engine import EngineDeps
-from src_v2.agent.markov_gate import MarkovGate
-from src_v2.agent.scheduled_engine import ScheduledEngine
+from zerodte.agent.base_engine import EngineDeps
+from zerodte.agent.markov_gate import MarkovGate
+from zerodte.agent.scheduled_engine import ScheduledEngine
 
 W = 5  # compact test window; live default is 20
 
@@ -127,7 +127,7 @@ async def test_engine_caches_gate_decision_per_day():
 async def test_get_daily_closes_keeps_newest_when_feed_overdelivers():
     """get_candles sorts ascending and truncates at `count` (oldest first);
     get_daily_closes must end up with the MOST RECENT closes regardless."""
-    from src_v2.agent.tool_handlers import ToolHandlers
+    from zerodte.agent.tool_handlers import ToolHandlers
 
     class FeedStub:
         async def get_candles(self, symbol, interval="1d", from_time=None, count=1):

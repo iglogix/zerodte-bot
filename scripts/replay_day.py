@@ -24,9 +24,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_8am.backtest.cbbo_store import CbboStore
-from src_8am.backtest.data_loader import DatabentoLoader
-from src_8am.services.replay_client import ReplayTTClient
+from es_8am.backtest.cbbo_store import CbboStore
+from es_8am.backtest.data_loader import DatabentoLoader
+from es_8am.services.replay_client import ReplayTTClient
 
 ET = ZoneInfo("America/New_York")
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def setup_logging():
         handlers=[logging.StreamHandler(sys.stdout)],
     )
     # Quiet noisy loggers
-    logging.getLogger("src.services").setLevel(logging.WARNING)
+    logging.getLogger("agentic_ic.services").setLevel(logging.WARNING)
 
 
 async def replay(trading_date: date, config: dict, step_mode: bool = False):
@@ -84,8 +84,8 @@ async def replay(trading_date: date, config: dict, step_mode: bool = False):
     client = ReplayTTClient(bars=bars, cbbo_quotes=cbbo, config=config)
 
     # Import bot components
-    from src_8am.services.orb_options_service import OrbOptionsService
-    from src_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
+    from es_8am.services.orb_options_service import OrbOptionsService
+    from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
 
     opts_service = OrbOptionsService(client, config)
     market_data = type("MD", (), {

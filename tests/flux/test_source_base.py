@@ -1,8 +1,8 @@
 # tests/flux/test_source_base.py
 from datetime import date
 
-from src_v2.flux.models import ChainSnapshot
-from src_v2.flux.sources.base import FluxSource
+from zerodte.flux.models import ChainSnapshot
+from zerodte.flux.sources.base import FluxSource
 
 
 class _Fake(FluxSource):

@@ -1,4 +1,4 @@
-from src_v2.flux.cli import build_parser
+from zerodte.flux.cli import build_parser
 
 
 def test_cli_has_serve_and_scan():

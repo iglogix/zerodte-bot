@@ -1,5 +1,5 @@
 """
-Run src_v2 backtest with current config and print report.
+Run zerodte backtest with current config and print report.
 
 Uses the real OrbEngine + PositionMonitor against historical ES bars + CBBO.
 
@@ -19,10 +19,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.backtest.report import (
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.backtest.report import (
     generate_report, print_report, print_trades, export_trades_csv,
 )
 
@@ -31,13 +31,13 @@ def _strategy_cls(config):
     """Return the strategy class from config."""
     name = config.get("bot", {}).get("strategy", "orb_em_ic")
     if name == "orb_em_ic":
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
         return OrbEmIronCondorStrategy
     if name == "orb_em_directional":
-        from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+        from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
         return OrbEmDirectionalStrategy
     if name == "open_ic":
-        from src_v2.strategies.open_ic import OpenIcStrategy
+        from zerodte.strategies.open_ic import OpenIcStrategy
         return OpenIcStrategy
     raise ValueError(f"Unsupported strategy for backtest: {name}")
 
@@ -49,7 +49,7 @@ def _results_dir(config_path: str) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="src_v2 Backtest Runner")
+    parser = argparse.ArgumentParser(description="zerodte Backtest Runner")
     parser.add_argument("--config", required=True, help="Path to YAML config")
     parser.add_argument("--start", default=None, help="Start date YYYY-MM-DD")
     parser.add_argument("--end", default=None, help="End date YYYY-MM-DD")
@@ -87,8 +87,8 @@ def main():
     strategy_name = config.get("bot", {}).get("strategy", "orb_em_ic")
     print(f"Running backtest {start} -> {end}...")
     if strategy_name == "meic":
-        from src_v2.backtest.engine import BacktestEngine
-        from src_v2.strategies.meic import MeicStrategy
+        from zerodte.backtest.engine import BacktestEngine
+        from zerodte.strategies.meic import MeicStrategy
         engine = BacktestEngine(config, MeicStrategy())
         engine._cbbo = cbbo  # use preloaded store instead of the lazy one
         results = engine.run(days)
@@ -99,7 +99,7 @@ def main():
 
     # Report
     report = generate_report(results)
-    title = f"src_v2 Backtest: {Path(args.config).stem}"
+    title = f"zerodte Backtest: {Path(args.config).stem}"
     print_report(report, title=title)
     print_trades(results)
 

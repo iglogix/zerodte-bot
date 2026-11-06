@@ -1,6 +1,6 @@
 # tests/test_multi_expiry_symbols.py
 from datetime import date
-from src_v2.backtest.meic_backfill import multi_expiry_symbols, parse_osi_multi
+from zerodte.backtest.meic_backfill import multi_expiry_symbols, parse_osi_multi
 
 def test_multi_expiry_symbols_cover_each_expiry():
     exps = [date(2024, 1, 5), date(2024, 1, 19)]

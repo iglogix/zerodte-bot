@@ -69,7 +69,7 @@ def skewed_chain() -> List[Dict[str, Any]]:
 
 def _make_handlers(chain: List[Dict[str, Any]], **kwargs):
     """Build a ToolHandlers with a mocked cache returning the given chain."""
-    from src.agent.tool_handlers import ToolHandlers
+    from agentic_ic.agent.tool_handlers import ToolHandlers
 
     mock_cache = AsyncMock()
     mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=chain)
@@ -328,7 +328,7 @@ class TestGetPremiumBalanceCandidates:
     @pytest.mark.asyncio
     async def test_empty_chain_returns_error(self):
         """Empty chain should return an error dict with no candidates."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
 
         mock_cache = AsyncMock()
         mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=[])
@@ -395,7 +395,7 @@ class TestGetSkewSnapshot:
     @pytest.mark.asyncio
     async def test_empty_chain_returns_error(self):
         """Empty chain should return error verdict."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
 
         mock_cache = AsyncMock()
         mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=[])

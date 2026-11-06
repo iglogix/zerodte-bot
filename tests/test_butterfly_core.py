@@ -1,5 +1,5 @@
 # tests/test_butterfly_core.py
-from src_v2.backtest import butterfly_core as bf
+from zerodte.backtest import butterfly_core as bf
 
 
 def test_round_to_step():

@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from src_v2.backtest.dc_time_machine.flux_scanner import ratio_zscore, rank_candidates
+from zerodte.backtest.dc_time_machine.flux_scanner import ratio_zscore, rank_candidates
 
 
 def test_ratio_zscore_positive_when_today_above_history():

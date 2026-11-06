@@ -28,9 +28,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.agent.tool_handlers import ToolHandlers
-from src_v2.backtest.osi_symbol import format_osi
-from src_v2.services.alpaca_client import (
+from zerodte.agent.tool_handlers import ToolHandlers
+from zerodte.backtest.osi_symbol import format_osi
+from zerodte.services.alpaca_client import (
     AlpacaExecutionClient,
     build_close_order,
     build_credit_spread_order,
@@ -238,7 +238,7 @@ async def test_cancel_confirms_terminal_state_not_just_the_delete():
     """Alpaca cancels asynchronously. The entry path voids the local trade on a
     no-fill, so a cancel that is merely *requested* could still fill and leave
     an unmonitored position — cancel_order must poll until genuinely terminal."""
-    from src_v2.services.alpaca_client import AlpacaExecutionClient
+    from zerodte.services.alpaca_client import AlpacaExecutionClient
 
     client = AlpacaExecutionClient(
         data_client=object(), key_id="k", secret_key="s", base_url=PAPER_TEST_URL
@@ -261,7 +261,7 @@ async def test_cancel_confirms_terminal_state_not_just_the_delete():
 
 async def test_cancel_reports_an_order_that_filled_anyway():
     """The dangerous case: cancel lost the race. Must not be reported clean."""
-    from src_v2.services.alpaca_client import AlpacaExecutionClient
+    from zerodte.services.alpaca_client import AlpacaExecutionClient
 
     client = AlpacaExecutionClient(
         data_client=object(), key_id="k", secret_key="s", base_url=PAPER_TEST_URL
@@ -283,7 +283,7 @@ async def test_cancel_reports_an_order_that_filled_anyway():
 async def test_unsupported_writes_never_fall_through_to_the_data_broker():
     """__getattr__ delegates reads to the wrapped client; a write must not
     silently reach the market-data broker just because it wasn't overridden."""
-    from src_v2.services.alpaca_client import AlpacaExecutionClient
+    from zerodte.services.alpaca_client import AlpacaExecutionClient
 
     class LoudDataClient:
         async def place_oco_order(self, *a, **kw):
@@ -482,7 +482,7 @@ def _read_entry_records(tmp_path):
 async def test_entry_log_records_the_counterfactual_on_a_fill(tmp_path):
     """Pins the three reference prices the entry sits between, so slippage can
     be measured against the model rather than guessed at."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
 
     log = ExecutionLog(base_dir=str(tmp_path))
 
@@ -519,7 +519,7 @@ async def test_entry_log_records_the_counterfactual_on_a_fill(tmp_path):
 
 async def test_entry_log_records_no_fills_too(tmp_path):
     """A no-fill is the answer to the open question, not a missing data point."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
 
     log = ExecutionLog(base_dir=str(tmp_path))
 
@@ -562,7 +562,7 @@ async def test_leg_still_held_is_not_reported_as_stopped_out():
     carry no `symbol` key — so the set was {None}, every leg looked closed, and
     the first poll after entry declared a false stop-out and tried to dump the
     hedge leg."""
-    from src_v2.services.position_monitor import PositionMonitor
+    from zerodte.services.position_monitor import PositionMonitor
 
     class TH:
         async def get_broker_positions(self):
@@ -578,7 +578,7 @@ async def test_leg_still_held_is_not_reported_as_stopped_out():
 
 async def test_unverifiable_position_is_never_called_stopped_out():
     """No broker to ask (dry_run/manual) -> must not claim a stop-out."""
-    from src_v2.services.position_monitor import PositionMonitor
+    from zerodte.services.position_monitor import PositionMonitor
 
     class TH:
         async def get_broker_positions(self): return None
@@ -601,7 +601,7 @@ async def test_entry_is_refused_when_a_trade_is_already_open():
     """The ORB path never consulted the RiskManager, so max_concurrent_trades
     was unenforced. The unit runs Restart=on-failure, so a mid-session crash
     re-runs the entry watch and would stack a second spread on the live one."""
-    from src_v2.agent.orb_engine import OrbEngine
+    from zerodte.agent.orb_engine import OrbEngine
 
     class Deps:
         config = {"risk": {"max_concurrent_trades": 1}}
@@ -615,7 +615,7 @@ async def test_entry_is_refused_when_a_trade_is_already_open():
 
 
 async def test_entry_allowed_when_flat():
-    from src_v2.agent.orb_engine import OrbEngine
+    from zerodte.agent.orb_engine import OrbEngine
 
     class Deps:
         config = {"risk": {"max_concurrent_trades": 1}}
@@ -630,7 +630,7 @@ async def test_entry_allowed_when_flat():
 
 async def test_unreadable_trade_state_refuses_entry():
     """Fail safe: skipping a signal costs one trade; stacking doubles risk."""
-    from src_v2.agent.orb_engine import OrbEngine
+    from zerodte.agent.orb_engine import OrbEngine
 
     class Deps:
         config = {"risk": {"max_concurrent_trades": 1}}
@@ -647,7 +647,7 @@ async def test_concurrency_guard_keeps_the_session_alive():
     """run_scheduled() stops the PositionMonitor as soon as engine.run()
     returns, so the guard must idle to EOD rather than return immediately —
     otherwise it abandons the very open position it is protecting."""
-    from src_v2.agent.orb_engine import OrbEngine
+    from zerodte.agent.orb_engine import OrbEngine
 
     idled = []
 
@@ -677,7 +677,7 @@ async def test_leg_quotes_resolve_from_the_chain_so_take_profit_can_evaluate():
     """_get_quote only read an in-memory cache that holds "SPX" and the ES
     future — never an option leg. So _get_all_quotes returned {}, check_exit
     bailed on `mid is None`, and take-profit could not fire in ANY mode."""
-    from src_v2.services.position_monitor import PositionMonitor
+    from zerodte.services.position_monitor import PositionMonitor
 
     short_sym = format_osi(EXP, 7730, is_call=True)
     long_sym = format_osi(EXP, 7750, is_call=True)
@@ -703,7 +703,7 @@ async def test_leg_quotes_resolve_from_the_chain_so_take_profit_can_evaluate():
     assert quotes["_underlying"]["price"] == 7690.0
 
     # ...and the strategy can now actually compute a take-profit mark.
-    from src_v2.strategies.utils import mid_price
+    from zerodte.strategies.utils import mid_price
     mark = mid_price(quotes[short_sym]) - mid_price(quotes[long_sym])
     assert round(mark, 2) == 0.75
 
@@ -711,7 +711,7 @@ async def test_leg_quotes_resolve_from_the_chain_so_take_profit_can_evaluate():
 async def test_take_profit_fires_once_legs_are_priceable():
     """End-to-end: with real leg quotes, a spread well past the TP threshold
     must return take_profit rather than hold."""
-    from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+    from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 
     short_sym = format_osi(EXP, 7730, is_call=True)
     long_sym = format_osi(EXP, 7750, is_call=True)
@@ -747,8 +747,8 @@ async def test_take_profit_marks_the_trade_closed():
     """TP closed both legs at the broker but never updated the row, so the
     monitor re-fired TP every poll and the entry concurrency guard would see a
     phantom open trade and block the NEXT session's entry."""
-    from src_v2.services.position_monitor import PositionMonitor
-    from src_v2.strategies.base import ExitAction
+    from zerodte.services.position_monitor import PositionMonitor
+    from zerodte.strategies.base import ExitAction
 
     short_sym, long_sym = "SPXW  260818C07730000", "SPXW  260818C07750000"
     updates = {}
@@ -764,7 +764,7 @@ async def test_take_profit_marks_the_trade_closed():
 
     m = PositionMonitor.__new__(PositionMonitor)
     m.db, m.strategy, m.mode = Db(), Strategy(), "alpaca_paper"
-    from src_v2.backtest.sim_clock import WallClock
+    from zerodte.backtest.sim_clock import WallClock
     m._clock = WallClock()
 
     async def quotes(trade): return {}
@@ -779,8 +779,8 @@ async def test_take_profit_marks_the_trade_closed():
 
 async def test_take_profit_leaves_trade_open_if_a_leg_did_not_close():
     """A leg that errored must NOT be recorded as a completed exit."""
-    from src_v2.services.position_monitor import PositionMonitor
-    from src_v2.strategies.base import ExitAction
+    from zerodte.services.position_monitor import PositionMonitor
+    from zerodte.strategies.base import ExitAction
 
     updates = {}
 
@@ -794,7 +794,7 @@ async def test_take_profit_leaves_trade_open_if_a_leg_did_not_close():
 
     m = PositionMonitor.__new__(PositionMonitor)
     m.db, m.strategy, m.mode = Db(), Strategy(), "alpaca_paper"
-    from src_v2.backtest.sim_clock import WallClock
+    from zerodte.backtest.sim_clock import WallClock
     m._clock = WallClock()
 
     async def quotes(trade): return {}
@@ -808,7 +808,7 @@ async def test_take_profit_leaves_trade_open_if_a_leg_did_not_close():
 
 def test_manual_mode_close_counts_as_flat():
     """manual/dry_run return simulated results; the trade must still close."""
-    from src_v2.services.position_monitor import PositionMonitor
+    from zerodte.services.position_monitor import PositionMonitor
     assert PositionMonitor._leg_is_flat({"manual": True, "submitted": False})
     assert PositionMonitor._leg_is_flat({"dry_run": True})
     assert PositionMonitor._leg_is_flat({"skipped": True})
@@ -824,7 +824,7 @@ def test_manual_mode_close_counts_as_flat():
 def test_strategies_write_to_separate_files(tmp_path):
     """MEIC and ORB both default to log_dir "logs"; a shared file interleaves
     them and each strategy's report then reads the other's rows."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
 
     meic = ExecutionLog(base_dir=str(tmp_path), strategy="meic")
@@ -844,7 +844,7 @@ def test_strategies_write_to_separate_files(tmp_path):
 
 def test_no_strategy_keeps_the_legacy_flat_path(tmp_path):
     """Historical files and their readers must keep working."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
     ExecutionLog(base_dir=str(tmp_path))._append({"type": "assumed"})
     assert (tmp_path / "execution_comparison" / f"{_d.today().isoformat()}.jsonl").exists()
@@ -853,7 +853,7 @@ def test_no_strategy_keeps_the_legacy_flat_path(tmp_path):
 async def test_exit_fill_is_recorded_against_the_quote_it_crossed(tmp_path):
     """Exit realism is the open question for this strategy; a fill with no
     record of the quote it crossed answers nothing."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
 
     log = ExecutionLog(base_dir=str(tmp_path), strategy="orb_em_directional")
@@ -882,7 +882,7 @@ async def test_exit_fill_is_recorded_against_the_quote_it_crossed(tmp_path):
 
 async def test_exit_fill_records_a_skipped_close_too(tmp_path):
     """A close that did not happen is itself a finding."""
-    from src_v2.services.execution_log import ExecutionLog
+    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
 
     log = ExecutionLog(base_dir=str(tmp_path), strategy="orb_em_directional")
@@ -915,7 +915,7 @@ def test_backtest_handlers_accept_every_live_close_kwarg():
     management. That exact drift caused two separate live defects (`reason`,
     then `exit_quote`), each invisible until a position needed closing."""
     import inspect
-    from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+    from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
 
     live = inspect.signature(ToolHandlers.close_position).parameters
     bt = inspect.signature(BacktestToolHandlers.close_position).parameters
@@ -929,7 +929,7 @@ def test_backtest_handlers_accept_every_live_close_kwarg():
 def test_backtest_close_position_actually_accepts_the_live_call():
     """Signature check plus a real call, so a **kwargs sink can't fake it."""
     import inspect
-    from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+    from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
     sig = inspect.signature(BacktestToolHandlers.close_position)
     for name in ("reason", "exit_quote", "trade_id", "close_all", "quantity"):
         assert name in sig.parameters, f"{name} missing from backtest handler"

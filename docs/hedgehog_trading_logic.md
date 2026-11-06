@@ -1,6 +1,6 @@
 # Hedge Hog — Implemented Trading Logic
 
-Precise description of what `src_v2/backtest/hedgehog.py` actually does,
+Precise description of what `zerodte/backtest/hedgehog.py` actually does,
 decision by decision. This is the implementation-level companion to
 [Hedge-Hog-Options-Spread-Strategy.md](Hedge-Hog-Options-Spread-Strategy.md)
 (the course spec) and

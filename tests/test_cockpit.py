@@ -24,7 +24,7 @@ def test_strategy_label_from_prefix():
 
 
 def test_parse_osi_symbol():
-    from src_v2.backtest.osi_symbol import format_osi
+    from zerodte.backtest.osi_symbol import format_osi
 
     sym = format_osi(date(2026, 6, 17), 5950.0, is_call=False)
     parsed = cd.parse_osi_symbol(sym)
@@ -182,7 +182,7 @@ def test_sim_spot_moves_between_snapshots():
 
 
 def test_pnl_store_round_trip(tmp_path):
-    from src_v2.services.pnl_snapshot import PnlSnapshotStore
+    from zerodte.services.pnl_snapshot import PnlSnapshotStore
 
     store = PnlSnapshotStore(str(tmp_path / "pnl.db"))
     n = store.record_many(

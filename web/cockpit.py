@@ -74,7 +74,7 @@ class _State:
     @property
     def store(self):
         if self._store is None:
-            from src_v2.services.pnl_snapshot import PnlSnapshotStore
+            from zerodte.services.pnl_snapshot import PnlSnapshotStore
 
             self._store = PnlSnapshotStore(_pnl_db_path())
         return self._store
@@ -83,7 +83,7 @@ class _State:
         if _sim_enabled():
             return self.sim.trades()
         if self._db_service is None:
-            from src_v2.services.db_service import DatabaseService
+            from zerodte.services.db_service import DatabaseService
 
             svc = DatabaseService(_bot_db_path())
             svc.initialize()

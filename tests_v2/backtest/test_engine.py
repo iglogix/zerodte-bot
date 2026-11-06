@@ -1,4 +1,4 @@
-"""Tests for src_v2.backtest.engine.BacktestEngine."""
+"""Tests for zerodte.backtest.engine.BacktestEngine."""
 
 import pickle
 from datetime import date, datetime
@@ -116,9 +116,9 @@ def base_config(cbbo_cache):
 
 
 def test_skip_no_orb_data(base_config):
-    from src_v2.backtest.data_loader import DayBars
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from zerodte.backtest.data_loader import DayBars
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
     strategy = OrbEmIronCondorStrategy()
     engine = BacktestEngine(base_config, strategy)
@@ -130,9 +130,9 @@ def test_skip_no_orb_data(base_config):
 
 
 def test_skip_range_too_narrow(base_config):
-    from src_v2.backtest.data_loader import DayBars
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from zerodte.backtest.data_loader import DayBars
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
     strategy = OrbEmIronCondorStrategy()
     engine = BacktestEngine(base_config, strategy)
@@ -145,9 +145,9 @@ def test_skip_range_too_narrow(base_config):
 
 
 def test_skip_no_breakout(base_config):
-    from src_v2.backtest.data_loader import DayBars
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from zerodte.backtest.data_loader import DayBars
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
     strategy = OrbEmIronCondorStrategy()
     engine = BacktestEngine(base_config, strategy)
@@ -161,9 +161,9 @@ def test_skip_no_breakout(base_config):
 
 
 def test_full_trade_expired_worthless(base_config):
-    from src_v2.backtest.data_loader import DayBars
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from zerodte.backtest.data_loader import DayBars
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
     strategy = OrbEmIronCondorStrategy()
     engine = BacktestEngine(base_config, strategy)

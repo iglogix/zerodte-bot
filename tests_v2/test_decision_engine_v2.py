@@ -2,8 +2,8 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src_v2.agent.decision_engine import DecisionEngine, CycleResult
-from src_v2.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg
+from zerodte.agent.decision_engine import DecisionEngine, CycleResult
+from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg
 
 
 def _make_mock_strategy(candidates_found=1, validation_passed=True):

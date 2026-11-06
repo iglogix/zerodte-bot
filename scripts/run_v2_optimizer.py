@@ -1,5 +1,5 @@
 """
-Grid search optimizer for src_v2 backtest.
+Grid search optimizer for zerodte backtest.
 
 Edit PARAM_GRID below to change search space.
 
@@ -21,9 +21,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.optimizer import GridSearchOptimizer, OptResult
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.optimizer import GridSearchOptimizer, OptResult
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +45,10 @@ PARAM_GRID = {
 def _strategy_cls(config):
     name = config.get("bot", {}).get("strategy", "orb_em_ic")
     if name == "orb_em_ic":
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
         return OrbEmIronCondorStrategy
     if name == "orb_em_directional":
-        from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+        from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
         return OrbEmDirectionalStrategy
     raise ValueError(f"Unsupported strategy: {name}")
 
@@ -77,7 +77,7 @@ def _format_metrics(m):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="src_v2 Grid Search Optimizer")
+    parser = argparse.ArgumentParser(description="zerodte Grid Search Optimizer")
     parser.add_argument("--config", required=True)
     parser.add_argument("--start", default=None)
     parser.add_argument("--end", default=None)

@@ -42,10 +42,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.engine import _FOMC_DATES, _CPI_DATES
-from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
-from src_v2.backtest.dc_time_machine.iv import bs_price
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.engine import _FOMC_DATES, _CPI_DATES
+from zerodte.backtest.vix_loader import load_vix_series, lookup_prior_close
+from zerodte.backtest.dc_time_machine.iv import bs_price
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -378,8 +378,8 @@ def _run_open_ic_baseline(trading_cal: List[date]) -> Dict[date, float]:
     Returns {session_date: pnl_usd}.
     Returns empty dict if cbbo data is unavailable.
     """
-    from src_v2.backtest.cbbo_store import CbboStore
-    from src_v2.backtest.canonical_ic import price_ic
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.canonical_ic import price_ic
 
     cb = CbboStore(CBBO_DIR, cache_dir=CBBO_DIR)
     vix = load_vix_series(VIX_CSV)

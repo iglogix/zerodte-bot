@@ -22,11 +22,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.engine import BacktestEngine
-from src_v2.strategies.meic import MeicStrategy
-from src_v2.backtest.report import generate_report
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.engine import BacktestEngine
+from zerodte.strategies.meic import MeicStrategy
+from zerodte.backtest.report import generate_report
 
 # Sweep grid — vary IC width (short_em_mult) to test whether wider shorts cut
 # the stop rate enough to create an edge under honest execution.

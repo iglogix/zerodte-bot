@@ -1,4 +1,4 @@
-from src_v2.backtest.canonical_ic import price_ic
+from zerodte.backtest.canonical_ic import price_ic
 
 
 def test_price_ic_credit_and_settlement():

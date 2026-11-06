@@ -7,7 +7,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.services.order_fill_listener import FillEvent, OrderFillListener
+from agentic_ic.services.order_fill_listener import FillEvent, OrderFillListener
 
 
 # ---------------------------------------------------------------------------

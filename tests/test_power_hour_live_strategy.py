@@ -1,4 +1,4 @@
-"""Tests for the live PowerHourStrategy (src_v2/strategies/power_hour.py)."""
+"""Tests for the live PowerHourStrategy (zerodte/strategies/power_hour.py)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.strategies.power_hour import PowerHourStrategy
+from zerodte.strategies.power_hour import PowerHourStrategy
 
 ET = ZoneInfo("America/New_York")
 

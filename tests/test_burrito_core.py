@@ -1,12 +1,12 @@
 """Unit tests for the Burrito Butterfly backtest engine."""
 import pytest
 
-from src_v2.backtest.burrito_core import (
+from zerodte.backtest.burrito_core import (
     BurritoConfig, Leg, build_legs, payoff, position_value, entry_debit,
     passes_gates, direction_from_series, BurritoTrade, lifecycle_decision,
     lock_legs, choo_choo_legs, _nearest_valley, summarize_burrito, run_trade,
 )
-from src_v2.backtest.iron_duck import Smile
+from zerodte.backtest.iron_duck import Smile
 
 
 # ---------------------------------------------------------------- geometry
@@ -91,7 +91,7 @@ def test_direction_signal_hull_and_momentum():
 # ---------------------------------------------------------------- clock
 
 def test_eod_marks_walk_to_expiry():
-    from src_v2.backtest.burrito_clock import Mark, eod_marks
+    from zerodte.backtest.burrito_clock import Mark, eod_marks
 
     class FakeStore:
         def __init__(self, chains, dates):
@@ -117,7 +117,7 @@ def test_eod_marks_walk_to_expiry():
 
 
 def test_intraday_marks_for_0dte():
-    from src_v2.backtest.burrito_clock import intraday_marks
+    from zerodte.backtest.burrito_clock import intraday_marks
 
     class FakeIntraday:
         def bars(self, date):
@@ -189,7 +189,7 @@ def test_summarize_sharpe_basic():
 # ---------------------------------------------------------------- integration
 
 def test_run_trade_settles_to_pnl():
-    from src_v2.backtest.iron_duck import DuckStore
+    from zerodte.backtest.iron_duck import DuckStore
     import os
     cache = "data/iron_duck_eod/SPXW"
     if not os.path.isdir(cache):

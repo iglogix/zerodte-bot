@@ -24,7 +24,7 @@ import random
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List
 
-from src_v2.backtest.osi_symbol import format_osi
+from zerodte.backtest.osi_symbol import format_osi
 
 _MULT = 100
 _NORM = 1.0 / math.sqrt(2.0 * math.pi)

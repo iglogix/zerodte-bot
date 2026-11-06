@@ -96,7 +96,7 @@ def combos():
 
 
 def _init_parent(fill_name):
-    from src_v2.backtest.data_loader import BarLoader
+    from zerodte.backtest.data_loader import BarLoader
 
     base = yaml.safe_load((ROOT / "config/config_meic_spx.yaml").read_text())
     # pin params + uniform static sizing so start/exit is the ONLY variable
@@ -130,10 +130,10 @@ def run_chunk(ci, parts_dir):
     days = _G["days"][ci * CHUNK_DAYS : (ci + 1) * CHUNK_DAYS]
     if not days:
         return f"SKIP chunk {ci:02d} (empty)"
-    from src_v2.backtest.cbbo_store import CbboStore
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.backtest.report import export_trades_csv
-    from src_v2.strategies.meic import MeicStrategy
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.backtest.report import export_trades_csv
+    from zerodte.strategies.meic import MeicStrategy
 
     cbbo_dir = _G["base"]["backtest"]["cbbo_cache_dir"]
     mem = CbboStore.preload_cache(cbbo_dir, start=days[0].session_date, end=days[-1].session_date)

@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-SRC_8AM = Path(__file__).resolve().parent.parent / "src_8am"
+SRC_8AM = Path(__file__).resolve().parent.parent / "es_8am"
 
-# Strings that should NOT appear as hardcoded literals in src_8am/ code
+# Strings that should NOT appear as hardcoded literals in es_8am/ code
 FORBIDDEN_LITERALS = {"SPX", "SPXW", '"SPX"', "'SPX'"}
 
 
 def _collect_python_files():
-    """Yield all .py files under src_8am/."""
+    """Yield all .py files under es_8am/."""
     for root, _, files in os.walk(SRC_8AM):
         for f in files:
             if f.endswith(".py"):
@@ -48,7 +48,7 @@ def _find_hardcoded_strings(filepath: Path):
     ids=lambda p: str(p.relative_to(SRC_8AM)),
 )
 def test_no_hardcoded_spx_symbols(pyfile):
-    """No src_8am/ file should contain hardcoded 'SPX' or 'SPXW' string literals."""
+    """No es_8am/ file should contain hardcoded 'SPX' or 'SPXW' string literals."""
     hits = _find_hardcoded_strings(pyfile)
     if hits:
         details = "\n".join(f"  line {ln}: {val!r}" for ln, val in hits)
@@ -62,7 +62,7 @@ class TestOrbOptionsServiceConfig:
     """Verify OrbOptionsService reads symbols from config."""
 
     def _make_service(self, **overrides):
-        from src_8am.services.orb_options_service import OrbOptionsService
+        from es_8am.services.orb_options_service import OrbOptionsService
 
         config = {
             "bot": {"symbol": "ES"},
@@ -96,13 +96,13 @@ class TestTastyTradeClientLeg:
     """Verify _build_leg supports configurable instrument type."""
 
     def test_default_instrument_type(self):
-        from src.services.tastytrade_client import TastyTradeClient
+        from agentic_ic.services.tastytrade_client import TastyTradeClient
 
         leg = TastyTradeClient._build_leg("SPXW260311C05800", "Sell to Open", 1)
         assert leg["instrument-type"] == "Equity Option"
 
     def test_future_option_instrument_type(self):
-        from src.services.tastytrade_client import TastyTradeClient
+        from agentic_ic.services.tastytrade_client import TastyTradeClient
 
         leg = TastyTradeClient._build_leg(
             "./EW1H26C5800:XCME", "Sell to Open", 1,
@@ -120,7 +120,7 @@ class TestOrderPlacementLogging:
         import logging
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from src.services.tastytrade_client import TastyTradeClient
+        from agentic_ic.services.tastytrade_client import TastyTradeClient
 
         tt = TastyTradeClient.__new__(TastyTradeClient)
         tt.mode = "sandbox"
@@ -152,7 +152,7 @@ class TestOrderPlacementLogging:
             "credit": 2.50,
         }
 
-        with patch("src.services.tastytrade_client.logger") as mock_logger:
+        with patch("agentic_ic.services.tastytrade_client.logger") as mock_logger:
             result = await tt._place_iron_condor(order)
             mock_logger.info.assert_any_call(
                 "Iron condor order placed successfully: order_id=%s", "IC-42"
@@ -164,7 +164,7 @@ class TestOrderPlacementLogging:
         import logging
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from src.services.tastytrade_client import TastyTradeClient
+        from agentic_ic.services.tastytrade_client import TastyTradeClient
 
         tt = TastyTradeClient.__new__(TastyTradeClient)
         tt.mode = "sandbox"
@@ -195,7 +195,7 @@ class TestOrderPlacementLogging:
             "credit": 1.20,
         }
 
-        with patch("src.services.tastytrade_client.logger") as mock_logger:
+        with patch("agentic_ic.services.tastytrade_client.logger") as mock_logger:
             result = await tt._place_credit_spread(order)
             mock_logger.info.assert_any_call(
                 "Credit spread order placed successfully: order_id=%s", "CS-99"

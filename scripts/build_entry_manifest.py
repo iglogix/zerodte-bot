@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
+from zerodte.backtest.data_loader import BarLoader
 
 
 def main():

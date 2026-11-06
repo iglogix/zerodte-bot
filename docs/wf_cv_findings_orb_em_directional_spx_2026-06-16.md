@@ -1,7 +1,7 @@
 # ORB EM Directional — Full-Span WF METHOD Re-run (2026-06-16)
 
 **Strategy:** `orb_em_directional` (single with-trend credit spread — PCS on long
-breakout / CCS on short — after ORB retest). Re-runs the old src_8am
+breakout / CCS on short — after ORB retest). Re-runs the old es_8am
 **"directional worst-case (0.20Δ, 15pt)"** optimizer winner on REAL CBBO.
 **Original (BS-priced):** WR 92.9%, Sharpe 12.90, PF 5.22, +$12,460/contract
 (`docs`/[[project_worstcase_optimization]], 2026-03-27) — `pricing_model: bs`.

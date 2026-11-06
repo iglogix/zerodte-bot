@@ -8,7 +8,7 @@ import pickle
 
 import pytest
 
-from src_v2.backtest.hedgehog import (
+from zerodte.backtest.hedgehog import (
     HedgeHogEngine,
     HedgeHogStore,
     HhParams,

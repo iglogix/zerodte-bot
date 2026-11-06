@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
+from zerodte.backtest.data_loader import BarLoader
 
 
 def _atm_straddle_mid(quotes: Dict, target_minute: str, spot: float) -> Optional[float]:

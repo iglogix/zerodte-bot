@@ -33,10 +33,10 @@ import yaml
 logging.disable(logging.WARNING)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 
 VARIANTS = {
     "with_trend (survivor)": {"retest_mode": "breakout_level", "fade_breakout": False},

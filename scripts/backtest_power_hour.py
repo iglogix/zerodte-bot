@@ -27,9 +27,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.backtest.cbbo_store import MergedCbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.power_hour import PowerHourEngine, PowerHourResult
+from zerodte.backtest.cbbo_store import MergedCbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.power_hour import PowerHourEngine, PowerHourResult
 
 
 def load_vix(path: str = "data/vix_daily.csv") -> dict:

@@ -30,8 +30,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_8am.backtest.cbbo_store import CbboStore
-from src_8am.backtest.data_loader import DatabentoLoader
+from es_8am.backtest.cbbo_store import CbboStore
+from es_8am.backtest.data_loader import DatabentoLoader
 
 
 def main():

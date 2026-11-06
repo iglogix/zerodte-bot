@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from src_v2.backtest.cbbo_store import CbboStore  # noqa: E402
+from zerodte.backtest.cbbo_store import CbboStore  # noqa: E402
 from skyline_core import LEGS, price_structure  # noqa: E402
 
 CACHE = ROOT / "data" / "cbbo_cache_fly_10min"

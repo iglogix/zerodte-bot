@@ -16,14 +16,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader, DayBars
-from src_v2.backtest.wf_optimizer import (
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader, DayBars
+from zerodte.backtest.wf_optimizer import (
     WalkForwardOptimizer,
     _wait_for_memory,
     _suggest_workers,
 )
-from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 
 CONFIG = {
     "bot": {"name": "test", "timezone": "America/New_York", "symbol": "ES",
@@ -131,7 +131,7 @@ def _fake_vmem(percent: float, available_gb: float = 20.0):
 
 
 def test_wait_for_memory_returns_immediately_when_below_threshold():
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                return_value=_fake_vmem(50.0)):
         t0 = time.monotonic()
         _wait_for_memory(threshold_pct=85, sleep_s=0.1, timeout_s=5)
@@ -141,7 +141,7 @@ def test_wait_for_memory_returns_immediately_when_below_threshold():
 def test_wait_for_memory_blocks_then_returns_when_pressure_subsides():
     """Mock returns 90% (above threshold), then 60% (below) — must sleep at least once."""
     seq = iter([_fake_vmem(90.0), _fake_vmem(90.0), _fake_vmem(60.0)])
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                side_effect=lambda: next(seq)):
         t0 = time.monotonic()
         _wait_for_memory(threshold_pct=85, sleep_s=0.1, timeout_s=5)
@@ -151,10 +151,10 @@ def test_wait_for_memory_blocks_then_returns_when_pressure_subsides():
 
 def test_wait_for_memory_warns_and_returns_after_timeout(caplog):
     """Always above threshold → log warning and return (no raise — avoids deadlock)."""
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                return_value=_fake_vmem(95.0)):
         t0 = time.monotonic()
-        with caplog.at_level("WARNING", logger="src_v2.backtest.wf_optimizer"):
+        with caplog.at_level("WARNING", logger="zerodte.backtest.wf_optimizer"):
             _wait_for_memory(threshold_pct=85, sleep_s=0.05, timeout_s=0.2)
         elapsed = time.monotonic() - t0
         assert elapsed >= 0.2
@@ -163,7 +163,7 @@ def test_wait_for_memory_warns_and_returns_after_timeout(caplog):
 
 def test_suggest_workers_caps_when_memory_low():
     """Available=4GB, est 2GB/worker × 1.5 safety = 1 worker max even if user asks 22."""
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                return_value=_fake_vmem(50.0, available_gb=4.0)):
         capped = _suggest_workers(requested=22, gb_per_worker=2.0, safety_factor=1.5)
         assert capped == 1
@@ -171,7 +171,7 @@ def test_suggest_workers_caps_when_memory_low():
 
 def test_suggest_workers_unchanged_when_memory_plentiful():
     """Available=80GB → easily fits 22 workers."""
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                return_value=_fake_vmem(20.0, available_gb=80.0)):
         capped = _suggest_workers(requested=22, gb_per_worker=2.0, safety_factor=1.5)
         assert capped == 22
@@ -179,7 +179,7 @@ def test_suggest_workers_unchanged_when_memory_plentiful():
 
 def test_suggest_workers_minimum_one():
     """Even with no memory, return at least 1."""
-    with patch("src_v2.backtest.wf_optimizer.psutil.virtual_memory",
+    with patch("zerodte.backtest.wf_optimizer.psutil.virtual_memory",
                return_value=_fake_vmem(99.0, available_gb=0.0)):
         capped = _suggest_workers(requested=22, gb_per_worker=2.0, safety_factor=1.5)
         assert capped == 1

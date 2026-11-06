@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.services.execution_log import compare, compare_quotes
+from zerodte.services.execution_log import compare, compare_quotes
 
 
 def main():

@@ -1,7 +1,7 @@
 # tests/dc_time_machine/test_pricing.py
 import pytest
 
-from src_v2.backtest.dc_time_machine.pricing import (
+from zerodte.backtest.dc_time_machine.pricing import (
     entry_debit, transform_credit, ic_terminal_pnl, is_risk_free,
 )
 

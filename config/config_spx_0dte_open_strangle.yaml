@@ -7,7 +7,7 @@ bot:
 
 # Time-window strangle: enter once at configured time near the open.
 strategy:
-  class: src_v2.strategies.open_strangle.OpenStrangleStrategy
+  class: zerodte.strategies.open_strangle.OpenStrangleStrategy
   market_open:     "09:30"
   eod_force_close: "15:30"       # before assignment-risk window
   skip_nfp_fridays: true

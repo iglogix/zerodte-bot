@@ -25,8 +25,8 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.engine import _FOMC_DATES, _CPI_DATES, _is_nfp_friday
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.engine import _FOMC_DATES, _CPI_DATES, _is_nfp_friday
 from scripts.analytical_ic_eval import (
     _compute_em, _ic_credit, _ic_mark, _load_data, _max_consec_losses,
 )

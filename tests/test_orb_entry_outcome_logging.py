@@ -29,10 +29,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.agent.base_engine import EngineDeps
-from src_v2.agent.decision_engine import CycleResult
-from src_v2.agent.orb_engine import OrbEngine
-from src_v2.services.decision_logger import DecisionFileLogger
+from zerodte.agent.base_engine import EngineDeps
+from zerodte.agent.decision_engine import CycleResult
+from zerodte.agent.orb_engine import OrbEngine
+from zerodte.services.decision_logger import DecisionFileLogger
 
 ET = ZoneInfo("America/New_York")
 
@@ -157,7 +157,7 @@ def test_no_candidates_logs_reason_and_writes_decision(tmp_path, caplog):
     strategy = FakeStrategy([{"candidates_found": 0}])
     engine = _mk_engine(tmp_path, strategy)
 
-    with caplog.at_level(logging.INFO, logger="src_v2.agent.orb_engine"):
+    with caplog.at_level(logging.INFO, logger="zerodte.agent.orb_engine"):
         result = asyncio.run(engine._execute_entry(7690.0, "short"))
 
     assert result.outcome == "waited"
@@ -175,7 +175,7 @@ def test_validation_failed_logs_and_writes_decision_with_failures(tmp_path, capl
     strategy.validate_result = {"passed": False, "failures": ["delta_too_high"]}
     engine = _mk_engine(tmp_path, strategy)
 
-    with caplog.at_level(logging.INFO, logger="src_v2.agent.orb_engine"):
+    with caplog.at_level(logging.INFO, logger="zerodte.agent.orb_engine"):
         result = asyncio.run(engine._execute_entry(7690.0, "short"))
 
     assert result.outcome == "waited"
@@ -193,7 +193,7 @@ def test_chain_fetch_failed_logs_error_and_writes_decision(tmp_path, caplog):
     th.chain_exc = RuntimeError("dxlink dead")
     engine = _mk_engine(tmp_path, FakeStrategy([]), th=th)
 
-    with caplog.at_level(logging.INFO, logger="src_v2.agent.orb_engine"):
+    with caplog.at_level(logging.INFO, logger="zerodte.agent.orb_engine"):
         result = asyncio.run(engine._execute_entry(7690.0, "short"))
 
     assert result.outcome == "error"
@@ -216,7 +216,7 @@ def test_place_order_failed_logs_error_and_writes_decision(tmp_path, caplog):
     th.place_order = boom
     engine = _mk_engine(tmp_path, strategy, th=th)
 
-    with caplog.at_level(logging.INFO, logger="src_v2.agent.orb_engine"):
+    with caplog.at_level(logging.INFO, logger="zerodte.agent.orb_engine"):
         result = asyncio.run(engine._execute_entry(7690.0, "short"))
 
     assert result.outcome == "error"
@@ -230,7 +230,7 @@ def test_place_order_failed_logs_error_and_writes_decision(tmp_path, caplog):
 
 
 def test_run_scheduled_logs_final_cycle_result(caplog):
-    from src_v2.main import BotOrchestrator
+    from zerodte.main import BotOrchestrator
 
     class FakeSvc:
         async def start(self):
@@ -249,7 +249,7 @@ def test_run_scheduled_logs_final_cycle_result(caplog):
     orch._quote_comparator = FakeSvc()
     orch._engine = FakeEngine()
 
-    with caplog.at_level(logging.INFO, logger="src_v2.main"):
+    with caplog.at_level(logging.INFO, logger="zerodte.main"):
         asyncio.run(orch.run_scheduled())
 
     assert "outcome=waited" in caplog.text

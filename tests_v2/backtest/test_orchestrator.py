@@ -142,9 +142,9 @@ def _build_bars(d=date(2025, 10, 1)):
 
 class TestEventSkips:
     def test_skip_nfp_friday(self, cbbo_cache):
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         config = _make_config()
@@ -162,9 +162,9 @@ class TestEventSkips:
         assert results[0].skip_reason == "nfp_friday"
 
     def test_skip_fomc_day(self, cbbo_cache):
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         config = _make_config()
@@ -182,9 +182,9 @@ class TestEventSkips:
         assert results[0].skip_reason == "fomc_day"
 
     def test_skip_no_bars(self, cbbo_cache):
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         config = _make_config()
@@ -208,9 +208,9 @@ class TestEventSkips:
 
 class TestNoCbbo:
     def test_skip_no_cbbo(self, tmp_path):
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         # Empty cbbo store — no pkl files
         store = CbboStore(str(tmp_path), cache_dir=str(tmp_path))
@@ -236,9 +236,9 @@ class TestNoCbbo:
 class TestFullTrade:
     def test_full_entry_and_eod_close(self, cbbo_cache):
         """OrbEngine finds breakout + midline → entry → PositionMonitor EOD close."""
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         config = _make_config()
@@ -275,9 +275,9 @@ class TestFullTrade:
 
     def test_no_breakout_skips(self, cbbo_cache):
         """If price never breaks out of ORB range, engine returns 'waited'."""
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.orchestrator import BacktestOrchestrator
-        from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.orchestrator import BacktestOrchestrator
+        from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         config = _make_config()
@@ -308,10 +308,10 @@ class TestPlaceOrderEnhanced:
     @pytest.mark.asyncio
     async def test_place_order_builds_full_trade(self, cbbo_cache):
         """place_order should create trade with leg symbols and credits."""
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.sim_clock import SimClock
-        from src_v2.backtest.mock_db import BacktestDb
-        from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.sim_clock import SimClock
+        from zerodte.backtest.mock_db import BacktestDb
+        from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         store.load_day(date(2025, 10, 1))
@@ -354,10 +354,10 @@ class TestPlaceOrderEnhanced:
     @pytest.mark.asyncio
     async def test_close_position_records_exit_quote(self, cbbo_cache):
         """close_position should record CBBO exit mark in _exit_log."""
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.sim_clock import SimClock
-        from src_v2.backtest.mock_db import BacktestDb
-        from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.sim_clock import SimClock
+        from zerodte.backtest.mock_db import BacktestDb
+        from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         store.load_day(date(2025, 10, 1))
@@ -378,10 +378,10 @@ class TestPlaceOrderEnhanced:
     @pytest.mark.asyncio
     async def test_option_chain_uses_full_type_names(self, cbbo_cache):
         """get_option_chain should return 'call'/'put', not 'C'/'P'."""
-        from src_v2.backtest.cbbo_store import CbboStore
-        from src_v2.backtest.sim_clock import SimClock
-        from src_v2.backtest.mock_db import BacktestDb
-        from src_v2.backtest.bt_tool_handlers import BacktestToolHandlers
+        from zerodte.backtest.cbbo_store import CbboStore
+        from zerodte.backtest.sim_clock import SimClock
+        from zerodte.backtest.mock_db import BacktestDb
+        from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
 
         store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
         store.load_day(date(2025, 10, 1))

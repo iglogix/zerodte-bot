@@ -1,6 +1,6 @@
 from datetime import date
 
-from src_v2.flux.sources.theta_intraday import ThetaIntradaySource
+from zerodte.flux.sources.theta_intraday import ThetaIntradaySource
 
 _FMT = ["ms_of_day", "bid_size", "bid_exchange", "bid", "bid_condition",
         "ask_size", "ask_exchange", "ask", "ask_condition", "date"]

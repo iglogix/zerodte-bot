@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src_v2.agent.tool_handlers import ToolHandlers
+from zerodte.agent.tool_handlers import ToolHandlers
 
 
 @pytest.mark.asyncio
@@ -31,8 +31,8 @@ async def test_place_two_spread_ic_dry_run_simulates():
 
 def test_main_routes_meic_strategy():
     import yaml
-    from src_v2.main import BotOrchestrator
-    from src_v2.strategies.meic import MeicStrategy
+    from zerodte.main import BotOrchestrator
+    from zerodte.strategies.meic import MeicStrategy
 
     with open("config/config_meic_spx.yaml") as f:
         config = yaml.safe_load(f)
@@ -49,7 +49,7 @@ def test_main_routes_meic_strategy():
 async def test_place_two_spread_ic_live_submits_short_stops():
     """Live MEIC entry submits the 2 spreads AND a stop-market on each short."""
     from datetime import date
-    from src_v2.backtest.osi_symbol import format_osi
+    from zerodte.backtest.osi_symbol import format_osi
 
     api = MagicMock()
     api.place_order = AsyncMock(return_value={"order_id": "SPREAD"})
@@ -81,7 +81,7 @@ async def test_place_two_spread_ic_manual_logs_assumed_and_registers():
     """Manual mode: no orders submitted, but assumed entry is logged and the
     trade is registered with the quote comparator (on_entry)."""
     from datetime import date
-    from src_v2.backtest.osi_symbol import format_osi
+    from zerodte.backtest.osi_symbol import format_osi
 
     exec_log = MagicMock()
     registered = []

@@ -33,7 +33,7 @@ sys.path.insert(0, str(_REPO))
 from dotenv import load_dotenv
 load_dotenv(_REPO / ".env")   # absolute, so it works under cron regardless of CWD
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 ET = ZoneInfo("America/New_York")
 STEP = 5.0

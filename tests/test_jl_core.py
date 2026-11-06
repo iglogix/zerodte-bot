@@ -1,4 +1,4 @@
-from src_v2.backtest import jl_core as jl
+from zerodte.backtest import jl_core as jl
 
 
 def _chain_0930():

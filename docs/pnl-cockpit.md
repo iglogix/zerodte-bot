@@ -33,7 +33,7 @@ logic is client-side (vanilla JS + Plotly). The backend only supplies data:
   (`POST /market-data/options-snapshot`), proxied so the bearer token stays
   server-side.
 - **P&L history** is persisted on every poll to a small SQLite table
-  ([src_v2/services/pnl_snapshot.py](../src_v2/services/pnl_snapshot.py)).
+  ([zerodte/services/pnl_snapshot.py](../zerodte/services/pnl_snapshot.py)).
 
 ## Running
 

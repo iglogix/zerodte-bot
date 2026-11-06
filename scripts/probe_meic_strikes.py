@@ -23,10 +23,10 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.engine import BacktestEngine
-from src_v2.strategies.meic import MeicStrategy
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.engine import BacktestEngine
+from zerodte.strategies.meic import MeicStrategy
 
 
 def main():

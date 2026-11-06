@@ -1,8 +1,8 @@
 """Phase 3 TDD tests: IronFlyStrategy."""
 
 import pytest
-from src_v2.strategies.base import LiveStrategy, LiveTradeSetup, ExitAction
-from src_v2.strategies.iron_fly import IronFlyStrategy
+from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, ExitAction
+from zerodte.strategies.iron_fly import IronFlyStrategy
 
 
 class TestIronFlyConfigure:

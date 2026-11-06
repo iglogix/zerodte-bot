@@ -291,7 +291,7 @@ async def main_async():
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
 
-    from src.services.tastytrade_client import TastyTradeClient
+    from agentic_ic.services.tastytrade_client import TastyTradeClient
 
     print("Authenticating to TastyTrade...")
     tt = TastyTradeClient(mode="manual")

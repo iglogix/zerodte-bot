@@ -52,7 +52,7 @@ def combos():
 
 
 def _init_parent():
-    from src_v2.backtest.data_loader import BarLoader
+    from zerodte.backtest.data_loader import BarLoader
     base = yaml.safe_load((ROOT / "config/config_meic_spx.yaml").read_text())
     loader = BarLoader(base["backtest"]["data_file"],
                        price_scale=base["backtest"]["price_scale"], symbol="SPX")
@@ -68,10 +68,10 @@ def run_chunk(ci):
     days = _G["days"][ci * CHUNK_DAYS:(ci + 1) * CHUNK_DAYS]
     if not days:
         return f"SKIP chunk {ci:02d} (empty)"
-    from src_v2.backtest.cbbo_store import CbboStore
-    from src_v2.backtest.engine import BacktestEngine
-    from src_v2.strategies.meic import MeicStrategy
-    from src_v2.backtest.report import export_trades_csv
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.engine import BacktestEngine
+    from zerodte.strategies.meic import MeicStrategy
+    from zerodte.backtest.report import export_trades_csv
     # preload ONLY this chunk's date window (CbboStore(dir) alone is a trap:
     # the lazy fallback reads cache_dir, which defaults to None -> 0 quotes)
     cbbo_dir = _G["base"]["backtest"]["cbbo_cache_dir"]

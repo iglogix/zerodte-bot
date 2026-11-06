@@ -16,12 +16,12 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.engine import _FOMC_DATES, _CPI_DATES, _is_nfp_friday
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
-from src_v2.strategies.open_ic import OpenIcStrategy
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.engine import _FOMC_DATES, _CPI_DATES, _is_nfp_friday
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.backtest.vix_loader import load_vix_series, lookup_prior_close
+from zerodte.strategies.open_ic import OpenIcStrategy
 
 
 CONFIGS = {

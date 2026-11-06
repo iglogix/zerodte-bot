@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src_v2.backtest.basis_estimator import (
+from zerodte.backtest.basis_estimator import (
     compute_daily_basis,
     build_monthly_basis_table,
     estimate_spx_from_es,

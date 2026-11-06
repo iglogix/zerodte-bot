@@ -7,8 +7,8 @@ every spread we re-walk the minute grid from entry to EOD, reproduce the
 strategy's stop + AM/PM scale-out tier logic against quotes, and compare the
 resulting P&L and exit path to the recorded results.
 
-Faithful to src_v2/strategies/meic.py (check_exit) and
-src_v2/backtest/engine.py (_simulate_meic_side, stop_execution="trigger"):
+Faithful to zerodte/strategies/meic.py (check_exit) and
+zerodte/backtest/engine.py (_simulate_meic_side, stop_execution="trigger"):
   stop_price   = short_mid@entry + 0.70*total_credit         (total = put+call)
   stop hit     when short_ask >= stop_price
   stop debit   = min(0.70*total_credit + 0.25, width)        ("trigger" model)

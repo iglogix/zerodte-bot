@@ -6,10 +6,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from src_v2.backtest.meic_backfill import (
+from zerodte.backtest.meic_backfill import (
     spot_range_from_bars, meic_day_symbols, meic_window_utc, quotes_from_df,
 )
-from src_v2.backtest.osi_symbol import format_osi
+from zerodte.backtest.osi_symbol import format_osi
 
 ET = ZoneInfo("America/New_York")
 UTC = ZoneInfo("UTC")

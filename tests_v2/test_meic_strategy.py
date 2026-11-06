@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src_v2.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction
+from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction
 
 ET = ZoneInfo("America/New_York")
 
@@ -26,8 +26,8 @@ class TestExitActionWidening:
         assert a.quantity_fraction == 0.25
 
 
-from src_v2.strategies.meic import MeicStrategy
-from src_v2.agent.scheduled_engine import ScheduledEngine
+from zerodte.strategies.meic import MeicStrategy
+from zerodte.agent.scheduled_engine import ScheduledEngine
 
 
 class TestMeicSimpleMethods:
@@ -323,7 +323,7 @@ class TestMeicValidate:
 
 class TestMeicBuildOrder:
     def test_two_spread_payload(self, meic_config):
-        from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+        from zerodte.strategies.base import LiveTradeSetup, OrderLeg
         s = MeicStrategy(); s.configure(meic_config)
         setup = LiveTradeSetup(
             strategy_type="meic",
@@ -350,7 +350,7 @@ class TestMeicBuildOrder:
 
 class TestMeicStops:
     def _setup(self, cc=1.40, pc=1.40, sc_mid=1.45, sp_mid=1.45):
-        from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+        from zerodte.strategies.base import LiveTradeSetup, OrderLeg
         return LiveTradeSetup(
             strategy_type="meic",
             legs=[OrderLeg("", 5950, "call", "sell", 3)],

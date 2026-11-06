@@ -3,12 +3,12 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import time
-from src_v2.strategies.base import ExitAction
+from zerodte.strategies.base import ExitAction
 
 
 def _make_monitor(strategy_action="hold", trades=None):
     """Build PositionMonitor with mocked deps and strategy."""
-    from src_v2.services.position_monitor import PositionMonitor
+    from zerodte.services.position_monitor import PositionMonitor
 
     strategy = MagicMock()
     strategy.check_exit.return_value = ExitAction(action=strategy_action)

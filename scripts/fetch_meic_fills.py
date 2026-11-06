@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from tastytrade.account import Account
-from src_v2.services.tastytrade_client import TastyTradeClient
+from zerodte.services.tastytrade_client import TastyTradeClient
 
 DAY = date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else date.today()
 

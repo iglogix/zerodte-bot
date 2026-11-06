@@ -17,13 +17,13 @@ from collections import Counter
 from pathlib import Path
 from statistics import mean, median
 
-from src_v2.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
-from src_v2.backtest.dc_time_machine.run_backtest import _sessions_in_cache
-from src_v2.backtest.dc_time_machine.simulator import (
+from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
+from zerodte.backtest.dc_time_machine.run_backtest import _sessions_in_cache
+from zerodte.backtest.dc_time_machine.simulator import (
     resolve_expiries, select_strikes, session_minutes, _panel_ref, run_session)
-from src_v2.backtest.dc_time_machine.fills import fill_price, net_combo_credit
-from src_v2.backtest.dc_time_machine.pricing import entry_debit, ic_terminal_pnl
-from src_v2.backtest.dc_time_machine.strategy import DcParams
+from zerodte.backtest.dc_time_machine.fills import fill_price, net_combo_credit
+from zerodte.backtest.dc_time_machine.pricing import entry_debit, ic_terminal_pnl
+from zerodte.backtest.dc_time_machine.strategy import DcParams
 
 
 class CappedStore(MultiExpiryStore):

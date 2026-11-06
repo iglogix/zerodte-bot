@@ -21,7 +21,7 @@ import sys
 from collections import defaultdict
 from datetime import date, timedelta
 sys.path.insert(0, "~/Dev/0dte_bot")
-from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
+from zerodte.backtest.vix_loader import load_vix_series, lookup_prior_close
 from reconcile_meic import DatabentoCache, TRADES_CSV
 from resim_exits import Settlement
 

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 
 async def main():
@@ -34,7 +34,7 @@ async def main():
 
     try:
         # 1. Fetch current ES price
-        from src_8am.utils.contract_utils import get_dxlink_symbol
+        from es_8am.utils.contract_utils import get_dxlink_symbol
         dxlink_sym = get_dxlink_symbol()
         print(f"\nFetching quote for {dxlink_sym}...")
         quote = await tt.get_quote(dxlink_sym)

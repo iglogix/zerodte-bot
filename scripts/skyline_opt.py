@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from skyline_core import LEGS, payoff_at, price_structure  # noqa: E402
 from backtest_skyline import lookup, parity_spot, CACHE, DB  # noqa: E402
 from economic_calendar import get_events_on_date  # noqa: E402
-from src_v2.backtest.vix_loader import load_vix_series  # noqa: E402
+from zerodte.backtest.vix_loader import load_vix_series  # noqa: E402
 
 EM_ANCHOR = 26.3
 COMM = 0.65

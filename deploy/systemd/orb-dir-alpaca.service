@@ -15,7 +15,7 @@ WorkingDirectory=~/Dev/0dte_bot
 # Run until 16:10 ET; timeout's exit 124 is the normal end-of-day outcome.
 # If (re)started after 16:10 (crash recovery / Persistent catch-up), exit 0
 # immediately — never trade outside the session window.
-ExecStart=/bin/bash -c 'now=$(date +%%s); end=$(date -d 16:10 +%%s); [ "$end" -le "$now" ] && exit 0; exec timeout $((end-now)) .venv/bin/python -m src_v2.main --alpaca --config config/config_orb_dir_breakout_alpaca.yaml'
+ExecStart=/bin/bash -c 'now=$(date +%%s); end=$(date -d 16:10 +%%s); [ "$end" -le "$now" ] && exit 0; exec timeout $((end-now)) .venv/bin/python -m zerodte.main --alpaca --config config/config_orb_dir_breakout_alpaca.yaml'
 SuccessExitStatus=124
 # mid-session crash (e.g. feed drop) -> restart and resume the entry watch
 Restart=on-failure

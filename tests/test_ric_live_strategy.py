@@ -1,4 +1,4 @@
-"""Tests for the live ReverseIcStrategy (src_v2/strategies/reverse_ic.py)."""
+"""Tests for the live ReverseIcStrategy (zerodte/strategies/reverse_ic.py)."""
 from __future__ import annotations
 
 import math
@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.strategies.reverse_ic import ReverseIcStrategy
+from zerodte.strategies.reverse_ic import ReverseIcStrategy
 
 ET = ZoneInfo("America/New_York")
 SPOT = 4000.0

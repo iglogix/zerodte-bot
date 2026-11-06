@@ -29,11 +29,11 @@ git config core.hooksPath .githooks
 pytest tests_locked/ -v
 
 # 5. Run the bot
-python -m src.main                  # dry-run (default, no API calls)
-python -m src.main --manual         # live market data, orders NOT submitted
-python -m src.main --sandbox        # TastyTrade cert environment
-python -m src.main --live           # production (real money)
-python -m src.main --manual --once  # single cycle and exit
+python -m agentic_ic.main                  # dry-run (default, no API calls)
+python -m agentic_ic.main --manual         # live market data, orders NOT submitted
+python -m agentic_ic.main --sandbox        # TastyTrade cert environment
+python -m agentic_ic.main --live           # production (real money)
+python -m agentic_ic.main --manual --once  # single cycle and exit
 ```
 
 ## Operating Modes
@@ -55,7 +55,7 @@ python -m src.main --manual --once  # single cycle and exit
 ├── config/
 │   └── config.yaml             # Bot configuration (mode, LLM, risk, schedule, etc.)
 ├── .env.example                # Credentials template — copy to .env
-├── src/
+├── agentic_ic/
 │   ├── main.py                 # Entry point, BotOrchestrator, CLI
 │   ├── agent/
 │   │   ├── trading_agent.py    # LLM tool loop
@@ -137,11 +137,11 @@ All active config keys in `config/config.yaml`:
 pytest tests_locked/ -v
 
 # Run with coverage
-pytest tests_locked/ -v --cov=src --cov-report=html
+pytest tests_locked/ -v --cov=agentic_ic --cov-report=html
 
 # Format and lint
-black src/ tests/
-ruff check src/ tests/
+black agentic_ic/ tests/
+ruff check agentic_ic/ tests/
 ```
 
 ## License

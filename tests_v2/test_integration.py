@@ -5,10 +5,10 @@ import pytest
 from datetime import datetime, date
 from unittest.mock import AsyncMock, MagicMock
 
-from src_v2.models.database import Trade, Base, get_engine, init_db
-from src_v2.strategies.iron_condor import IronCondorStrategy
-from src_v2.strategies.iron_fly import IronFlyStrategy
-from src_v2.strategies.base import LiveTradeSetup, OrderLeg
+from zerodte.models.database import Trade, Base, get_engine, init_db
+from zerodte.strategies.iron_condor import IronCondorStrategy
+from zerodte.strategies.iron_fly import IronFlyStrategy
+from zerodte.strategies.base import LiveTradeSetup, OrderLeg
 
 
 class TestTradeModel:
@@ -67,7 +67,7 @@ class TestTradeModel:
 class TestStrategyRouting:
     def test_ic_strategy_from_config(self):
         """Config with strategy=iron_condor creates IronCondorStrategy."""
-        from src_v2.main import BotOrchestrator
+        from zerodte.main import BotOrchestrator
         config = {
             "bot": {"strategy": "iron_condor"},
             "strategy": {"min_short_delta": 0.10, "max_short_delta": 0.15},
@@ -78,7 +78,7 @@ class TestStrategyRouting:
 
     def test_if_strategy_from_config(self):
         """Config with strategy=iron_fly creates IronFlyStrategy."""
-        from src_v2.main import BotOrchestrator
+        from zerodte.main import BotOrchestrator
         config = {
             "bot": {"strategy": "iron_fly"},
             "options": {"em_wing_fraction": 0.50, "tp_fixed_dollars": 200},
@@ -89,7 +89,7 @@ class TestStrategyRouting:
 
     def test_default_is_iron_condor(self):
         """No strategy key defaults to iron_condor."""
-        from src_v2.main import BotOrchestrator
+        from zerodte.main import BotOrchestrator
         config = {"bot": {}}
         bot = BotOrchestrator(config, mode="dry_run")
         strategy = bot._create_strategy("iron_condor")
@@ -100,7 +100,7 @@ class TestEndToEndEngineWithStrategy:
     @pytest.mark.asyncio
     async def test_engine_with_ic_strategy(self):
         """Full cycle: engine + IronCondorStrategy + mock tools."""
-        from src_v2.agent.decision_engine import DecisionEngine
+        from zerodte.agent.decision_engine import DecisionEngine
 
         strategy = IronCondorStrategy()
         strategy.configure({
@@ -148,7 +148,7 @@ class TestEndToEndEngineWithStrategy:
     @pytest.mark.asyncio
     async def test_engine_with_if_strategy(self):
         """Full cycle: engine + IronFlyStrategy + mock tools."""
-        from src_v2.agent.decision_engine import DecisionEngine
+        from zerodte.agent.decision_engine import DecisionEngine
 
         strategy = IronFlyStrategy()
         strategy.configure({

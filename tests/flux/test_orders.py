@@ -2,8 +2,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from src_v2.flux.models import ChainSnapshot, OptionRow
-from src_v2.flux.orders import (
+from zerodte.flux.models import ChainSnapshot, OptionRow
+from zerodte.flux.orders import (
     select_dc_strikes, build_dc_order, spy_proxy, snap_spy_to_listed, OrderLeg,
 )
 

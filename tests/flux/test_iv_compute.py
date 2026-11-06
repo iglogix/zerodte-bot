@@ -1,6 +1,6 @@
 import pytest
 
-from src_v2.flux.iv_compute import parity_spot, compute_iv_rows
+from zerodte.flux.iv_compute import parity_spot, compute_iv_rows
 
 
 def test_parity_spot_from_atm_call_put():

@@ -29,8 +29,8 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv()
 import databento as db  # noqa: E402
 
-from src_v2.backtest.databento_cost import estimate_request_cost, CostLedger  # noqa: E402
-from src_v2.backtest.meic_backfill import (  # noqa: E402
+from zerodte.backtest.databento_cost import estimate_request_cost, CostLedger  # noqa: E402
+from zerodte.backtest.meic_backfill import (  # noqa: E402
     meic_day_symbols, meic_window_utc, quotes_from_df,
 )
 

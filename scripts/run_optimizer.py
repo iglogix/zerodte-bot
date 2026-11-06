@@ -33,9 +33,9 @@ import yaml
 # Ensure project root is on path when run directly
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_8am.backtest.data_loader import DatabentoLoader
-from src_8am.backtest.optimizer import DEFAULT_GRID, EM_GRID, QUANTITY_GRID, GridSearchOptimizer
-from src_8am.backtest.bar_loader import BarLoader
+from es_8am.backtest.data_loader import DatabentoLoader
+from es_8am.backtest.optimizer import DEFAULT_GRID, EM_GRID, QUANTITY_GRID, GridSearchOptimizer
+from es_8am.backtest.bar_loader import BarLoader
 
 
 # ---------------------------------------------------------------------------
@@ -219,11 +219,11 @@ def main():
         param_grid = dict(EM_GRID)
         print(f"Strategy: Expected Move (EM)")
     elif strategy_type == "cbbo":
-        from src_8am.backtest.strategy_cbbo import CbboDeltaStrategy
+        from es_8am.backtest.strategy_cbbo import CbboDeltaStrategy
         param_grid = CbboDeltaStrategy().grid_params()
         print(f"Strategy: CBBO Delta (real SPX quotes)")
     elif strategy_type == "cbbo_em":
-        from src_8am.backtest.strategy_cbbo_em import CbboEMStrategy
+        from es_8am.backtest.strategy_cbbo_em import CbboEMStrategy
         param_grid = CbboEMStrategy().grid_params()
         print(f"Strategy: CBBO EM Iron Condor (real SPX quotes)")
     else:

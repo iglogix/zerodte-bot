@@ -2,8 +2,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src_v2.services.execution_log import ExecutionLog
-from src_v2.services.quote_comparator import QuoteComparator
+from zerodte.services.execution_log import ExecutionLog
+from zerodte.services.quote_comparator import QuoteComparator
 
 
 def _payload():

@@ -47,13 +47,13 @@ abs(net) >= max_abs_net_skew  AND  sign(s_new) == sign(net)   # deepen-only
 
 ## 3. Insertion points
 
-**Backtest hook (confirmed, ready):** `src_v2/backtest/engine.py`, `_process_day_meic()`.
+**Backtest hook (confirmed, ready):** `zerodte/backtest/engine.py`, `_process_day_meic()`.
 - Initialize `running_skew = 0.0` at the top of the slot loop, **`engine.py:422`** (before `for slot in schedule:` at line 423).
 - Insert the veto **after `engine.py:443`** (`if not val.get("passed"): continue`) and **before `engine.py:452`** (the `for side in ("put","call")` append). On veto → `continue` (optionally append a skipped `BacktestResult` with `skip_reason='accum_skew_gate'`; the field exists at `engine.py:51`).
 - On a non-vetoed tranche, after the appends, `running_skew += s_new`.
 - All inputs in scope: `setup.strikes`, `setup.extra['em_pts']`, `setup.extra['qty']`, `spot` (`engine.py:427`). Within-session-backward-only → 0DTE day-independence preserved → WF runner needs **zero** changes.
 
-**Live hook:** `src_v2/agent/scheduled_engine.py`, `_run()`. Insert a "Step 6c" **after the candidate exists** (after `top = candidates['top_candidate']` ~line 319, before validate ~line 321). Returns `CycleResult(outcome='skip_trade', reason='accum_skew_gate: ...')`, mirroring the existing `regime_classifier` skip_trade branch (lines 256–279).
+**Live hook:** `zerodte/agent/scheduled_engine.py`, `_run()`. Insert a "Step 6c" **after the candidate exists** (after `top = candidates['top_candidate']` ~line 319, before validate ~line 321). Returns `CycleResult(outcome='skip_trade', reason='accum_skew_gate: ...')`, mirroring the existing `regime_classifier` skip_trade branch (lines 256–279).
 
 **Live data-wiring prerequisite (the real cost — see §5):** the engine cannot currently see accumulated open-tranche state. Two options:
 - **(A) durable:** persist MEIC manual/live entries to the trades DB like `place_power_hour_ic` (`tool_handlers.py:487+`); MEIC's `place_two_spread_ic` (`tool_handlers.py:434–451`) writes **no DB row in manual mode** today. Then read net via `db.get_open_trades()` inside `risk_manager` (already in `EngineDeps`). This *also* closes the known "MEIC manual writes no DB row" gap and gives PositionMonitor a lifecycle.
@@ -102,7 +102,7 @@ The pipeline already exists and needs only new parameter axes. **Do not trust an
 
 **Decision:** Build the **backtest-only WF harness (default-OFF axis)** to let the method confirm the baseline wins OOS and to leave a re-runnable artifact. **Do not build the live wiring and do not ship the gate enabled** unless a *new* managed log that captures intraday scale-out fills produces a gate cell that beats baseline on the stitched untouched test tier under the stress-fill model. On current evidence, that is not expected.
 
-**Relevant files:** `~/Dev/0dte_bot/src_v2/backtest/engine.py` (hook 422/443/452), `~/Dev/0dte_bot/src_v2/agent/scheduled_engine.py` (live hook ~319), `~/Dev/0dte_bot/scripts/gen_meic_combo_logs.py` (combos 42–51, run_chunk 88–93), `~/Dev/0dte_bot/scripts/run_wf_method_strategy.py` (three-tier, unchanged), `~/Dev/0dte_bot/docs/wf-cv.md`, `~/Dev/0dte_bot/results/meic_wf_method/combo_eh_s1.0_w0.5_p0.7.csv` (baseline log), `combo_em_*` (managed logs), `stress_*` (stress-fill logs), `~/Dev/0dte_bot/src_v2/strategies/meic.py:163` (`_compute_em`), `~/Dev/0dte_bot/src_v2/services/quote_comparator.py:43-57` (register, shorts-only), `~/Dev/0dte_bot/src_v2/agent/tool_handlers.py:434-451` (manual no-DB-row gap) and `:487+` (Power Hour DB-persist template).
+**Relevant files:** `~/Dev/0dte_bot/zerodte/backtest/engine.py` (hook 422/443/452), `~/Dev/0dte_bot/zerodte/agent/scheduled_engine.py` (live hook ~319), `~/Dev/0dte_bot/scripts/gen_meic_combo_logs.py` (combos 42–51, run_chunk 88–93), `~/Dev/0dte_bot/scripts/run_wf_method_strategy.py` (three-tier, unchanged), `~/Dev/0dte_bot/docs/wf-cv.md`, `~/Dev/0dte_bot/results/meic_wf_method/combo_eh_s1.0_w0.5_p0.7.csv` (baseline log), `combo_em_*` (managed logs), `stress_*` (stress-fill logs), `~/Dev/0dte_bot/zerodte/strategies/meic.py:163` (`_compute_em`), `~/Dev/0dte_bot/zerodte/services/quote_comparator.py:43-57` (register, shorts-only), `~/Dev/0dte_bot/zerodte/agent/tool_handlers.py:434-451` (manual no-DB-row gap) and `:487+` (Power Hour DB-persist template).
 
 ---
 *Scoped via 13-agent read-only workflow (wf_e5bbe55a-dc6), 2026-06-15.*

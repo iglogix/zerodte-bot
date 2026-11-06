@@ -21,10 +21,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.strategies.open_ic import OpenIcStrategy
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.strategies.open_ic import OpenIcStrategy
 
 
 def _set(cfg, dotted, v):

@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 logging.basicConfig(
     level=logging.INFO,

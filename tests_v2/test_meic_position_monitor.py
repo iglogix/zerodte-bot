@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src_v2.services.position_monitor import PositionMonitor
-from src_v2.strategies.base import ExitAction
+from zerodte.services.position_monitor import PositionMonitor
+from zerodte.strategies.base import ExitAction
 
 
 @pytest.mark.asyncio

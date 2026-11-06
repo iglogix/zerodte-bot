@@ -16,7 +16,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.cbbo_store import CbboStore
+from zerodte.backtest.cbbo_store import CbboStore
 
 STEP = 5.0
 SLIP = 0.10          # per spread

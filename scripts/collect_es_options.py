@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,7 +62,7 @@ class EsOptionsCollector:
 
     async def get_chain_symbols(self) -> list[dict]:
         """Fetch today's ES 0DTE option chain symbols."""
-        from src_8am.utils.contract_utils import get_dxlink_symbol
+        from es_8am.utils.contract_utils import get_dxlink_symbol
         from tastytrade.instruments import NestedFutureOptionChain
 
         self._es_symbol = get_dxlink_symbol()

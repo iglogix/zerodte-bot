@@ -29,11 +29,11 @@ from dotenv import dotenv_values
 import databento as db
 from databento import StatType
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.databento_cost import CostLedger
-from src_v2.backtest.meic_backfill import (multi_expiry_symbols, parse_osi_multi,
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.databento_cost import CostLedger
+from zerodte.backtest.meic_backfill import (multi_expiry_symbols, parse_osi_multi,
                                            meic_window_utc)
-from src_v2.backtest.study_expiries import study_expiries
+from zerodte.backtest.study_expiries import study_expiries
 
 OI_STAT = int(StatType.OPEN_INTEREST)
 

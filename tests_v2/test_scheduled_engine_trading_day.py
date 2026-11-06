@@ -1,7 +1,7 @@
 """Trading-day guard for the live scheduler (skip weekends + market holidays)."""
 from datetime import date
 
-from src_v2.agent.scheduled_engine import is_trading_day
+from zerodte.agent.scheduled_engine import is_trading_day
 
 
 def test_weekend_is_not_trading_day():
@@ -22,7 +22,7 @@ def test_market_holiday_is_not_trading_day():
 def test_weekday_short_circuits_without_calendar(monkeypatch):
     # If the calendar import/lookup fails, a weekday degrades to "trading day"
     # (the anomaly guard still backstops actual holidays) and never crashes.
-    import src_v2.agent.scheduled_engine as se
+    import zerodte.agent.scheduled_engine as se
 
     def _boom(*a, **k):
         raise RuntimeError("calendar unavailable")

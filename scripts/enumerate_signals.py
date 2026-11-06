@@ -25,8 +25,8 @@ import yaml
 # Allow running as a script from repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_8am.backtest.data_loader import DatabentoLoader
-from src_v2.backtest.signal_detector import detect_signals_for_day
+from es_8am.backtest.data_loader import DatabentoLoader
+from zerodte.backtest.signal_detector import detect_signals_for_day
 
 
 def _parse_date(s: str) -> date:

@@ -45,7 +45,7 @@
 | Piece | Path |
 |---|---|
 | EOD chain backfill (ThetaData VALUE, SPXW 2020-01 → present) | `scripts/backfill_iron_duck_eod.py` → `data/iron_duck_eod/SPXW/` |
-| Backtest engine | `src_v2/backtest/iron_duck.py` |
+| Backtest engine | `zerodte/backtest/iron_duck.py` |
 | Runner / as-taught sweep | `scripts/backtest_iron_duck.py` → `results/iron_duck_spx/` |
 | WF combo-log generator | `scripts/gen_duck_combo_logs.py` → `results/iron_duck_wf/` |
 | Tests (synthetic Black-76 chains) | `tests/test_iron_duck_backtest.py` |

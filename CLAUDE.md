@@ -9,20 +9,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -e ".[dev]"
 
 # Run the bot
-python -m src.main                  # dry_run (default, fully simulated)
-python -m src.main --manual         # live market data, orders NOT submitted
-python -m src.main --sandbox        # TastyTrade cert environment
-python -m src.main --live           # production (real money)
-python -m src.main --manual --once  # one cycle and exit
+python -m agentic_ic.main                  # dry_run (default, fully simulated)
+python -m agentic_ic.main --manual         # live market data, orders NOT submitted
+python -m agentic_ic.main --sandbox        # TastyTrade cert environment
+python -m agentic_ic.main --live           # production (real money)
+python -m agentic_ic.main --manual --once  # one cycle and exit
 
 # Tests
 pytest tests_locked/ -v                         # immutable suite only
 pytest tests/ -v                                # mutable tests
-pytest tests_locked/ -v --cov=src --cov-report=html  # with coverage
+pytest tests_locked/ -v --cov=agentic_ic --cov-report=html  # with coverage
 
 # Lint / format
-black src/ tests/
-ruff check src/ tests/
+black agentic_ic/ tests/
+ruff check agentic_ic/ tests/
 ```
 
 Set up the git hook that protects `tests_locked/` from modification:
@@ -47,7 +47,7 @@ The bot runs on a scheduled entry loop (`BotOrchestrator.run_scheduled`). At eac
 9. **`validate_ic_params`** — checks delta, credit, skew constraints
 10. **`place_iron_condor`** — submits orders via `ToolHandlers`
 
-`TradingAgent` (the old LLM tool-loop design) still exists in `src/agent/trading_agent.py` but is **not used** by `BotOrchestrator`. The current engine is `DecisionEngine`.
+`TradingAgent` (the old LLM tool-loop design) still exists in `agentic_ic/agent/trading_agent.py` but is **not used** by `BotOrchestrator`. The current engine is `DecisionEngine`.
 
 ### Concurrently Running Tasks
 
@@ -73,23 +73,23 @@ Mode priority: CLI flag > `BOT_MODE` env var > `config/config.yaml` `bot.mode`
 
 | Path | Purpose |
 |------|---------|
-| `src/main.py` | `BotOrchestrator`, CLI, entry point |
-| `src/agent/decision_engine.py` | Deterministic entry pipeline (current engine) |
-| `src/agent/anomaly_detector.py` | LLM pre-flight check |
-| `src/agent/regime_classifier.py` | LLM market regime judgment |
-| `src/agent/tool_handlers.py` | All tool implementations, mode-aware |
-| `src/agent/tool_definitions.py` | Tool schemas for LLM calls |
-| `src/agent/trading_agent.py` | Legacy LLM tool loop (not used in main flow) |
-| `src/agent/dual_validator.py` | Two-LLM approval gate (legacy, used by TradingAgent) |
-| `src/agent/eod_debrief.py` | EOD summary via LLM |
-| `src/services/market_data.py` | SQLite-cached market data layer |
-| `src/services/tastytrade_client.py` | TastyTrade REST + WebSocket client |
-| `src/services/risk_manager.py` | Pre-trade risk validation |
-| `src/services/position_monitor.py` | Open position lifecycle management |
-| `src/services/order_fill_listener.py` | WebSocket fill events → queue |
-| `src/services/llm_client.py` | LiteLLM wrapper used by AI advisors |
-| `src/services/decision_logger.py` | Per-cycle JSON files in `logs/decisions/YYYY-MM-DD/` |
-| `src/models/database.py` | SQLAlchemy ORM models |
+| `agentic_ic/main.py` | `BotOrchestrator`, CLI, entry point |
+| `agentic_ic/agent/decision_engine.py` | Deterministic entry pipeline (current engine) |
+| `agentic_ic/agent/anomaly_detector.py` | LLM pre-flight check |
+| `agentic_ic/agent/regime_classifier.py` | LLM market regime judgment |
+| `agentic_ic/agent/tool_handlers.py` | All tool implementations, mode-aware |
+| `agentic_ic/agent/tool_definitions.py` | Tool schemas for LLM calls |
+| `agentic_ic/agent/trading_agent.py` | Legacy LLM tool loop (not used in main flow) |
+| `agentic_ic/agent/dual_validator.py` | Two-LLM approval gate (legacy, used by TradingAgent) |
+| `agentic_ic/agent/eod_debrief.py` | EOD summary via LLM |
+| `agentic_ic/services/market_data.py` | SQLite-cached market data layer |
+| `agentic_ic/services/tastytrade_client.py` | TastyTrade REST + WebSocket client |
+| `agentic_ic/services/risk_manager.py` | Pre-trade risk validation |
+| `agentic_ic/services/position_monitor.py` | Open position lifecycle management |
+| `agentic_ic/services/order_fill_listener.py` | WebSocket fill events → queue |
+| `agentic_ic/services/llm_client.py` | LiteLLM wrapper used by AI advisors |
+| `agentic_ic/services/decision_logger.py` | Per-cycle JSON files in `logs/decisions/YYYY-MM-DD/` |
+| `agentic_ic/models/database.py` | SQLAlchemy ORM models |
 | `config/config.yaml` | Primary configuration |
 | `bot_prompt.md` | Strategy specification (read by LLM advisors) |
 

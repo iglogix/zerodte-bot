@@ -2,8 +2,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from src_v2.flux.models import ChainSnapshot, OptionRow
-from src_v2.flux.positions import (
+from zerodte.flux.models import ChainSnapshot, OptionRow
+from zerodte.flux.positions import (
     parse_option_symbol, detect_double_calendars, build_transform_order, analyze_transform,
     DoubleCalendar,
 )

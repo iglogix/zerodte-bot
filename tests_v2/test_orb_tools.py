@@ -1,7 +1,7 @@
 """Tests for ORB tools on ToolHandlers."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from src_v2.agent.tool_handlers import ToolHandlers
+from zerodte.agent.tool_handlers import ToolHandlers
 
 
 def _make_handlers(candles=None, api_quote=None, api_error=None):

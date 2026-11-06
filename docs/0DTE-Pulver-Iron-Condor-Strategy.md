@@ -191,7 +191,7 @@ Findings:
 Pulver places 0DTE butterflies at gamma "key levels" (the HVL pivot / where price
 gravitates) and manages them for 50%+ return or a end-of-day pin. Modeled with the
 repo's existing butterfly evaluator + GEX engine (`scripts/analytical_butterfly_eval.py`,
-`src_v2/backtest/gex.py`: `magnet_strike` = dealer-gamma pin = his "key level";
+`zerodte/backtest/gex.py`: `magnet_strike` = dealer-gamma pin = his "key level";
 `gamma_flip` = HVL pivot). 20–25-wide, entry 10:00, CBBO-priced, full period.
 
 **His exact recipe (gamma-magnet placement) has no edge:**

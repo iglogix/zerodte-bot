@@ -12,7 +12,7 @@ import csv
 from pathlib import Path
 from typing import List, Tuple
 
-from src.strategies.metf.metf_backtester import (
+from agentic_ic.strategies.metf.metf_backtester import (
     METFBacktestConfig,
     METFBacktester,
     METFResultsReporter,

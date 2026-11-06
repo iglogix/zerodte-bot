@@ -9,7 +9,7 @@
 
 ## Method
 - Spec: `docs/superpowers/specs/2026-06-03-otm-butterfly-backtest-design.md`
-- Core: `src_v2/backtest/butterfly_core.py`; eval: `scripts/analytical_butterfly_eval.py`
+- Core: `zerodte/backtest/butterfly_core.py`; eval: `scripts/analytical_butterfly_eval.py`
 - Cache: `data/cbbo_cache_jl_10min` (±100pt, 942 days 2022-05-11→2026-03-30)
 - Entry **09:31** (cbbo-1m interval-end stamping), body **1σ** (ATM-straddle EM),
   direction **21-period Hull MA** vs **coin-flip** baseline, width by **VIX9D regime**
@@ -137,7 +137,7 @@ stronger evidence.
   *execution-quality* play, not a structural free lunch — and weak (t≈0.9) on this sample.
 
 ### 8. Real GEX test (prior-close OI) — the author's core claim does NOT validate
-Built a GEX engine (`src_v2/backtest/gex.py`): BS gamma per strike × (call−put OI) →
+Built a GEX engine (`zerodte/backtest/gex.py`): BS gamma per strike × (call−put OI) →
 dealer GEX sign, magnet strike, gamma flip. OI pulled from OPRA statistics (949 days,
 $0.08). Sign convention is standard (**+GEX = 60% of days**, a healthy majority). Tested
 the author's actual recipe — centered fly **only on +GEX days, body at the magnet**:

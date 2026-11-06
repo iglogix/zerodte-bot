@@ -4,8 +4,8 @@ import pytest
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from src_v2.strategies.meic import MeicStrategy
-from src_v2.backtest.engine import BacktestEngine
+from zerodte.strategies.meic import MeicStrategy
+from zerodte.backtest.engine import BacktestEngine
 
 ET = ZoneInfo("America/New_York")
 
@@ -108,7 +108,7 @@ def _config(tranche=None):
 
 def _make_engine(monkeypatch, fake_cbbo, config=None):
     # Patch CbboStore construction inside BacktestEngine.__init__
-    import src_v2.backtest.engine as eng
+    import zerodte.backtest.engine as eng
     monkeypatch.setattr(eng, "CbboStore", lambda *a, **k: fake_cbbo,
                         raising=False)
     return BacktestEngine(config or _config(), MeicStrategy())

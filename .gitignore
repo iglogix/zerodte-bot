@@ -57,7 +57,7 @@ htmlcov/
 *.csv
 *.csv.zst
 *.npz
-# trained model artifacts at repo root only (not the src_v2/models package)
+# trained model artifacts at repo root only (not the zerodte/models package)
 /models/
 results/
 manifest.json

@@ -1,7 +1,7 @@
 """Tests that strategies create the correct engine type."""
 import pytest
 from unittest.mock import MagicMock
-from src_v2.agent.base_engine import BaseEngine, EngineDeps
+from zerodte.agent.base_engine import BaseEngine, EngineDeps
 
 
 def _make_deps():
@@ -29,8 +29,8 @@ def test_base_engine_is_abstract():
 
 
 def test_iron_condor_creates_scheduled_engine():
-    from src_v2.strategies.iron_condor import IronCondorStrategy
-    from src_v2.agent.scheduled_engine import ScheduledEngine
+    from zerodte.strategies.iron_condor import IronCondorStrategy
+    from zerodte.agent.scheduled_engine import ScheduledEngine
 
     s = IronCondorStrategy()
     s.configure({"strategy": {"min_short_delta": 0.10, "max_short_delta": 0.15,
@@ -43,8 +43,8 @@ def test_iron_condor_creates_scheduled_engine():
 
 
 def test_iron_fly_creates_scheduled_engine():
-    from src_v2.strategies.iron_fly import IronFlyStrategy
-    from src_v2.agent.scheduled_engine import ScheduledEngine
+    from zerodte.strategies.iron_fly import IronFlyStrategy
+    from zerodte.agent.scheduled_engine import ScheduledEngine
 
     s = IronFlyStrategy()
     s.configure({"options": {"strike_step_pts": 5, "contract_multiplier": 100}})
@@ -53,8 +53,8 @@ def test_iron_fly_creates_scheduled_engine():
 
 
 def test_orb_em_ic_creates_orb_engine():
-    from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
-    from src_v2.agent.orb_engine import OrbEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
+    from zerodte.agent.orb_engine import OrbEngine
 
     s = OrbEmIronCondorStrategy()
     s.configure({"options": {"strike_step_pts": 5, "contract_multiplier": 100}})
@@ -65,8 +65,8 @@ def test_orb_em_ic_creates_orb_engine():
 
 def test_decision_engine_backward_compat():
     """DecisionEngine import still works and is a wrapper around ScheduledEngine."""
-    from src_v2.agent.decision_engine import DecisionEngine
-    from src_v2.agent.scheduled_engine import ScheduledEngine
+    from zerodte.agent.decision_engine import DecisionEngine
+    from zerodte.agent.scheduled_engine import ScheduledEngine
 
     engine = DecisionEngine(
         tool_handlers=MagicMock(),

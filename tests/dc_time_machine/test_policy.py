@@ -1,7 +1,7 @@
 # tests/dc_time_machine/test_policy.py
 import pytest
 
-from src_v2.backtest.dc_time_machine.policy import entry_allowed, overnight_decision
+from zerodte.backtest.dc_time_machine.policy import entry_allowed, overnight_decision
 
 
 def test_always_filter_admits_everything():

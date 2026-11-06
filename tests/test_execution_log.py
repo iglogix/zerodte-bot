@@ -1,6 +1,6 @@
 """Tests for the MEIC execution-comparison log + join."""
 
-from src_v2.services.execution_log import ExecutionLog, compare, compare_quotes
+from zerodte.services.execution_log import ExecutionLog, compare, compare_quotes
 
 
 def _assumed(trade_id="T1", put_trig=3.41, call_trig=3.41):

@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.iron_duck import (  # noqa: E402
+from zerodte.backtest.iron_duck import (  # noqa: E402
     DuckParams,
     DuckStore,
     IronDuckEngine,

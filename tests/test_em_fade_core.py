@@ -1,4 +1,4 @@
-"""Tests for the SPX 0DTE expected-move fade simulator (src_v2/backtest/em_fade_core.py).
+"""Tests for the SPX 0DTE expected-move fade simulator (zerodte/backtest/em_fade_core.py).
 
 Synthetic days are built from Black-Scholes so per-strike deltas are realistic
 and strike selection is exercised against a real chain shape.
@@ -10,14 +10,14 @@ from datetime import date
 
 import pytest
 
-from src_v2.backtest.dc_time_machine.iv import bs_price
-from src_v2.backtest.em_fade_core import (
+from zerodte.backtest.dc_time_machine.iv import bs_price
+from zerodte.backtest.em_fade_core import (
     DayContext,
     EmFadeConfig,
     minutes_between,
     simulate_day,
 )
-from src_v2.backtest.noarb import quote_ok, vertical_mark, check_pnl_bounds
+from zerodte.backtest.noarb import quote_ok, vertical_mark, check_pnl_bounds
 
 SD = date(2024, 6, 12)
 
@@ -356,7 +356,7 @@ def test_max_one_trade_per_day():
 # mutated the engine in this exact way and the suite still passed.
 # ----------------------------------------------------------------------
 
-from src_v2.backtest.em_fade_core import _buy_fill, _sell_fill, EmFadeConfig as _C
+from zerodte.backtest.em_fade_core import _buy_fill, _sell_fill, EmFadeConfig as _C
 
 
 def _small_day(spot=5000.0):

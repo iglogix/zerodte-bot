@@ -187,7 +187,7 @@ class BotManager:
         log_path = log_dir / f"{bot_name}_{bot_id}.log"
 
         # Build command
-        cmd = [sys.executable, "-m", "src_v2.main", f"--config={config_path}"]
+        cmd = [sys.executable, "-m", "zerodte.main", f"--config={config_path}"]
         if mode and mode != "dry_run":
             cmd.append(f"--{mode}")
 

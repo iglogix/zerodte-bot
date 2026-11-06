@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from src_v2.backtest.osi_symbol import format_osi, build_strike_window, parse_osi
+from zerodte.backtest.osi_symbol import format_osi, build_strike_window, parse_osi
 
 
 def test_format_osi_put_integer_strike():

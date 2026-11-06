@@ -31,7 +31,7 @@ logger = logging.getLogger("smoke_test")
 
 
 async def main():
-    from src.services.tastytrade_client import TastyTradeClient
+    from agentic_ic.services.tastytrade_client import TastyTradeClient
 
     mode = os.environ.get("BOT_MODE", "sandbox")
     client = TastyTradeClient(mode=mode)

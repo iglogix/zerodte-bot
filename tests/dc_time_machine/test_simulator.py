@@ -3,9 +3,9 @@ from datetime import date
 
 import pytest
 
-from src_v2.backtest.dc_time_machine.strategy import DcParams
-from src_v2.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
-from src_v2.backtest.dc_time_machine.simulator import simulate_trade
+from zerodte.backtest.dc_time_machine.strategy import DcParams
+from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
+from zerodte.backtest.dc_time_machine.simulator import simulate_trade
 
 S = date(2026, 2, 2)
 F = date(2026, 2, 11)

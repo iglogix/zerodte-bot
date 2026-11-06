@@ -1,4 +1,4 @@
-"""Tests for src_v2.backtest.data_loader."""
+"""Tests for zerodte.backtest.data_loader."""
 
 import csv
 import tempfile
@@ -31,14 +31,14 @@ def spy_csv(tmp_path):
 
 
 def test_daybars_repr():
-    from src_v2.backtest.data_loader import DayBars
+    from zerodte.backtest.data_loader import DayBars
     db = DayBars(date(2025, 10, 1), "SPX", [{"close": 1}])
     assert "2025-10-01" in repr(db)
     assert "1 bars" in repr(db)
 
 
 def test_bar_loader_iter_days(spy_csv):
-    from src_v2.backtest.data_loader import BarLoader
+    from zerodte.backtest.data_loader import BarLoader
     loader = BarLoader(spy_csv, price_scale=10.0, symbol="SPX")
     days = list(loader.iter_days())
     assert len(days) == 2
@@ -53,7 +53,7 @@ def test_bar_loader_iter_days(spy_csv):
 
 
 def test_bar_loader_date_filter(spy_csv):
-    from src_v2.backtest.data_loader import BarLoader
+    from zerodte.backtest.data_loader import BarLoader
     loader = BarLoader(spy_csv, price_scale=10.0)
     days = list(loader.iter_days(start_date=date(2025, 10, 2)))
     assert len(days) == 1
@@ -61,6 +61,6 @@ def test_bar_loader_date_filter(spy_csv):
 
 
 def test_bar_loader_missing_file():
-    from src_v2.backtest.data_loader import BarLoader
+    from zerodte.backtest.data_loader import BarLoader
     with pytest.raises(FileNotFoundError):
         BarLoader("/nonexistent/path.csv")

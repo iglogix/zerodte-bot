@@ -2,7 +2,7 @@
 
 Spec:     docs/spx_0dte_em_fade_spec.md
 Handover: docs/spx_0dte_em_fade_HANDOVER.md
-Engine:   src_v2/backtest/em_fade_core.py  (+ src_v2/backtest/noarb.py)
+Engine:   zerodte/backtest/em_fade_core.py  (+ zerodte/backtest/noarb.py)
 Data:     data/cbbo_cache_fly_10min/  (real CBBO, 2022-05-11 -> 2026-06-11)
 
 Modes
@@ -36,14 +36,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.em_fade_core import (
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.em_fade_core import (
     DayContext,
     EmFadeConfig,
     simulate_day,
 )
-from src_v2.backtest.noarb import quote_ok, vertical_mark
-from src_v2.backtest.vix_loader import load_vix_series, lookup_prior_close
+from zerodte.backtest.noarb import quote_ok, vertical_mark
+from zerodte.backtest.vix_loader import load_vix_series, lookup_prior_close
 
 CACHE_DIR = Path("data/cbbo_cache_fly_10min")
 OUT_DIR = Path("backtest_data")

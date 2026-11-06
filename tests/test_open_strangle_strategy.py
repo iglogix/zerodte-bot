@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src_v2.strategies.open_strangle import OpenStrangleStrategy
+from zerodte.strategies.open_strangle import OpenStrangleStrategy
 
 ET = ZoneInfo("America/New_York")
 

@@ -28,9 +28,9 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.backtest.cbbo_store import MergedCbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.reverse_ic import RicEngine
+from zerodte.backtest.cbbo_store import MergedCbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.reverse_ic import RicEngine
 
 
 class OncePerDayStore(MergedCbboStore):

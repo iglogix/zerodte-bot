@@ -1,7 +1,7 @@
 import pickle
 from datetime import date
 
-from src_v2.backtest.dc_time_machine.theta_backfill import (
+from zerodte.backtest.dc_time_machine.theta_backfill import (
     fetch_expiry_session_theta, backfill_session_theta,
 )
 

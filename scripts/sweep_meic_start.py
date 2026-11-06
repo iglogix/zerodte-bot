@@ -25,10 +25,10 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.engine import BacktestEngine
-from src_v2.strategies.meic import MeicStrategy
-from src_v2.backtest.report import generate_report
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.engine import BacktestEngine
+from zerodte.strategies.meic import MeicStrategy
+from zerodte.backtest.report import generate_report
 
 CBBO_EARLY = "data/cbbo_cache"   # has 09:31+ (MEIC's own cache starts 11:00)
 

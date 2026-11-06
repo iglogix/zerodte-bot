@@ -314,7 +314,7 @@ class ChatAgent:
 
     async def chat(self, user_message: str, session_id: str = "default") -> str:
         """Full tool-loop chat: call LLM with tools, execute calls, return text."""
-        from src_v2.services.llm_client import LLMClient
+        from zerodte.services.llm_client import LLMClient
 
         llm = LLMClient(model=self._model, temperature=0.3, max_tokens=2048)
 

@@ -9,7 +9,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +55,13 @@ async def test_persistent_streamer_reuses_connection():
     mock_instance.__aexit__ = AsyncMock(return_value=False)
     mock_cls.return_value = mock_instance
 
-    with patch("src.services.tastytrade_client.TastyTradeClient._get_quote_via_dxlink") as mock_dxlink:
+    with patch("agentic_ic.services.tastytrade_client.TastyTradeClient._get_quote_via_dxlink") as mock_dxlink:
         # Bypass the real implementation and test _ensure_quote_streamer directly
         pass
 
     # Test via the real path with mocked DXLinkStreamer
     with patch.dict("sys.modules", {"tastytrade": MagicMock(), "tastytrade.dxfeed": MagicMock()}):
-        with patch("src.services.tastytrade_client.TastyTradeClient._ensure_quote_streamer") as mock_ensure:
+        with patch("agentic_ic.services.tastytrade_client.TastyTradeClient._ensure_quote_streamer") as mock_ensure:
             mock_ensure.return_value = None
             client._latest_quotes["/ESH26:XCME"] = {
                 "symbol": "/ESH26:XCME",
@@ -138,7 +138,7 @@ async def test_feed_loop_updates_latest_quotes():
     with patch.dict("sys.modules", {"tastytrade.dxfeed": MagicMock()}) as _:
         # Patch the Quote import inside the method
         with patch(
-            "src.services.tastytrade_client.TastyTradeClient._quote_feed_loop",
+            "agentic_ic.services.tastytrade_client.TastyTradeClient._quote_feed_loop",
             wraps=client._quote_feed_loop,
         ):
             # Run the real feed loop — it will process 2 events then CancelledError

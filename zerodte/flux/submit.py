@@ -1,0 +1,153 @@
+"""Order submission for Flux — combo (default) or leg-in execution, mode-gated.
+
+Safety: `manual` mode NEVER submits (ticket only). Submission is an explicit user action
+in `sandbox` (cert) or `live` (real money). The arrangement logic (which legs, what order)
+is pure/testable; TastyTradeSubmitter is the only thing that talks to the broker.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import List, Tuple
+
+from zerodte.flux.orders import OrderLeg, OrderTicket
+
+LegSpec = Tuple[str, str, int]   # (osi, action, qty)
+
+
+@dataclass
+class SubmitResult:
+    ok: bool
+    order_ids: List[str] = field(default_factory=list)
+    detail: str = ""
+
+
+def combo_legs(ticket: OrderTicket) -> List[LegSpec]:
+    """All legs for ONE complex order (atomic, no legging risk)."""
+    return [(l.osi, l.action, l.quantity) for l in ticket.legs]
+
+
+def legin_groups(ticket: OrderTicket) -> List[List[OrderLeg]]:
+    """Leg-in order: BUY the longs first (never naked-short), THEN SELL the shorts.
+    Each leg carries its own mid (`limit`) so it's worked at mid."""
+    longs = [l for l in ticket.legs if l.is_long]
+    shorts = [l for l in ticket.legs if not l.is_long]
+    return [longs, shorts]
+
+
+class OrderSubmitter(ABC):
+    def __init__(self, mode: str = "manual"):
+        self.mode = mode
+
+    @abstractmethod
+    def submit(self, ticket: OrderTicket, execution: str = "combo") -> SubmitResult:
+        ...
+
+
+class MockSubmitter(OrderSubmitter):
+    """Records submissions instead of routing them — for tests and a non-broker preview."""
+    def __init__(self, mode: str = "sandbox"):
+        super().__init__(mode)
+        self.calls: List[Tuple[OrderTicket, str]] = []
+
+    def submit(self, ticket: OrderTicket, execution: str = "combo") -> SubmitResult:
+        if self.mode == "manual":
+            return SubmitResult(False, [], "manual mode — submission disabled")
+        self.calls.append((ticket, execution))
+        n = len(ticket.legs) if execution == "legin" else 1
+        return SubmitResult(True, [f"MOCK-{i+1}" for i in range(n)],
+                            f"mock {execution} order(s) in {self.mode}")
+
+
+class TastyTradeSubmitter(OrderSubmitter):
+    """Real broker submission via the bot's TastyTrade client. Only constructed in
+    sandbox/live (serve --mode). NOTE: needs an authenticated client; the async/session
+    integration must be validated live (it has never placed a real order in tests)."""
+    def __init__(self, mode: str, client, loop=None, proxy: str | None = None):
+        super().__init__(mode)
+        self.client = client          # an authenticated TastyTradeClient for `mode`
+        self.loop = loop              # persistent background loop the client lives on
+        self.proxy = proxy            # "spy" → submit a SPY proxy (cert has no SPXW)
+
+    async def _spy_listed(self, ticket: OrderTicket) -> OrderTicket:
+        """Scale to SPY (÷10) then snap onto SPY's actually-listed expiries/strikes so cert
+        accepts it. Raises if SPY has no usable 2-expiry calendar."""
+        from zerodte.flux.orders import spy_proxy, snap_spy_to_listed
+        snapped = snap_spy_to_listed(spy_proxy(ticket), await self.client.get_listed_chain("SPY"))
+        if snapped is None:
+            raise RuntimeError("no listed SPY expiries/strikes to snap the proxy to")
+        return snapped
+
+    def _run(self, coro, timeout=30):
+        import asyncio
+        if self.loop is not None:
+            return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
+        return asyncio.run(coro)
+
+    def open_double_calendars(self):
+        """Fetch open positions and detect double calendars (sync; runs on the loop)."""
+        from zerodte.flux.positions import detect_double_calendars
+        return detect_double_calendars(self._run(self.client.get_positions()))
+
+    def working_orders(self):
+        """Resting/working (non-terminal) orders (sync; runs on the loop)."""
+        return self._run(self.client.get_orders(working_only=True))
+
+    def preview_proxy(self, ticket: OrderTicket) -> "OrderTicket | None":
+        """The snapped proxy ticket that WOULD be submitted (for UI display). None if no proxy."""
+        if self.proxy != "spy":
+            return None
+        import asyncio
+        try:
+            if self.loop is not None:
+                return asyncio.run_coroutine_threadsafe(self._spy_listed(ticket), self.loop).result(timeout=30)
+            return asyncio.run(self._spy_listed(ticket))
+        except Exception:
+            return None
+
+    def submit(self, ticket: OrderTicket, execution: str = "combo") -> SubmitResult:
+        if self.mode == "manual":
+            return SubmitResult(False, [], "manual mode — submission disabled")
+        import asyncio
+
+        async def _do():
+            t = ticket
+            proxied = ""
+            if self.proxy == "spy":
+                t = await self._spy_listed(ticket)
+                proxied = " [SPY proxy]"
+            if execution == "legin":
+                ids: List[str] = []
+                for group in legin_groups(t):              # buy longs first, then sell shorts
+                    for leg in group:
+                        r = await self.client.place_option_limit(
+                            leg.osi, leg.action, leg.quantity, leg.limit)
+                        ids.append(r["order_id"])
+                return ids, proxied
+            r = await self.client.place_complex_order(combo_legs(t), t.price, t.price_effect)
+            return [r["order_id"]], proxied
+
+        try:
+            if self.loop is not None:
+                ids, proxied = asyncio.run_coroutine_threadsafe(_do(), self.loop).result(timeout=60)
+            else:
+                ids, proxied = asyncio.run(_do())
+            return SubmitResult(True, ids, f"{execution}: {len(ids)} order(s) in {self.mode}{proxied}")
+        except Exception as e:
+            return SubmitResult(False, [], f"broker error: {e}")
+
+
+def make_tt_submitter(mode: str) -> "TastyTradeSubmitter":
+    """Build a live submitter: spin a background event loop, connect an authenticated
+    TastyTradeClient on it, and route submissions there. Raises if connect fails."""
+    import asyncio
+    import threading
+
+    from zerodte.services.tastytrade_client import TastyTradeClient
+
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True).start()
+    client = TastyTradeClient(mode=mode)
+    asyncio.run_coroutine_threadsafe(client.connect(), loop).result(timeout=30)
+    proxy = "spy" if mode == "sandbox" else None   # cert has no SPXW → submit a SPY proxy
+    return TastyTradeSubmitter(mode, client, loop, proxy=proxy)

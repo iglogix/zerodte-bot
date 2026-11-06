@@ -25,7 +25,7 @@ class TestIronCondorTrade:
 
     def test_create_iron_condor_trade(self, temp_db_path, sample_iron_condor_trade):
         """Test creating a new iron condor trade."""
-        from src.models.database import Base, IronCondorTrade, get_engine, get_session
+        from agentic_ic.models.database import Base, IronCondorTrade, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -57,7 +57,7 @@ class TestIronCondorTrade:
 
     def test_read_iron_condor_trade(self, temp_db_path, sample_iron_condor_trade):
         """Test reading an existing iron condor trade."""
-        from src.models.database import Base, IronCondorTrade, get_engine, get_session
+        from agentic_ic.models.database import Base, IronCondorTrade, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -94,7 +94,7 @@ class TestIronCondorTrade:
 
     def test_update_iron_condor_trade_status(self, temp_db_path, sample_iron_condor_trade):
         """Test updating iron condor trade status."""
-        from src.models.database import Base, IronCondorTrade, get_engine, get_session
+        from agentic_ic.models.database import Base, IronCondorTrade, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -136,7 +136,7 @@ class TestIronCondorTrade:
 
     def test_delete_iron_condor_trade(self, temp_db_path, sample_iron_condor_trade):
         """Test deleting an iron condor trade."""
-        from src.models.database import Base, IronCondorTrade, get_engine, get_session
+        from agentic_ic.models.database import Base, IronCondorTrade, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -174,7 +174,7 @@ class TestIronCondorTrade:
 
     def test_query_open_trades(self, temp_db_path):
         """Test querying only open trades."""
-        from src.models.database import Base, IronCondorTrade, get_engine, get_session
+        from agentic_ic.models.database import Base, IronCondorTrade, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -211,7 +211,7 @@ class TestOrder:
 
     def test_create_order_pending(self, temp_db_path):
         """Test creating a pending order."""
-        from src.models.database import Base, Order, get_engine, get_session
+        from agentic_ic.models.database import Base, Order, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -236,7 +236,7 @@ class TestOrder:
 
     def test_order_lifecycle_pending_to_filled(self, temp_db_path):
         """Test order status transition from pending to filled."""
-        from src.models.database import Base, Order, get_engine, get_session
+        from agentic_ic.models.database import Base, Order, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -272,7 +272,7 @@ class TestOrder:
 
     def test_order_lifecycle_pending_to_cancelled(self, temp_db_path):
         """Test order status transition from pending to cancelled."""
-        from src.models.database import Base, Order, get_engine, get_session
+        from agentic_ic.models.database import Base, Order, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -308,7 +308,7 @@ class TestOrder:
 
     def test_order_lifecycle_filled_to_closed(self, temp_db_path):
         """Test order status transition from filled to closed."""
-        from src.models.database import Base, Order, get_engine, get_session
+        from agentic_ic.models.database import Base, Order, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -351,7 +351,7 @@ class TestTradingSession:
 
     def test_create_trading_session(self, temp_db_path):
         """Test creating a new trading session."""
-        from src.models.database import Base, TradingSession, get_engine, get_session
+        from agentic_ic.models.database import Base, TradingSession, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -376,7 +376,7 @@ class TestTradingSession:
 
     def test_update_trading_session_aggregates(self, temp_db_path):
         """Test updating trading session with aggregated data."""
-        from src.models.database import Base, TradingSession, get_engine, get_session
+        from agentic_ic.models.database import Base, TradingSession, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -415,7 +415,7 @@ class TestTradingSession:
 
     def test_close_trading_session(self, temp_db_path):
         """Test closing a trading session at end of day."""
-        from src.models.database import Base, TradingSession, get_engine, get_session
+        from agentic_ic.models.database import Base, TradingSession, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -455,7 +455,7 @@ class TestAgentDecision:
 
     def test_log_agent_decision(self, temp_db_path, sample_llm_decision_enter):
         """Test logging an agent decision."""
-        from src.models.database import Base, AgentDecision, get_engine, get_session
+        from agentic_ic.models.database import Base, AgentDecision, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -480,7 +480,7 @@ class TestAgentDecision:
 
     def test_log_disagreement_decision(self, temp_db_path):
         """Test logging a decision where LLMs disagreed."""
-        from src.models.database import Base, AgentDecision, get_engine, get_session
+        from agentic_ic.models.database import Base, AgentDecision, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -506,7 +506,7 @@ class TestAgentDecision:
 
     def test_query_decisions_by_date(self, temp_db_path):
         """Test querying decisions by date range."""
-        from src.models.database import Base, AgentDecision, get_engine, get_session
+        from agentic_ic.models.database import Base, AgentDecision, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -555,7 +555,7 @@ class TestMarketDataCache:
 
     def test_cache_option_chain(self, temp_db_path, sample_option_chain):
         """Test caching option chain data."""
-        from src.models.database import Base, MarketDataCache, get_engine, get_session
+        from agentic_ic.models.database import Base, MarketDataCache, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -575,7 +575,7 @@ class TestMarketDataCache:
 
     def test_retrieve_cached_data(self, temp_db_path, sample_option_chain):
         """Test retrieving cached data."""
-        from src.models.database import Base, MarketDataCache, get_engine, get_session
+        from agentic_ic.models.database import Base, MarketDataCache, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -606,7 +606,7 @@ class TestMarketDataCache:
 
     def test_cache_expiry_check(self, temp_db_path):
         """Test checking if cached data has expired."""
-        from src.models.database import Base, MarketDataCache, get_engine, get_session
+        from agentic_ic.models.database import Base, MarketDataCache, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)
@@ -635,7 +635,7 @@ class TestMarketDataCache:
 
     def test_cache_5min_candles_permanent(self, temp_db_path, sample_5min_candles):
         """Test that 5-min candles are stored permanently (no TTL expiry)."""
-        from src.models.database import Base, MarketDataCache, get_engine, get_session
+        from agentic_ic.models.database import Base, MarketDataCache, get_engine, get_session
         
         engine = get_engine(temp_db_path)
         Base.metadata.create_all(engine)

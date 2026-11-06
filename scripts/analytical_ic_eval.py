@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
+from zerodte.backtest.data_loader import BarLoader
 
 
 QuoteKey = Tuple[str, float, bool]  # (minute_et, strike, is_call)
@@ -204,7 +204,7 @@ def _evaluate(
       vix9d_max (float, e.g. 30 — skip if prior-day VIX9D > vix9d_max)
       vix_series (dict[date,float] — required if vix9d_max set)
     """
-    from src_v2.backtest.engine import _FOMC_DATES, _CPI_DATES
+    from zerodte.backtest.engine import _FOMC_DATES, _CPI_DATES
     filters = filters or {}
 
     pnls = []

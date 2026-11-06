@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src_8am.services.orb_options_service import OrbOptionsService
-from src_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
+from es_8am.services.orb_options_service import OrbOptionsService
+from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
 
 
 # ---------------------------------------------------------------------------

@@ -13,8 +13,8 @@ import json
 import os
 import time
 
-from src_v2.backtest.iron_duck import DuckStore
-from src_v2.backtest.burrito_core import BurritoConfig, run_history, summarize_burrito
+from zerodte.backtest.iron_duck import DuckStore
+from zerodte.backtest.burrito_core import BurritoConfig, run_history, summarize_burrito
 
 # Focused grid — the levers that matter. Wider stop/lock bands than the deck's
 # tight 5-10% because EOD marks are noisy; hold-to-expiry is the wide limit.

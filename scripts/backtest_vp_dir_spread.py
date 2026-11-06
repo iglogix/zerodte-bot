@@ -30,7 +30,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from src_v2.backtest.cbbo_store import CbboStore
+from zerodte.backtest.cbbo_store import CbboStore
 from volume_profile_orb import load as load_days, load_trade_vp, vp_from_hist
 
 CBBO_DIR = "data/cbbo_cache"

@@ -28,8 +28,8 @@ from typing import Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest import jl_core as jl
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest import jl_core as jl
 
 
 def load_by_date(cache_dir: Path, bars_path: str, start: date, end: date) -> Dict:

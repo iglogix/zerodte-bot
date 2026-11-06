@@ -29,9 +29,9 @@ from dotenv import dotenv_values
 import databento as db
 from databento import StatType
 
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.databento_cost import CostLedger
-from src_v2.backtest.meic_backfill import meic_day_symbols, meic_window_utc
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.databento_cost import CostLedger
+from zerodte.backtest.meic_backfill import meic_day_symbols, meic_window_utc
 
 OI_STAT = int(StatType.OPEN_INTEREST)
 

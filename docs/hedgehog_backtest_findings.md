@@ -33,7 +33,7 @@ short put, net credit, four management triggers, close-&-recycle).
   at the 16:00 NBBO snapshot.
 - **Greeks**: no external rate/dividend inputs — implied forward per
   (date, expiry) from put-call parity, then Black-76 (discount≈1) IV/delta.
-- **Engine**: `src_v2/backtest/hedgehog.py` (9 unit tests on synthetic BS
+- **Engine**: `zerodte/backtest/hedgehog.py` (9 unit tests on synthetic BS
   surfaces). Runner `scripts/backtest_hedgehog.py`, sweep
   `scripts/sweep_hedgehog.py`, analyzer `scripts/analyze_hedgehog.py`.
 

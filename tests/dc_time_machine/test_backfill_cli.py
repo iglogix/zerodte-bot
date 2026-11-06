@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from src_v2.backtest.dc_time_machine.strategy import DcParams
-from src_v2.backtest.dc_time_machine.run_backtest import backfill_range, session_expiries
+from zerodte.backtest.dc_time_machine.strategy import DcParams
+from zerodte.backtest.dc_time_machine.run_backtest import backfill_range, session_expiries
 
 
 def _df(rows):

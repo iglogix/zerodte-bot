@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from backtest_skyline import lookup, parity_spot, CACHE  # noqa: E402
-from src_v2.backtest.vix_loader import load_vix_series  # noqa: E402
+from zerodte.backtest.vix_loader import load_vix_series  # noqa: E402
 from economic_calendar import get_events_on_date  # noqa: E402
 
 FEAT = ROOT / "backtest_data" / "skyline_features.pkl"

@@ -1,5 +1,5 @@
 # tests/dc_time_machine/test_strategy.py
-from src_v2.backtest.dc_time_machine.strategy import DcParams
+from zerodte.backtest.dc_time_machine.strategy import DcParams
 
 
 def test_defaults_match_video_favorite():

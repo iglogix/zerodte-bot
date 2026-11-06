@@ -1,5 +1,5 @@
 """Tests for derive_spot_from_chain."""
-from src_v2.strategies.utils import derive_spot_from_chain
+from zerodte.strategies.utils import derive_spot_from_chain
 
 
 def _opt(strike, otype, bid, ask):

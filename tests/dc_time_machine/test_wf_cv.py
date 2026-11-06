@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from src_v2.backtest.dc_time_machine.wf_cv import split_folds, annualized_sharpe
+from zerodte.backtest.dc_time_machine.wf_cv import split_folds, annualized_sharpe
 
 
 def test_split_folds_ratio_and_count():

@@ -23,9 +23,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.databento_backfill import fetch_day_quotes
-from src_v2.backtest.databento_cost import CostLedger, estimate_request_cost
-from src_v2.backtest.osi_symbol import build_strike_window
+from zerodte.backtest.databento_backfill import fetch_day_quotes
+from zerodte.backtest.databento_cost import CostLedger, estimate_request_cost
+from zerodte.backtest.osi_symbol import build_strike_window
 
 ET = ZoneInfo("America/New_York")
 CACHE = Path("data/cbbo_cache")

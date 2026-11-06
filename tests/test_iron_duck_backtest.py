@@ -1,4 +1,4 @@
-"""Tests for the Iron Duck backtest engine (src_v2/backtest/iron_duck.py).
+"""Tests for the Iron Duck backtest engine (zerodte/backtest/iron_duck.py).
 
 Uses synthetic Black-76 chains so construction, gates, stop, settlement and
 sequential lifecycle are all verified against known closed-form values.
@@ -9,8 +9,8 @@ import math
 
 import pytest
 
-from src_v2.backtest.hedgehog import black_put
-from src_v2.backtest.iron_duck import (
+from zerodte.backtest.hedgehog import black_put
+from zerodte.backtest.iron_duck import (
     DuckParams,
     DuckTrade,
     IronDuckEngine,

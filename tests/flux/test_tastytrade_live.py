@@ -1,7 +1,7 @@
 from datetime import date
 
-from src_v2.backtest.osi_symbol import parse_osi
-from src_v2.flux.sources.tastytrade_live import TastyTradeLiveSource
+from zerodte.backtest.osi_symbol import parse_osi
+from zerodte.flux.sources.tastytrade_live import TastyTradeLiveSource
 
 SPOT = 7000.0
 

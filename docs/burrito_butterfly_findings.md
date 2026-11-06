@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14
 **Source strategy:** `docs/The-Iron-Duck-Options-Spread/The Burrito Butterfly Strategy.pdf` (thetaprofits.com / "Dan")
-**Engine:** `src_v2/backtest/burrito_core.py` + `burrito_clock.py`; runner `scripts/backtest_burrito.py`; sweep `scripts/wf_cv_burrito.py`
+**Engine:** `zerodte/backtest/burrito_core.py` + `burrito_clock.py`; runner `scripts/backtest_burrito.py`; sweep `scripts/wf_cv_burrito.py`
 **Data:** EOD NBBO SPXW chains `data/iron_duck_eod/SPXW/` (2020-01-03 → 2026-06-12, ~1,400 sessions)
 **Objective:** maximize Sharpe.
 

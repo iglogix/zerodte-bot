@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src_v2.backtest.databento_backfill import (
+from zerodte.backtest.databento_backfill import (
     fetch_day_quotes,
     build_request_window,
 )

@@ -22,7 +22,7 @@ class TestMaxConcurrentTrades:
     @pytest.mark.asyncio
     async def test_allows_trade_when_under_limit(self):
         """Test that new trade is allowed when under 10 concurrent ICs."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=5)
@@ -38,7 +38,7 @@ class TestMaxConcurrentTrades:
     @pytest.mark.asyncio
     async def test_blocks_trade_at_limit(self):
         """Test that new trade is blocked when at 10 concurrent ICs."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=10)
@@ -53,7 +53,7 @@ class TestMaxConcurrentTrades:
     @pytest.mark.asyncio
     async def test_blocks_trade_over_limit(self):
         """Test that new trade is blocked when over 10 concurrent ICs."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=12)
@@ -67,7 +67,7 @@ class TestMaxConcurrentTrades:
     @pytest.mark.asyncio
     async def test_count_only_open_trades(self):
         """Test that only open (not closed) trades are counted."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=3)
@@ -87,7 +87,7 @@ class TestDailyRiskLimit:
     @pytest.mark.asyncio
     async def test_allows_trade_within_risk_limit(self, sample_account_info):
         """Test that trade is allowed when within daily risk limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trades = AsyncMock(return_value=[])
@@ -112,7 +112,7 @@ class TestDailyRiskLimit:
     @pytest.mark.asyncio
     async def test_blocks_trade_exceeding_risk_limit(self, sample_account_info):
         """Test that trade is blocked when exceeding daily risk limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         existing_trades = [
             {"total_premium": 3.00, "status": "open"},
@@ -142,7 +142,7 @@ class TestDailyRiskLimit:
     @pytest.mark.asyncio
     async def test_calculates_worst_case_double_stop(self, sample_account_info):
         """Test that worst-case risk assumes double stop-loss (both sides trigger)."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         existing_trades = [
             {"total_premium": 3.00, "status": "open"},
@@ -167,7 +167,7 @@ class TestDailyRiskLimit:
     @pytest.mark.asyncio
     async def test_halts_new_entries_approaching_limit(self, sample_account_info):
         """Test that new entries are halted when approaching risk limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         max_risk = sample_account_info["equity"] * 0.02
         existing_risk = max_risk * 0.95
@@ -201,7 +201,7 @@ class TestBuyingPowerLimit:
     @pytest.mark.asyncio
     async def test_allows_trade_within_buying_power(self, sample_account_info):
         """Test that trade is allowed when within 50% buying power limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_account_info = AsyncMock(return_value=sample_account_info)
@@ -225,7 +225,7 @@ class TestBuyingPowerLimit:
     @pytest.mark.asyncio
     async def test_blocks_trade_exceeding_buying_power(self, sample_account_info):
         """Test that trade is blocked when exceeding 50% buying power limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_account_info = AsyncMock(return_value=sample_account_info)
@@ -249,7 +249,7 @@ class TestBuyingPowerLimit:
     @pytest.mark.asyncio
     async def test_accounts_for_existing_positions(self, sample_account_info):
         """Test that existing positions are accounted for in buying power."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         existing_trades = [
             {"buying_power_used": 15000.0, "status": "open"},
@@ -281,7 +281,7 @@ class TestStopLossCalculation:
     @pytest.mark.asyncio
     async def test_stop_loss_equals_total_premium(self):
         """Test that stop-loss amount equals total IC premium collected."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -295,7 +295,7 @@ class TestStopLossCalculation:
     @pytest.mark.asyncio
     async def test_stop_loss_separate_for_each_side(self):
         """Test that stop-loss is calculated separately for each side."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -310,7 +310,7 @@ class TestStopLossCalculation:
     @pytest.mark.asyncio
     async def test_oco_order_structure(self):
         """Test that OCO order structure is correct (stop-limit + stop-market)."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -330,7 +330,7 @@ class TestStopLossCalculation:
     @pytest.mark.asyncio
     async def test_stop_limit_40_point_gap(self):
         """Test that stop-limit has 40-point gap between trigger and limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -347,7 +347,7 @@ class TestStopLossCalculation:
     @pytest.mark.asyncio
     async def test_stop_market_30_points_further(self):
         """Test that stop-market is 30 points further than stop-limit."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -369,7 +369,7 @@ class TestTrailingStopAdjustment:
     @pytest.mark.asyncio
     async def test_tightens_stop_as_long_decays(self):
         """Test that stop is tightened as long option loses value."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -388,7 +388,7 @@ class TestTrailingStopAdjustment:
     @pytest.mark.asyncio
     async def test_ensures_breakeven_if_triggered(self):
         """Test that trailing stop ensures break-even if triggered."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -406,7 +406,7 @@ class TestTrailingStopAdjustment:
     @pytest.mark.asyncio
     async def test_no_adjustment_if_long_still_valuable(self):
         """Test that stop is not adjusted if long option still has value."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager()
         
@@ -429,7 +429,7 @@ class TestTakeProfitRules:
     @pytest.mark.asyncio
     async def test_close_at_5_cents(self):
         """Test that short option is closed when value decays to $0.05."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager(take_profit_threshold=0.05)
         
@@ -442,7 +442,7 @@ class TestTakeProfitRules:
     @pytest.mark.asyncio
     async def test_no_close_above_5_cents(self):
         """Test that short option is not closed when above $0.05."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager(take_profit_threshold=0.05)
         
@@ -455,7 +455,7 @@ class TestTakeProfitRules:
     @pytest.mark.asyncio
     async def test_close_below_5_cents(self):
         """Test that short option is closed when below $0.05."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         risk_manager = RiskManager(take_profit_threshold=0.05)
         
@@ -472,7 +472,7 @@ class TestRiskValidation:
     @pytest.mark.asyncio
     async def test_validates_all_risk_checks(self, sample_account_info):
         """Test that all risk checks are performed before trade entry."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=5)
@@ -502,7 +502,7 @@ class TestRiskValidation:
     @pytest.mark.asyncio
     async def test_fails_if_any_check_fails(self, sample_account_info):
         """Test that trade is blocked if any risk check fails."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=10)
@@ -530,7 +530,7 @@ class TestRiskValidation:
     @pytest.mark.asyncio
     async def test_returns_detailed_failure_reason(self, sample_account_info):
         """Test that detailed failure reason is returned."""
-        from src.services.risk_manager import RiskManager
+        from agentic_ic.services.risk_manager import RiskManager
         
         mock_db = AsyncMock()
         mock_db.get_open_trade_count = AsyncMock(return_value=10)

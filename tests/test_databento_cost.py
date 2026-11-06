@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src_v2.backtest.databento_cost import (
+from zerodte.backtest.databento_cost import (
     estimate_request_cost,
     CostLedger,
 )

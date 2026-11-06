@@ -8,8 +8,8 @@ import pytest
 from datetime import datetime, time
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-from src.services.order_fill_listener import FillEvent
-from src.services.position_monitor import PositionMonitor
+from agentic_ic.services.order_fill_listener import FillEvent
+from agentic_ic.services.position_monitor import PositionMonitor
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ class TestMonitorCycleIntegration:
             {"symbol": trade["short_put_symbol"]},
         ])
 
-        with patch("src.services.position_monitor.datetime") as mock_dt:
+        with patch("agentic_ic.services.position_monitor.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2025, 1, 17, 10, 30, 0)
             await monitor._run_cycle()
 
@@ -439,7 +439,7 @@ class TestMonitorCycleIntegration:
         q = asyncio.Queue()
         monitor = _make_monitor(fill_queue=q, trades=[])
 
-        with patch("src.services.position_monitor.datetime") as mock_dt:
+        with patch("agentic_ic.services.position_monitor.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2025, 1, 17, 10, 30, 0)
             await monitor._run_cycle()
 

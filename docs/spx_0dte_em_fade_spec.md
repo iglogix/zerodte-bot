@@ -69,7 +69,7 @@ beyond the rule set itself.
 | SPX 0DTE option NBBO, 1-min, both sides | **`data/cbbo_cache_fly_10min/`** — 1022 day-files, 2022-05-11 → 2026-06-11, keyed `(minute, strike, is_put) → (bid, ask)`; median **389 minutes** (09:31–15:59) × **99 strikes** at 5-pt spacing spanning **505 pts** | already paid |
 | Intraday SPX spot | `CbboStore.derive_spot()` — put-call parity off the same cache, minute by minute | free |
 | Signal bars | `BarLoader` (SPY 1-min) — used only where the engine already uses it; parity spot is authoritative for band logic | free |
-| IV / delta | `src_v2/flux/iv_compute.compute_iv_rows` — per-strike IV inverted from that strike's OWN mid, then `bs_delta` | free |
+| IV / delta | `zerodte/flux/iv_compute.compute_iv_rows` — per-strike IV inverted from that strike's OWN mid, then `bs_delta` | free |
 
 **Coverage verified** (86-day sample across the span): 1 day short of 380
 minutes, none short on strikes. Span ±~250 pts ≈ ±3.8% at SPX 6700 — comfortably

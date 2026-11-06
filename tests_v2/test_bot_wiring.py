@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from argparse import Namespace
 
-from src_v2.main import BotOrchestrator, _resolve_mode
+from zerodte.main import BotOrchestrator, _resolve_mode
 
 
 class TestModeResolution:
@@ -38,21 +38,21 @@ class TestModeResolution:
 
 class TestStrategyCreation:
     def test_creates_iron_condor(self):
-        from src_v2.strategies.iron_condor import IronCondorStrategy
+        from zerodte.strategies.iron_condor import IronCondorStrategy
         config = {"bot": {"strategy": "iron_condor"}, "strategy": {}}
         bot = BotOrchestrator(config, mode="dry_run")
         s = bot._create_strategy("iron_condor")
         assert isinstance(s, IronCondorStrategy)
 
     def test_creates_iron_fly(self):
-        from src_v2.strategies.iron_fly import IronFlyStrategy
+        from zerodte.strategies.iron_fly import IronFlyStrategy
         config = {"bot": {"strategy": "iron_fly"}, "options": {}}
         bot = BotOrchestrator(config, mode="dry_run")
         s = bot._create_strategy("iron_fly")
         assert isinstance(s, IronFlyStrategy)
 
     def test_unknown_defaults_to_ic(self):
-        from src_v2.strategies.iron_condor import IronCondorStrategy
+        from zerodte.strategies.iron_condor import IronCondorStrategy
         config = {"bot": {"strategy": "unknown_thing"}, "strategy": {}}
         bot = BotOrchestrator(config, mode="dry_run")
         s = bot._create_strategy("unknown_thing")
@@ -101,8 +101,8 @@ class TestEngineStrategyWiring:
     @pytest.mark.asyncio
     async def test_engine_receives_strategy(self):
         """DecisionEngine must have a strategy attribute after init."""
-        from src_v2.agent.decision_engine import DecisionEngine
-        from src_v2.strategies.iron_fly import IronFlyStrategy
+        from zerodte.agent.decision_engine import DecisionEngine
+        from zerodte.strategies.iron_fly import IronFlyStrategy
 
         strategy = IronFlyStrategy()
         strategy.configure({"options": {}})
@@ -117,8 +117,8 @@ class TestEngineStrategyWiring:
     @pytest.mark.asyncio
     async def test_monitor_receives_strategy(self):
         """PositionMonitor must have a strategy attribute after init."""
-        from src_v2.services.position_monitor import PositionMonitor
-        from src_v2.strategies.iron_fly import IronFlyStrategy
+        from zerodte.services.position_monitor import PositionMonitor
+        from zerodte.strategies.iron_fly import IronFlyStrategy
 
         strategy = IronFlyStrategy()
         strategy.configure({"options": {}})

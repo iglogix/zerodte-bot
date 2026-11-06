@@ -14,7 +14,7 @@ import json
 from dataclasses import fields
 from pathlib import Path
 
-from src_v2.backtest.hedgehog import (
+from zerodte.backtest.hedgehog import (
     HedgeHogEngine,
     HedgeHogStore,
     HhParams,

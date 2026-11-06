@@ -25,7 +25,7 @@ class TestGetSpxPrice:
     @pytest.mark.asyncio
     async def test_returns_cached_price_when_valid(self, sample_spx_price):
         """Test that cached price is returned when cache is valid."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_quote = AsyncMock(return_value={"price": sample_spx_price})
@@ -41,7 +41,7 @@ class TestGetSpxPrice:
     @pytest.mark.asyncio
     async def test_fetches_live_price_when_cache_expired(self, sample_spx_price):
         """Test that live price is fetched when cache is expired."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_quote = AsyncMock(return_value=None)
@@ -61,7 +61,7 @@ class TestGetSpxPrice:
     @pytest.mark.asyncio
     async def test_returns_error_on_api_failure(self):
         """Test that error is returned when API fails."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_quote = AsyncMock(return_value=None)
@@ -83,7 +83,7 @@ class TestGetOptionChain:
     @pytest.mark.asyncio
     async def test_filters_0dte_options(self, sample_option_chain):
         """Test that only 0DTE options are returned."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=sample_option_chain)
@@ -102,7 +102,7 @@ class TestGetOptionChain:
     @pytest.mark.asyncio
     async def test_returns_greeks_for_all_options(self, sample_option_chain):
         """Test that Greeks are included for all options."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=sample_option_chain)
@@ -120,7 +120,7 @@ class TestGetOptionChain:
     @pytest.mark.asyncio
     async def test_filters_by_delta_range(self, sample_option_chain):
         """Test filtering options by delta range (10-15 delta)."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_option_chain_with_fallback = AsyncMock(return_value=sample_option_chain)
@@ -140,7 +140,7 @@ class TestGet5minCandles:
     @pytest.mark.asyncio
     async def test_returns_last_n_candles(self, sample_5min_candles):
         """Test that last N candles are returned."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_5min_candles = AsyncMock(return_value=sample_5min_candles[-3:])
@@ -155,7 +155,7 @@ class TestGet5minCandles:
     @pytest.mark.asyncio
     async def test_candles_have_required_fields(self, sample_5min_candles):
         """Test that candles have all required OHLCV fields."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_5min_candles = AsyncMock(return_value=sample_5min_candles)
@@ -175,7 +175,7 @@ class TestGet5minCandles:
     @pytest.mark.asyncio
     async def test_candles_ordered_by_timestamp(self, sample_5min_candles):
         """Test that candles are ordered by timestamp (oldest first)."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_5min_candles = AsyncMock(return_value=sample_5min_candles)
@@ -194,7 +194,7 @@ class TestPlaceIronCondor:
     @pytest.mark.asyncio
     async def test_validates_4_legs(self):
         """Test that iron condor requires exactly 4 legs."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         handlers = ToolHandlers(api_client=mock_api)
@@ -212,7 +212,7 @@ class TestPlaceIronCondor:
     @pytest.mark.asyncio
     async def test_validates_strike_order(self):
         """Test that strikes are validated (long_put < short_put < short_call < long_call)."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         handlers = ToolHandlers(api_client=mock_api)
@@ -231,7 +231,7 @@ class TestPlaceIronCondor:
     @pytest.mark.asyncio
     async def test_returns_order_id_on_success(self):
         """Test that order ID is returned on successful placement."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock(return_value={"order_id": "IC-20240222-001"})
@@ -252,7 +252,7 @@ class TestPlaceIronCondor:
     @pytest.mark.asyncio
     async def test_dry_run_does_not_execute(self):
         """Test that dry run mode does not actually place orders."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock()
@@ -277,7 +277,7 @@ class TestPlaceStopOrder:
     @pytest.mark.asyncio
     async def test_creates_oco_structure(self):
         """Test that OCO order structure is created."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_oco_order = AsyncMock(return_value={
@@ -300,7 +300,7 @@ class TestPlaceStopOrder:
     @pytest.mark.asyncio
     async def test_stop_limit_with_40_point_gap(self):
         """Test that stop-limit has 40-point gap between trigger and limit."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_oco_order = AsyncMock(return_value={"orders": []})
@@ -320,7 +320,7 @@ class TestPlaceStopOrder:
     @pytest.mark.asyncio
     async def test_stop_market_30_points_further(self):
         """Test that stop-market is 30 points further than stop-limit."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_oco_order = AsyncMock(return_value={"orders": []})
@@ -343,7 +343,7 @@ class TestGetOpenPositions:
     @pytest.mark.asyncio
     async def test_returns_active_iron_condors(self, temp_db_path, sample_iron_condor_trade):
         """Test that only active iron condors are returned."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_db = AsyncMock()
         mock_db.get_open_trades = AsyncMock(return_value=[sample_iron_condor_trade])
@@ -358,7 +358,7 @@ class TestGetOpenPositions:
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_positions(self):
         """Test that empty list is returned when no positions exist."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_db = AsyncMock()
         mock_db.get_open_trades = AsyncMock(return_value=[])
@@ -372,7 +372,7 @@ class TestGetOpenPositions:
     @pytest.mark.asyncio
     async def test_includes_pnl_for_each_position(self, sample_iron_condor_trade):
         """Test that P&L is included for each position."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         trade_with_pnl = {**sample_iron_condor_trade, "unrealized_pnl": 50.0}
         
@@ -392,7 +392,7 @@ class TestCheckBuyingPower:
     @pytest.mark.asyncio
     async def test_enforces_50_percent_limit(self, sample_account_info):
         """Test that 50% buying power limit is enforced."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_account_info = AsyncMock(return_value=sample_account_info)
@@ -407,7 +407,7 @@ class TestCheckBuyingPower:
     @pytest.mark.asyncio
     async def test_allows_within_limit(self, sample_account_info):
         """Test that trades within 50% limit are allowed."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_account_info = AsyncMock(return_value=sample_account_info)
@@ -421,7 +421,7 @@ class TestCheckBuyingPower:
     @pytest.mark.asyncio
     async def test_returns_available_buying_power(self, sample_account_info):
         """Test that available buying power is returned."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_cached_account_info = AsyncMock(return_value=sample_account_info)
@@ -441,7 +441,7 @@ class TestGetAccountInfo:
     @pytest.mark.asyncio
     async def test_returns_account_details(self, sample_account_info):
         """Test that account details are returned."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_cache = AsyncMock()
         mock_cache.get_account_info_with_fallback = AsyncMock(return_value=sample_account_info)
@@ -461,7 +461,7 @@ class TestPlaceCreditSpread:
     @pytest.mark.asyncio
     async def test_places_call_credit_spread(self):
         """Test placing a call credit spread."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock(return_value={"order_id": "CS-001"})
@@ -480,7 +480,7 @@ class TestPlaceCreditSpread:
     @pytest.mark.asyncio
     async def test_places_put_credit_spread(self):
         """Test placing a put credit spread."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock(return_value={"order_id": "CS-002"})
@@ -503,7 +503,7 @@ class TestClosePosition:
     @pytest.mark.asyncio
     async def test_closes_specific_leg(self):
         """Test closing a specific leg of a position."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock(return_value={"order_id": "CL-001"})
@@ -521,7 +521,7 @@ class TestClosePosition:
     @pytest.mark.asyncio
     async def test_closes_entire_iron_condor(self):
         """Test closing an entire iron condor."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.place_order = AsyncMock(return_value={"order_id": "CL-002"})
@@ -542,7 +542,7 @@ class TestCancelOrder:
     @pytest.mark.asyncio
     async def test_cancels_pending_order(self):
         """Test cancelling a pending order."""
-        from src.agent.tool_handlers import ToolHandlers
+        from agentic_ic.agent.tool_handlers import ToolHandlers
         
         mock_api = AsyncMock()
         mock_api.cancel_order = AsyncMock(return_value={"status": "cancelled"})

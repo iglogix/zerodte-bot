@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src_8am.config_keys import require
-from src_8am.services.orb_options_service import OrbOptionsService
+from es_8am.config_keys import require
+from es_8am.services.orb_options_service import OrbOptionsService
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS = sorted(glob.glob(str(ROOT / "config" / "config_8am*.yaml")))

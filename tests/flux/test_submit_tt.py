@@ -4,8 +4,8 @@ Validates that combo → one complex order, leg-in → per-leg orders with longs
 leg's own mid, manual → refusal, and broker errors surface as ok=False."""
 from datetime import date
 
-from src_v2.flux.orders import OrderLeg, OrderTicket
-from src_v2.flux.submit import TastyTradeSubmitter
+from zerodte.flux.orders import OrderLeg, OrderTicket
+from zerodte.flux.submit import TastyTradeSubmitter
 
 
 def _ticket():

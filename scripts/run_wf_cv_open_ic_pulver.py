@@ -21,10 +21,10 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.wf_optimizer import WalkForwardOptimizer
-from src_v2.strategies.open_ic import OpenIcStrategy
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.wf_optimizer import WalkForwardOptimizer
+from zerodte.strategies.open_ic import OpenIcStrategy
 
 
 # Robust plateau from the full-period sweep (in-sample). sl_scope=total per the

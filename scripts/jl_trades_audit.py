@@ -24,8 +24,8 @@ from datetime import date, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest import jl_core as jl
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest import jl_core as jl
 
 ENTRY = "09:31"
 ANCHORS = [ENTRY] + [f"{h:02d}:{m:02d}" for h in range(9, 16)

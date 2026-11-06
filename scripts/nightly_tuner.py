@@ -200,7 +200,7 @@ async def run_tuner(
     lookback_days: int = 14,
 ):
     import yaml
-    from src.services.llm_client import LLMClient
+    from agentic_ic.services.llm_client import LLMClient
 
     # Load config for current thresholds
     current_config: Dict[str, Any] = {}

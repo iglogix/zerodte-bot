@@ -1,6 +1,6 @@
 import math
 
-from src_v2.backtest import gex
+from zerodte.backtest import gex
 
 
 def test_bs_gamma_peaks_atm_and_nonneg():

@@ -8,9 +8,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.agent.tool_handlers import ToolHandlers
-from src_v2.services.db_service import DatabaseService
-from src_v2.strategies.power_hour import PowerHourStrategy
+from zerodte.agent.tool_handlers import ToolHandlers
+from zerodte.services.db_service import DatabaseService
+from zerodte.strategies.power_hour import PowerHourStrategy
 
 ET = ZoneInfo("America/New_York")
 

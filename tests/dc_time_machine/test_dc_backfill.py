@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src_v2.backtest.dc_time_machine.dc_backfill import fetch_expiry_session
+from zerodte.backtest.dc_time_machine.dc_backfill import fetch_expiry_session
 
 
 def _df(rows):

@@ -3,13 +3,13 @@
 **Date:** 2026-04-13
 **Strategy:** `orb_em_ic` (SPX 0DTE bias-adaptive iron condor)
 **Data:** SPY 1-min bars + SPX CBBO 1-min quotes, 2025-09-22 → 2026-03-20 (125 days)
-**Framework:** `src_v2/backtest/` orchestrator running real OrbEngine + PositionMonitor + LiveStrategy
+**Framework:** `zerodte/backtest/` orchestrator running real OrbEngine + PositionMonitor + LiveStrategy
 
 ## Baseline: Original config params fail under accurate backtest
 
 **Params (pre-optimization):** em_with=0.5, em_against=0.75, width_with=5, width_against=10, tp_pct=0.5
 
-| | src_8am | src_v2 (accurate) |
+| | es_8am | zerodte (accurate) |
 |---|---|---|
 | Trades | 72 | 72 |
 | Win Rate | 93.1% | 70.8% |
@@ -17,7 +17,7 @@
 | Sharpe | 14.44 | −3.12 |
 | Profit Factor | 4.35 | 0.73 |
 
-**Why src_8am was wrong:**
+**Why es_8am was wrong:**
 1. Used SPY×10 bar highs for breach detection (~50pt below true SPX spot, no dividend adjustment)
 2. Marked all EOD exits as "expired_worthless" $0 debit, even when ITM
 

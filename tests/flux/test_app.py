@@ -1,9 +1,9 @@
 # tests/flux/test_app.py
 from datetime import date, datetime, timezone
 
-from src_v2.flux.models import OptionRow, ChainSnapshot
-from src_v2.flux.sources.base import FluxSource
-from src_v2.flux.app import create_app
+from zerodte.flux.models import OptionRow, ChainSnapshot
+from zerodte.flux.sources.base import FluxSource
+from zerodte.flux.app import create_app
 
 
 class FakeSource(FluxSource):

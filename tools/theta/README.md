@@ -5,7 +5,7 @@ Independent validation of the SPX 0DTE **MEIC** backtest (`results/meic_spx/trad
 out of it. Everything here is read-only analysis driven off the project's own data
 (`data/cbbo_cache_meic/*.pkl`, `data/vix9d_daily.csv`) and, optionally, an independent
 ThetaData feed. The one production change this work produced is the **dislocation entry
-guard** in `src_v2/strategies/meic.py` (+ `config_meic_spx.yaml`).
+guard** in `zerodte/strategies/meic.py` (+ `config_meic_spx.yaml`).
 
 ## TL;DR — what we learned
 

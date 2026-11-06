@@ -30,7 +30,7 @@ rather than quietly folded in: the touch-definition correction (§1, §5) and th
 control-basis correction (§5). They changed the conclusion twice.
 
 - Claim source: YouTube `jvlGGTVE234`, Jamal Gi — spec in [spx_0dte_em_fade_spec.md](spx_0dte_em_fade_spec.md)
-- Engine: [em_fade_core.py](../src_v2/backtest/em_fade_core.py) + [noarb.py](../src_v2/backtest/noarb.py)
+- Engine: [em_fade_core.py](../zerodte/backtest/em_fade_core.py) + [noarb.py](../zerodte/backtest/noarb.py)
 - Driver: [backtest_em_fade.py](../scripts/backtest_em_fade.py) · tests: [test_em_fade_core.py](../tests/test_em_fade_core.py)
 - Data: `data/cbbo_cache_fly_10min/` — 1,022 day files, real CBBO, **2022-05-11 → 2026-06-11**. Zero new spend.
 
@@ -431,12 +431,12 @@ demonstrable fade edge; neither establishes a strongly negative one.
 
 ## 13. Scope deviations
 
-1. **No `src_v2/strategies/em_fade.py` or live config.** The plan routed this
+1. **No `zerodte/strategies/em_fade.py` or live config.** The plan routed this
    through `BacktestOrchestrator`/`PositionMonitor`, which fires exits on the
    first mark whose *mid* crosses the target (B2) and cannot express "a resting TP
    limit fills when the ask reaches it, at the limit" or "a stop-market fills
    worse than its trigger". A purpose-built minute-resolution path engine was
-   written instead. It reuses `src_v2` rather than forking it: `CbboStore` for
+   written instead. It reuses `zerodte` rather than forking it: `CbboStore` for
    quotes, `flux/iv_compute.parity_spot` for the spot definition,
    `flux/iv_compute.compute_iv_rows` for per-strike IV + delta, and
    `backtest/vix_loader` for the regime split — all **delegated, not

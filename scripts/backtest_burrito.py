@@ -10,8 +10,8 @@ import json
 import os
 from dataclasses import asdict
 
-from src_v2.backtest.iron_duck import DuckStore
-from src_v2.backtest.burrito_core import BurritoConfig, run_history, summarize_burrito
+from zerodte.backtest.iron_duck import DuckStore
+from zerodte.backtest.burrito_core import BurritoConfig, run_history, summarize_burrito
 
 
 def main():

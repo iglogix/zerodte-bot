@@ -1,4 +1,4 @@
-"""Tests for src_v2.backtest.cbbo_store."""
+"""Tests for zerodte.backtest.cbbo_store."""
 
 import pickle
 from datetime import date
@@ -31,7 +31,7 @@ def cbbo_cache(tmp_path):
 
 
 def test_load_day(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     n = store.load_day(date(2025, 10, 1))
     assert n == 12
@@ -39,7 +39,7 @@ def test_load_day(cbbo_cache):
 
 
 def test_lookup(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
     bid, ask = store.lookup("09:45", 5900.0, False)
@@ -49,7 +49,7 @@ def test_lookup(cbbo_cache):
 
 
 def test_lookup_stale_fallback(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
     result = store.lookup("09:46", 5900.0, False, max_stale_minutes=5)
@@ -57,7 +57,7 @@ def test_lookup_stale_fallback(cbbo_cache):
 
 
 def test_atm_straddle(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
     em = store.atm_straddle("09:45", spot=5925.0)
@@ -65,7 +65,7 @@ def test_atm_straddle(cbbo_cache):
 
 
 def test_derive_spot(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
     spot = store.derive_spot("09:45", bar_price=5925.0)
@@ -73,7 +73,7 @@ def test_derive_spot(cbbo_cache):
 
 
 def test_available_strikes(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))
     assert 5900.0 in store.available_strikes
@@ -81,7 +81,7 @@ def test_available_strikes(cbbo_cache):
 
 
 def test_preload_cache(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     mem = CbboStore.preload_cache(cbbo_cache)
     assert date(2025, 10, 1) in mem
     store = CbboStore(cbbo_cache, preloaded=mem)
@@ -90,7 +90,7 @@ def test_preload_cache(cbbo_cache):
 
 
 def test_load_missing_day(cbbo_cache):
-    from src_v2.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.cbbo_store import CbboStore
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     n = store.load_day(date(2099, 1, 1))
     assert n == 0

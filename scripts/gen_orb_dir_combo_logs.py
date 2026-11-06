@@ -2,7 +2,7 @@
 walk-forward METHOD validation (docs/wf-cv.md). Single with-trend credit spread
 (PCS on long breakout / CCS on short) after ORB retest.
 
-This re-runs the old src_8am "directional worst-case (0.20Δ, 15pt)" optimizer
+This re-runs the old es_8am "directional worst-case (0.20Δ, 15pt)" optimizer
 winner — which was BS-priced fiction — on REAL CBBO quotes over the full span.
 Strike placement is em_mult (model-free); em_mult≈0.5 lands near 0.20Δ (verified).
 
@@ -30,10 +30,10 @@ import yaml
 logging.disable(logging.WARNING)  # silence per-trade [STOP-LOSS]/[EOD] spam
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 
 OUT = Path("results/orb_em_dir_wf")
 _DAYS = None

@@ -18,8 +18,8 @@ from scipy.optimize import brentq
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.services.tastytrade_client import TastyTradeClient
-from src_8am.utils.contract_utils import get_dxlink_symbol
+from agentic_ic.services.tastytrade_client import TastyTradeClient
+from es_8am.utils.contract_utils import get_dxlink_symbol
 
 ET = ZoneInfo("America/New_York")
 

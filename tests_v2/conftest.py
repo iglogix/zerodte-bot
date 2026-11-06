@@ -1,4 +1,4 @@
-"""Shared fixtures for src_v2 tests."""
+"""Shared fixtures for zerodte tests."""
 
 from __future__ import annotations
 

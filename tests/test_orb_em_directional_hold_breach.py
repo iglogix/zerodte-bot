@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src_v2.strategies.orb_em_directional import OrbEmDirectionalStrategy
+from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 
 
 def _build_config(hold_put: bool = False, hold_call: bool = False) -> dict:

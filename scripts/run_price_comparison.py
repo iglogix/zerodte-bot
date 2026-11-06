@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv; load_dotenv()
 
-from src.services.tastytrade_client import TastyTradeClient
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 from scripts.train_price_ann import PriceANN
 
 ET = ZoneInfo("America/New_York")

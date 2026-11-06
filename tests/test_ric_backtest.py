@@ -1,5 +1,5 @@
 """Regression tests for the Reverse Iron Condor backtest engine
-(src_v2/backtest/reverse_ic.py).
+(zerodte/backtest/reverse_ic.py).
 
 Synthetic Black-Scholes chains over a spot path verify the spec mechanics from
 docs/0DTE-Reverse-Iron-Condor-Strategy.md: the parity-based gap gate (flat and
@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.reverse_ic import RicEngine
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.reverse_ic import RicEngine
 
 ET = ZoneInfo("America/New_York")
 

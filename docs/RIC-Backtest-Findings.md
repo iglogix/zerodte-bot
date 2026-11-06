@@ -2,7 +2,7 @@
 
 Backtest of `docs/0DTE-Reverse-Iron-Condor-Strategy.md` over the SPX fly cache
 (952 sessions, 2022-05-11 → 2026-02-27, 1-min CBBO). Engine:
-`src_v2/backtest/reverse_ic.py`, runner: `scripts/backtest_reverse_ic.py`,
+`zerodte/backtest/reverse_ic.py`, runner: `scripts/backtest_reverse_ic.py`,
 trades/reports under `results/ric_spx/`.
 
 ## Headline
@@ -142,7 +142,7 @@ held-out next window. OOS span covers 2024-06 → 2026-02.
 
 ## Live bot
 
-`src_v2/strategies/reverse_ic.py` (ScheduledEngine, 09:33 window) +
+`zerodte/strategies/reverse_ic.py` (ScheduledEngine, 09:33 window) +
 `config/config_ric_live.yaml` — production-candidate parameters: scale-out
 ½@+20% / ¼@+30% / ¼ runner, VIX floor 15, gap ≥0.25%, no stop,
 eod_close_time 15:59 (runner rides to cash settlement). Graduate

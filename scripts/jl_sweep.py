@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.analytical_jl_eval import load_by_date
-from src_v2.backtest import jl_core as jl
+from zerodte.backtest import jl_core as jl
 
 ENTRY = "09:31"
 ANCHORS = [ENTRY] + [f"{h:02d}:{m:02d}" for h in range(9, 16)

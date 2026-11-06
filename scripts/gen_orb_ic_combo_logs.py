@@ -31,10 +31,10 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src_v2.backtest.cbbo_store import CbboStore
-from src_v2.backtest.data_loader import BarLoader
-from src_v2.backtest.orchestrator import BacktestOrchestrator
-from src_v2.strategies.orb_em_ic import OrbEmIronCondorStrategy
+from zerodte.backtest.cbbo_store import CbboStore
+from zerodte.backtest.data_loader import BarLoader
+from zerodte.backtest.orchestrator import BacktestOrchestrator
+from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
 OUT = Path("results/orb_em_ic_wf")
 

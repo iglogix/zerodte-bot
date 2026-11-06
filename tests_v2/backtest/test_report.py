@@ -1,11 +1,11 @@
-"""Tests for src_v2.backtest.report."""
+"""Tests for zerodte.backtest.report."""
 
 from datetime import date
 import pytest
 
 
 def _make_result(**overrides):
-    from src_v2.backtest.engine import BacktestResult
+    from zerodte.backtest.engine import BacktestResult
     defaults = dict(
         trade_id="T1", session_date=date(2025, 10, 1), symbol="SPX",
         orb_high=5930, orb_low=5920, orb_midline=5925, orb_range_pts=10,
@@ -16,14 +16,14 @@ def _make_result(**overrides):
 
 
 def test_empty_report():
-    from src_v2.backtest.report import generate_report
+    from zerodte.backtest.report import generate_report
     report = generate_report([])
     assert report["trades_placed"] == 0
     assert report["win_rate"] == 0.0
 
 
 def test_basic_stats():
-    from src_v2.backtest.report import generate_report
+    from zerodte.backtest.report import generate_report
 
     results = [
         _make_result(trade_id="T1", realized_pnl_usd=100.0, exit_reason="tp_50pct",
@@ -51,7 +51,7 @@ def test_basic_stats():
 
 
 def test_worst_day_aggregates_same_day_losses():
-    from src_v2.backtest.report import generate_report
+    from zerodte.backtest.report import generate_report
     # Three losing legs on ONE day should aggregate into the worst-day metric,
     # even though no single trade is that large.
     results = [
@@ -70,7 +70,7 @@ def test_worst_day_aggregates_same_day_losses():
 
 
 def test_sharpe_calculation():
-    from src_v2.backtest.report import generate_report
+    from zerodte.backtest.report import generate_report
 
     results = [
         _make_result(trade_id="T1", session_date=date(2025, 10, 1),
@@ -85,7 +85,7 @@ def test_sharpe_calculation():
 
 
 def test_skipped_results():
-    from src_v2.backtest.report import generate_report
+    from zerodte.backtest.report import generate_report
 
     results = [
         _make_result(trade_id="S1", status="skipped", skip_reason="no_breakout"),
