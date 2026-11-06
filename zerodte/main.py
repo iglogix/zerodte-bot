@@ -2,9 +2,9 @@
 0DTE Iron Condor Trading Bot — main entry point.
 
 Usage:
-  python -m agentic_ic.main            # dry-run mode (default)
-  python -m agentic_ic.main --live     # live trading mode
-  python -m agentic_ic.main --once     # run one cycle and exit
+  python -m zerodte.main            # dry-run mode (default)
+  python -m zerodte.main --live     # live trading mode
+  python -m zerodte.main --once     # run one cycle and exit
 """
 
 from __future__ import annotations
@@ -460,12 +460,12 @@ def main():
         epilog="""Mode priority: CLI flag > BOT_MODE env var > config.yaml bot.mode
 
 Examples:
-  python -m agentic_ic.main                  # dry-run (default)
-  python -m agentic_ic.main --manual         # live data, orders generated but NOT submitted
-  python -m agentic_ic.main --sandbox        # TastyTrade cert environment
-  python -m agentic_ic.main --live           # TastyTrade production
-  python -m agentic_ic.main --alpaca         # TT market data, orders to Alpaca paper
-  python -m agentic_ic.main --manual --once  # one manual cycle""",
+  python -m zerodte.main                  # dry-run (default)
+  python -m zerodte.main --manual         # live data, orders generated but NOT submitted
+  python -m zerodte.main --sandbox        # TastyTrade cert environment
+  python -m zerodte.main --live           # TastyTrade production
+  python -m zerodte.main --alpaca         # TT market data, orders to Alpaca paper
+  python -m zerodte.main --manual --once  # one manual cycle""",
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
