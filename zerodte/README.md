@@ -33,7 +33,7 @@ Set in config YAML:
 
 ```yaml
 bot:
-  strategy: "iron_condor"   # or "iron_fly", "orb_em_ic", or "meic"
+  strategy: "iron_condor"   # or "iron_fly", "orb_em_ic", "orb_em_directional", "meic", "power_hour", "reverse_ic"
 ```
 
 ## Architecture
@@ -148,6 +148,6 @@ For a new entry pattern, create a new engine class extending `BaseEngine` and re
 ## Tests
 
 ```bash
-python -m pytest tests_v2/ -v          # 117 strategy + engine tests
+python -m pytest tests_v2/ -v          # 227 strategy + engine tests
 python -m pytest tests_locked/ -v      # locked tests (agentic_ic/ unchanged)
 ```
