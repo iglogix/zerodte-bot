@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-03
 - **Status:** Approved for planning
-- **Source strategy:** Ernie Varitimos / Fat Tail "Asymmetric 0DTE Butterfly" (deck `docs/E048_Adjust_Butterfly_Width_R2R_4.pptx`, plus 0-dte.com / fattail.ai published rules)
+- **Source strategy:** Ernie Varitimos / Fat Tail "Asymmetric 0DTE Butterfly" (slide deck, not published, plus 0-dte.com / fattail.ai published rules)
 - **Closest existing analog:** Jade Lizard backtest (`src_v2/backtest/jl_core.py` + `scripts/analytical_jl_eval.py`)
 
 ---
@@ -154,7 +154,7 @@ Reuse the JL model adapted to 4 legs:
 
 ## 13. Sources
 
-- Deck: `docs/E048_Adjust_Butterfly_Width_R2R_4.pptx`
+- Deck: Fat Tail slide deck (not published)
 - https://0-dte.com/0dte-asymmetric-strategy/classic-otm-butterfly/ (Hull-MA direction, VIX→width, trailing-stop rule)
 - https://0-dte.com/review-of-the-0dte-otm-butterfly-trading-strategy/
 - https://ippei.com/ernie-varitimos/ (win rate 45–65%, avg return ~180% of risk, "far from foolproof")

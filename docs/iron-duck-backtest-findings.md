@@ -1,6 +1,6 @@
 # Iron Duck (Broken-Skewed Iron Condor) — SPX Backtest Findings
 
-**Strategy source:** `docs/The-Iron-Duck-Options-Spread/The-Iron-Duck-Options-Spread-Strategy.md`
+**Strategy source:** the course's Iron Duck strategy spec (not published)
 (NavigationTrading "Iron Duck" course; instructor's own Option Omega results on deck p.31-38).
 
 **Status:** COMPLETE (2026-06-12).

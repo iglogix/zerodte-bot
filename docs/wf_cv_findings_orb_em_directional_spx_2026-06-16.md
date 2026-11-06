@@ -4,7 +4,7 @@
 breakout / CCS on short — after ORB retest). Re-runs the old es_8am
 **"directional worst-case (0.20Δ, 15pt)"** optimizer winner on REAL CBBO.
 **Original (BS-priced):** WR 92.9%, Sharpe 12.90, PF 5.22, +$12,460/contract
-(`docs`/[[project_worstcase_optimization]], 2026-03-27) — `pricing_model: bs`.
+(the earlier worst-case optimization study, 2026-03-27) — `pricing_model: bs`.
 **Data:** SPY 1-min signal + SPX CBBO 1-min, 2022-05 → 2026-06-11 (501 trade-days).
 **Method:** three-tier WF METHOD validation (`scripts/run_wf_method_strategy.py`).
 
@@ -78,7 +78,7 @@ for c in "100 50" "130 65" "160 80"; do set -- $c; \
     --baseline ew0.5_w15_tp0.75_me0_hpb1_midline --train-days $1 --test-days $2; done
 ```
 
-Supersedes the BS-priced [[project_worstcase_optimization]] directional result.
+Supersedes the BS-priced worst-case-optimization directional result.
 Companion to `docs/wf_cv_findings_orb_em_ic_spx_2026-06-16.md` (ORB IC, also refuted).
 
 ---
@@ -125,11 +125,11 @@ Re-running the breakout pool at mtol=3.0 (`results/orb_em_dir_bo_mt3/`, 96 combo
   NOT carry the edge. Modeled realistic round-trip cost ≈ $0.12–0.18/spread; the edge
   breaks only near ~$0.50/spread flat (≈$50/trade, ~3× realistic). Comfortable margin.
   Residual unmodeled: breach-exit execution latency (full-ask crossing partly covers
-  it); confirm live SPX 0DTE fills before scaling ([[feedback_slippage_liquidity]]).
+  it); confirm live SPX 0DTE fills before scaling (fill-realism caveat).
 
 **Revised verdict:** the NAMED worst-case (midline) directional is refuted, BUT the
 **breakout-retest directional at config settings (mtol=3.0, min_em=20) is a genuine,
 persistent OOS edge** (Sharpe ~1–2 untouched-test, +4/5 yrs) — the only survivor of the
 8AM ORB family. Caveats: needs ≤$0.25/spread fills; 2026 partial soft (watch decay);
-breach-exit fill realism still wants a live study ([[feedback_slippage_liquidity]]).
+breach-exit fill realism still wants a live study (fill-realism caveat).
 Reproduce: `gen_orb_dir_combo_logs.py --retest breakout_level --mtol 3.0 --out results/orb_em_dir_bo_mt3`.

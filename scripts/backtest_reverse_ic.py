@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Backtest: 0-DTE SPX "Reverse Iron Condor" (docs/0DTE-Reverse-Iron-Condor-Strategy.md).
+Backtest: 0-DTE SPX "Reverse Iron Condor" (course strategy spec, not published).
 
 Long asymmetric condor near the open on gap-up (>= 0.25%) days: buy the
 50-delta call (+20pt short wing) and the 35-delta put (-35pt short wing) for a

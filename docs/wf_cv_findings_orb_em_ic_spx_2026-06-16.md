@@ -108,7 +108,7 @@ for c in "80 40" "100 50" "130 65"; do set -- $c; \
 ## Put-dominance claim ("puts 84W/0L flawless") — REFUTED (per-side decomposition)
 
 The es_8am CBBO IC reported the put leg as 84W/0L (+$11,696), Sharpe 14.6
-([[project_cbbo_backtest]]). That was the es_8am **EOD-mislabeling bug**: with
+(the earlier CBBO backtest). That was the es_8am **EOD-mislabeling bug**: with
 `hold_put_breach=True` a breached put rides to EOD, and es_8am booked the ITM ones
 as $0 ("expired_worthless"). The zerodte orchestrator emits one result per side
 (`spread_type` = put_/call_credit_spread) with real intrinsic booking. Canonical IC

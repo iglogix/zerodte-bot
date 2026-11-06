@@ -1,7 +1,7 @@
 # Volume-Profile Opening-Range Breakout (FRVP-ORB) — Backtest & Optimization
 
 **Date:** 2026-06-17
-**Strategy source:** [docs/volume_profile.md](volume_profile.md) (YouTube day-trading method)
+**Strategy source:** a YouTube day-trading method (source notes not published)
 **Objective:** Maximize Sharpe while remaining statistically sound.
 **Verdict: REFUTED.** As-described loses outright; the optimized full-sample
 plateau (Sharpe ~1.0–1.25 in-sample) does **not** survive walk-forward CV and is
@@ -223,7 +223,7 @@ wide ICs; use `cbbo_cache_meic` for any wide-strike SPX 0DTE work.)
   with theta), so each tranche stays calibrated; the developing value area ignores
   time-to-expiry. Rolling-90 VP >> cumulative VP, but still < EM.
 - Caveat: single SPX, premium-friendly 2023–2026 regime, uniform qty. Relative VP-vs-EM
-  ordering is the robust takeaway; see MEIC provenance caveats in [[project_meic_backtest]].
+  ordering is the robust takeaway; see the MEIC provenance caveats in the MEIC backtest notes.
 
 ### Time-aware blend (VP skew + EM scale)
 Tried fixing VP's one disadvantage — no time-awareness — by blending strike distance:

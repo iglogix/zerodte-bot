@@ -3,7 +3,7 @@
 **Date:** 2026-06-16
 **Status:** Design approved, pending spec review → writing-plans
 **Branch:** dedicated study branch off `master` (e.g. `feat/gex-regime-study`); do **not** co-mingle with the current `feat/flux` branch
-**Related:** [[project_butterfly_backtest]] (prior-close GEX refuted), `src_v2/backtest/gex.py`, `scripts/backfill_oi.py`, `docs/wf-cv.md`
+**Related:** the earlier butterfly backtest (prior-close GEX refuted), `src_v2/backtest/gex.py`, `scripts/backfill_oi.py`, `docs/wf-cv.md`
 
 ---
 
@@ -30,7 +30,7 @@ The reliability question splits along an **observability line** discovered durin
 - **Prior-close GEX was REFUTED for the butterfly** (`project_butterfly_backtest`): the +GEX vs −GEX performance gap was a **vol/cheapness confound** (−GEX ≡ higher VIX → bigger EM → cheaper structure → higher R2R), identical ~30% win rates, identical morning drift. Prior-close GEX had **no relation to realized intraday regime.**
 - **No-0DTE-oracle finding (design-time):** a 0DTE contract expires before OCC publishes another OI snapshot, so today's intraday 0DTE flow *never* lands in published OI. There is **no perfect-hindsight 0DTE OI**; the intraday 0DTE regime is only recoverable from intraday signed trades.
 - **No trade cache exists** — only quote (CBBO) caches: `data/cbbo_cache_meic`, etc. Rung 2 requires a new `tbbo` pull.
-- **EM convention** — ATM-straddle expected move, not VIX ([[feedback_0dte_em]]); already how `gex.py`/`iv_from_em` work.
+- **EM convention** — ATM-straddle expected move, not VIX; already how `gex.py`/`iv_from_em` work.
 
 ## 3. Signal hierarchy (the rungs)
 
@@ -55,7 +55,7 @@ All three come directly from `gex.py`; only the OI *input* changes per rung.
 - **Primary (mechanism, used for the kill-test):** vol-normalized realized move from entry —
   - terminal `|S_close − S_entry| / EM` (settlement-relevant), and
   - **max intraday excursion / EM** (touch/stop-relevant) — **weighted most**, as amplification/trend days are *defined* by excursion and that's what stops out a real IC.
-- **Confirmation layer (only if primary survives):** canonical single-entry 0DTE IC P&L — fixed short-delta, fixed wing width, fixed entry time, hold-to-expiry, priced from the existing cbbo cache, with fill realism applied ([[feedback_slippage_liquidity]]).
+- **Confirmation layer (only if primary survives):** canonical single-entry 0DTE IC P&L — fixed short-delta, fixed wing width, fixed entry time, hold-to-expiry, priced from the existing cbbo cache, with fill realism applied.
 
 Rationale: the kill-test runs on the clean realized-move variable so a null result means "regime has no signal," not "our execution model is noisy." The IC P&L layer only verifies the mechanism translates to the structure net of fills.
 
@@ -108,10 +108,10 @@ Rationale: the kill-test runs on the clean realized-move variable so a null resu
 
 ## 8. Methodology guardrails
 
-- Sequential OOS folds per `docs/wf-cv.md`; pre-registered single hypothesis; no val-leaked selection; plateau over best-cell ([[feedback_cv_methodology]]).
+- Sequential OOS folds per `docs/wf-cv.md`; pre-registered single hypothesis; no val-leaked selection; plateau over best-cell.
 - EM-scaled windows everywhere — fixed-point windows truncate more on high-vol days and re-introduce the vol confound (the JL-cache lesson: fixed ±100pt truncation was non-random and side-dependent).
-- Fill realism on the IC confirmation layer ([[feedback_slippage_liquidity]]).
-- Use the project `.venv` Python ([[feedback_venv_python]]).
+- Fill realism on the IC confirmation layer.
+- Use the project `.venv` Python.
 
 ## 9. Decision flow
 

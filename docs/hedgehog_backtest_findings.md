@@ -10,7 +10,7 @@ What's left after removing them — a plain 45–60 DTE ~10Δ short put with a
 50% take-profit — is the only configuration with a real edge, and that is
 just the classic short-put trade, not the course's structure.
 
-Strategy spec: [Hedge-Hog-Options-Spread-Strategy.md](Hedge-Hog-Options-Spread-Strategy.md)
+Strategy spec: the course's Hedge-Hog strategy spec (not published)
 (swing skew-harvest: ~30 DTE 30Δ/20Δ long put vertical + ~100 DTE ~7Δ naked
 short put, net credit, four management triggers, close-&-recycle).
 

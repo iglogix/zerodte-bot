@@ -1,7 +1,7 @@
 # 0DTE Reverse Iron Condor (RIC) — Backtest + Live Strategy Design
 
 **Date:** 2026-06-10
-**Spec source:** `docs/0DTE-Reverse-Iron-Condor-Strategy.md` (§15 is the encode-ready spec)
+**Spec source:** the course's Reverse Iron Condor strategy spec (not published) (§15 is the encode-ready spec)
 **Pattern source:** the Power Hour build (`src_v2/backtest/power_hour.py`,
 `scripts/backtest_power_hour.py`, `src_v2/strategies/power_hour.py`) — same
 instructor, inverse structure, same data layer.

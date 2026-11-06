@@ -2,7 +2,7 @@
 
 Precise description of what `zerodte/backtest/hedgehog.py` actually does,
 decision by decision. This is the implementation-level companion to
-[Hedge-Hog-Options-Spread-Strategy.md](Hedge-Hog-Options-Spread-Strategy.md)
+the course's Hedge-Hog strategy spec (not published)
 (the course spec) and
 [hedgehog_backtest_findings.md](hedgehog_backtest_findings.md) (results).
 Everything below runs on EOD data: one decision point per trading day, at

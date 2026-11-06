@@ -1,7 +1,7 @@
 # Burrito Butterfly Strategy — Backtest Design Spec
 
 **Date:** 2026-06-14
-**Source:** `docs/The-Iron-Duck-Options-Spread/The Burrito Butterfly Strategy.pdf` (thetaprofits.com / "Dan")
+**Source:** the course PDF "The Burrito Butterfly Strategy" (not published) (thetaprofits.com / "Dan")
 **Objective:** Extract the strategy precisely, build a faithful backtest, and **maximize Sharpe**.
 **Status:** Design — awaiting user review before implementation plan.
 

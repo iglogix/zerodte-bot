@@ -1,7 +1,7 @@
 """
 Volume-Profile Opening-Range Breakout (FRVP-ORB) backtester.
 
-Faithful implementation of the strategy in docs/volume_profile.md:
+Faithful implementation of the strategy in the YouTube volume-profile strategy notes (not published):
 
   1. Build a Fixed-Range Volume Profile over the 09:30-09:45 ET opening block.
      -> Point of Control (POC), Value Area High (VAH), Value Area Low (VAL).

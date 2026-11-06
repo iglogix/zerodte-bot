@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Backtest: 0-DTE SPX "Power Hour" iron condors (docs/0DTE-Power-Hour-Strategy.md).
+Backtest: 0-DTE SPX "Power Hour" iron condors (course strategy spec, not published).
 
 Three staggered fixed-credit tranches (14:55/$4, 15:15/$3, 15:25/$2) with dollar
 stops + one-time ratchet on the combined short strangle; forced close 15:55 ET.

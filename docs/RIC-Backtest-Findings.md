@@ -1,6 +1,6 @@
 # 0DTE Reverse Iron Condor — Backtest Findings (2026-06-10)
 
-Backtest of `docs/0DTE-Reverse-Iron-Condor-Strategy.md` over the SPX fly cache
+Backtest of the course's Reverse Iron Condor strategy spec (not published) over the SPX fly cache
 (952 sessions, 2022-05-11 → 2026-02-27, 1-min CBBO). Engine:
 `zerodte/backtest/reverse_ic.py`, runner: `scripts/backtest_reverse_ic.py`,
 trades/reports under `results/ric_spx/`.

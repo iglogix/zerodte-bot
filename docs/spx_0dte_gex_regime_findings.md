@@ -64,7 +64,7 @@ Spread (supp − ampl): **+$182/trade, Welch t=+0.72, p=0.47 — not significant
 
 ## Relationship to prior work
 
-Strengthens [[project_butterfly_backtest]]'s prior-close GEX refutation: that study used 0DTE-only OI and an incomplete de-confound. This one uses the **correct all-expiry standing signal**, an **EM-scaled non-truncating window** (0% boundary hits), the **proper de-confound** (partial effect + tercile + OOS), and the **observable 1DTE proxy** — and the GEX regime still shows no usable edge for 0DTE ICs.
+Strengthens the earlier butterfly backtest's prior-close GEX refutation: that study used 0DTE-only OI and an incomplete de-confound. This one uses the **correct all-expiry standing signal**, an **EM-scaled non-truncating window** (0% boundary hits), the **proper de-confound** (partial effect + tercile + OOS), and the **observable 1DTE proxy** — and the GEX regime still shows no usable edge for 0DTE ICs.
 
 ## Caveats
 
