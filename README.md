@@ -94,8 +94,8 @@ resolves to a real module.
 
 ## Findings
 
-Backtests use SPX 0DTE CBBO data over roughly 2022-2026 with walk-forward
-cross-validation where the report says so. The reports carry the numbers,
+Backtests mostly use SPX 0DTE CBBO data; each report states its own
+instrument and date range, and uses walk-forward cross-validation where it says so. The reports carry the numbers,
 assumptions and caveats; this table carries only each report's own verdict.
 Verdicts are about a strategy as specified by its source, under the stated
 fill model, not a statement about options in general.
@@ -111,7 +111,7 @@ fill model, not a statement about options in general.
 | ORB EM iron condor | REFUTED, do not deploy | [wf_cv_findings_orb_em_ic_spx_2026-06-16](docs/wf_cv_findings_orb_em_ic_spx_2026-06-16.md) |
 | ORB EM directional | Named variant REFUTED, do not deploy; one breakout-retest variant reported to survive with caveats | [wf_cv_findings_orb_em_directional_spx_2026-06-16](docs/wf_cv_findings_orb_em_directional_spx_2026-06-16.md) |
 | Volume-profile ORB | REFUTED | [wf_cv_findings_volume_profile_orb_2026-06-17](docs/wf_cv_findings_volume_profile_orb_2026-06-17.md) |
-| Reverse iron condor | Weak out-of-sample; report advises against sizing up | [RIC-Backtest-Findings](docs/RIC-Backtest-Findings.md) |
+| Reverse iron condor | As published: breakeven over the full period. A VIX-floored scale-out variant is reported as a real edge that survives worst-case execution pricing, but the walk-forward section finds the profit concentrated in 2022-23 and says recent out-of-sample evidence does not support sizing up | [RIC-Backtest-Findings](docs/RIC-Backtest-Findings.md) |
 | OTM butterfly | Published recipes show no edge; a fade-the-morning-move variant is net-positive but marginal | [spx_0dte_butterfly_otm_findings](docs/spx_0dte_butterfly_otm_findings.md) |
 | Open strangle vs open IC | IC holds | [spx_0dte_open_strangle_findings](docs/spx_0dte_open_strangle_findings.md) |
 | Open iron condor | Analytical study; read the exit-model caveats before relying on it | [spx_0dte_open_ic_findings](docs/spx_0dte_open_ic_findings.md) |
