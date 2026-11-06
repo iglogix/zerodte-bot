@@ -57,7 +57,7 @@ python -m agentic_ic.main --sandbox
 python -m agentic_ic.main --live
 
 # zerodte (gen 2): strategy chosen by bot.strategy in the config
-python -m zerodte.main --config config/config_orb_em_ic_spx.yaml           # dry_run
+python -m zerodte.main --config config/config_orb_em_ic_spx.yaml           # mode: manual (set in that config)
 python -m zerodte.main --manual --config config/config_meic_spx.yaml
 python -m zerodte.main --sandbox --config config/config_iron_fly_spx.yaml
 python -m zerodte.main --alpaca  --config config/config_orb_dir_breakout_alpaca.yaml
@@ -124,8 +124,9 @@ they include backtest figures and are not edited for presentation.
 
 ## Process notes
 
-- Backtests are checked against the live code path (the backtest orchestrator runs
-  the real engines and `PositionMonitor`), not a parallel reimplementation.
+- `zerodte/backtest/orchestrator.py` runs the real `OrbEngine` and
+  `PositionMonitor` rather than a parallel reimplementation; other backtest
+  scripts are standalone analyses and are not checked against the live path.
 - A reported number is expected to reproduce from the committed scripts, and
   findings that later turned out to be artifacts are corrected in place in the
   report rather than deleted.
