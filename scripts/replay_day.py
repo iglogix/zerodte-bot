@@ -39,7 +39,8 @@ def setup_logging():
         handlers=[logging.StreamHandler(sys.stdout)],
     )
     # Quiet noisy loggers
-    logging.getLogger("agentic_ic.services").setLevel(logging.WARNING)
+    for _name in ("agentic_ic.services", "trading_core.services"):
+        logging.getLogger(_name).setLevel(logging.WARNING)
 
 
 async def replay(trading_date: date, config: dict, step_mode: bool = False):
