@@ -15,20 +15,44 @@ python -m agentic_ic.main --sandbox        # TastyTrade cert environment
 python -m agentic_ic.main --live           # production (real money)
 python -m agentic_ic.main --manual --once  # one cycle and exit
 
-# Tests
-pytest tests_locked/ -v                         # immutable suite only
-pytest tests/ -v                                # mutable tests
-pytest tests_locked/ -v --cov=agentic_ic --cov-report=html  # with coverage
+# Other bots / backtests
+python -m zerodte.main --config config/config_orb_em_ic_spx.yaml   # v2 strategy-plugin bot (see zerodte/README.md)
+python -m zerodte.main --manual --config config/config_meic_spx.yaml
+python -m es_8am.main --manual                                     # 8am ES bot
+python -m es_8am.main_options --manual --config config/config_8am_es_options.yaml
+python -m touch_turn.run_backtest --config touch_turn/config.yaml
+
+# Tests (full suite: tests_locked/ tests/ tests_web/ tests_v2/)
+python -m pytest -q                             # everything, as CI runs it
+python -m pytest tests_locked/ -v               # immutable suite only
+python -m pytest tests_v2/ -v                   # zerodte tests
+python -m pytest tests_locked/ -v --cov=agentic_ic --cov-report=html  # with coverage
 
 # Lint / format
-black agentic_ic/ tests/
-ruff check agentic_ic/ tests/
+black agentic_ic/ zerodte/ trading_core/ tests/
+ruff check agentic_ic/ zerodte/ trading_core/ tests/
 ```
 
 Set up the git hook that protects `tests_locked/` from modification:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Layout
+
+| Package | Role |
+|---|---|
+| `trading_core/` | 12 modules shared by both bots (LLM advisors, market data, DB models, fill listener, ...) |
+| `agentic_ic/` | v1 bot (`DecisionEngine` pipeline + LLM advisors); guarded by `tests_locked/` |
+| `zerodte/` | v2 strategy-plugin bot; strategies own their entry engines; has its own README |
+| `es_8am/` | 8am ES/SPX options bot |
+| `touch_turn/` | touch-and-turn backtester |
+
+`llm_client.py` exists in both `agentic_ic/services/` and `zerodte/services/` on purpose
+(the v2 copy adds an Agent-SDK subscription backend). `tests/test_layout.py` verifies that every
+module named after `python -m` in README.md, CLAUDE.md, zerodte/README.md, `scripts/*.sh` and `deploy/**`
+resolves, so keep documented entry points real. Findings docs live in `docs/*findings*.md`;
+the README links verdicts only, no backtest numbers.
 
 ## Architecture
 
@@ -102,7 +126,7 @@ LLMs are used only as **advisors**, not as the decision-maker:
 
 ### Immutable Tests
 
-`tests_locked/` contains 128 tests that **must not be modified**. The pre-commit hook (`.githooks/pre-commit`) enforces this. New tests go in `tests/`. The `conftest.py` at repo root patches `json.JSONEncoder` to handle `datetime` objects across all tests.
+`tests_locked/` contains 279 tests that **must not be modified**. The pre-commit hook (`.githooks/pre-commit`) enforces this. New tests go in `tests/`. The `conftest.py` at repo root patches `json.JSONEncoder` to handle `datetime` objects across all tests.
 
 ### Configuration
 
