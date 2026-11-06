@@ -1,7 +1,7 @@
 """Tests for OrbEngine three-phase entry."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from src_v2.agent.orb_engine import OrbEngine
@@ -23,7 +23,8 @@ class _MockClock:
         return self._time
 
     async def sleep(self, seconds):
-        pass  # instant
+        # Instant, but advance the clock so _idle_until_eod() reaches EOD and returns.
+        self._time += timedelta(seconds=seconds)
 
 
 def _make_deps(config=None, clock=None):
@@ -58,6 +59,8 @@ def _make_deps(config=None, clock=None):
     deps.tool_handlers.place_order = AsyncMock(return_value={"status": "filled"})
     deps.tool_handlers.reset_orb_state = MagicMock()
     deps.tool_handlers.check_midline_touch = MagicMock(return_value=False)
+    # Concurrency guard reads open trades; a bare MagicMock fails safe ("limit hit").
+    deps.db.get_open_trades = AsyncMock(return_value=[])
     return deps
 
 
@@ -210,7 +213,7 @@ class TestPreflight:
         result = await engine._entry_watch()
 
         assert result.outcome == "executed"
-        assert engine._preflight_done is True
+        assert engine._preflight_passed is True
 
 
 class TestExecuteEntry:

@@ -126,7 +126,8 @@ class TestIronFlyBuildOrder:
             strikes={"center": 5850.0, "long_put": 5835.0, "long_call": 5865.0},
         )
         order = s.build_order(setup)
-        assert order["order_type"] == "iron_fly"
+        # order_type is the submission route; an iron fly is an IC with equal short strikes (asserted below).
+        assert order["order_type"] == "iron_condor"
         assert order["short_call_strike"] == 5850.0
         assert order["short_put_strike"] == 5850.0
         assert order["long_call_strike"] == 5865.0

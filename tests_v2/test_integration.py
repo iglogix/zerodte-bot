@@ -195,5 +195,6 @@ class TestEndToEndEngineWithStrategy:
         assert result.outcome == "executed"
         tool_handlers.place_order.assert_called_once()
         order = tool_handlers.place_order.call_args[0][0]
-        assert order["order_type"] == "iron_fly"
+        # order_type is the submission route; an iron fly is an IC with equal short strikes (asserted below).
+        assert order["order_type"] == "iron_condor"
         assert order["short_call_strike"] == order["short_put_strike"]  # same center
