@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
+from urllib.parse import urlsplit
 
 from zerodte.flux.engine import atm_iv, ratio_point
 from zerodte.flux.history import daily_ratio_series
@@ -175,7 +176,17 @@ def create_app(source: FluxSource | None = None, live_source: FluxSource | None 
                 out["proxy_ticket"] = _ticket_json(pt)
         return out
 
+    def _cross_site(req) -> bool:
+        """True when a browser sent this request from another site.
+
+        Browsers attach Origin to every cross-site POST; scripts and curl do not.
+        """
+        origin = req.headers.get("Origin")
+        return bool(origin) and urlsplit(origin).netloc != req.host
+
     def _submit_response(make_ticket):
+        if _cross_site(request):
+            return jsonify({"ok": False, "detail": "cross-site submit refused"}), 403
         if sub is None or sub.mode == "manual":
             return jsonify({"ok": False, "detail":
                             "submission disabled — manual mode (start serve with --mode sandbox|live)"}), 200

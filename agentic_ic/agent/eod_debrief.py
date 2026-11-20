@@ -183,30 +183,37 @@ class EodDebrief:
         logger.info("EOD debrief written: %s", out_path)
 
     async def _ingest_brain(self, markdown: str, session_date: date):
-        """Best-effort POST of the debrief to the LightRAG brain. Silent on failure."""
-        url = os.environ.get("LIGHTRAG_URL", "http://127.0.0.1:9621").rstrip("/")
+        """Optionally POST the debrief to a LightRAG knowledge base.
+
+        Opt-in: runs only when both LIGHTRAG_URL and LIGHTRAG_API_KEY are set.
+        TLS certificates are verified unless LIGHTRAG_VERIFY_TLS=0 (for a
+        self-signed private instance). Best-effort; never raises.
+        """
+        url = os.environ.get("LIGHTRAG_URL", "").rstrip("/")
         api_key = os.environ.get("LIGHTRAG_API_KEY")
-        if not api_key:
-            logger.debug("LIGHTRAG_API_KEY not set; skipping brain ingest")
+        if not url or not api_key:
+            logger.debug("LIGHTRAG_URL / LIGHTRAG_API_KEY not set; skipping knowledge-base ingest")
             return
+        verify_tls = os.environ.get("LIGHTRAG_VERIFY_TLS", "1") != "0"
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         source = f"eod-debrief:0dte-bot:{session_date.isoformat()}:{ts}"
         payload = {"text": markdown, "file_source": source}
         try:
             import httpx
 
-            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=verify_tls) as client:
                 resp = await client.post(
                     f"{url}/documents/text",
                     headers={"X-API-Key": api_key, "Content-Type": "application/json"},
                     json=payload,
                 )
                 if 200 <= resp.status_code < 300:
-                    logger.info("EOD debrief ingested to brain (source=%s)", source)
+                    logger.info("EOD debrief ingested (source=%s)", source)
                 else:
-                    logger.warning("Brain ingest returned %s: %s", resp.status_code, resp.text[:200])
+                    logger.warning("Knowledge-base ingest returned %s: %s",
+                                   resp.status_code, resp.text[:200])
         except Exception as e:
-            logger.warning("Brain ingest failed: %s", e)
+            logger.warning("Knowledge-base ingest failed: %s", e)
 
     async def _notify(self, markdown: str, session_date: date):
         if self.notifier:

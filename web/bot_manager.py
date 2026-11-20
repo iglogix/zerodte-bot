@@ -81,6 +81,17 @@ class _BotEntry:
         )
 
 
+# Run modes the dashboard may request, mapped to zerodte.main's CLI flags.
+# dry_run is the CLI default and needs no flag.
+_MODE_FLAGS = {
+    "dry_run": [],
+    "manual": ["--manual"],
+    "sandbox": ["--sandbox"],
+    "alpaca": ["--alpaca"],
+    "live": ["--live"],
+}
+
+
 class BotManager:
     """Manages bot subprocesses.
 
@@ -178,6 +189,13 @@ class BotManager:
         mode: str = "dry_run",
         name: Optional[str] = None,
     ) -> str:
+        # Both values end up on a command line, so validate before anything runs.
+        if mode not in _MODE_FLAGS:
+            raise ValueError(f"Unsupported mode {mode!r}; expected one of {sorted(_MODE_FLAGS)}")
+        cfg_file = Path(config_path)
+        if cfg_file.suffix not in (".yaml", ".yml") or not cfg_file.is_file():
+            raise ValueError(f"Not a bot config file: {config_path!r}")
+
         bot_id = uuid.uuid4().hex[:8]
         bot_name = name or self._derive_name(config_path)
 
@@ -188,8 +206,7 @@ class BotManager:
 
         # Build command
         cmd = [sys.executable, "-m", "zerodte.main", f"--config={config_path}"]
-        if mode and mode != "dry_run":
-            cmd.append(f"--{mode}")
+        cmd.extend(_MODE_FLAGS[mode])
 
         log_fh = open(log_path, "w")
 
