@@ -14,7 +14,7 @@ strategy:
   midline_tolerance_pts: 0.25   # ±0.25 pts around midline triggers entry
 
 exit:
-  # 1:4 inverse ratio — quick 5pt TP, wide 20pt SL → ~75% WR (best expectancy per tweaked_rules_8am.md)
+  # 1:4 inverse ratio — quick 5pt TP, wide 20pt SL → ~75% WR (best expectancy in the 180-day sweep)
   tp_pts: 5
   sl_pts: 20
   # 1:1 ratio alternative — TP=10 SL=10 → ~57% WR

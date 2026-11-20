@@ -3,7 +3,7 @@ Iron Fly strategy — 0DTE SPX Iron Fly with ATM short strikes and EM-based wing
 
 Implements the Strategy ABC for use with IronFlyEngine (iron_fly_engine.py).
 
-Strategy logic (from bot_prompt_iron_fly.md):
+Strategy logic:
   1. Short put + short call at the FIRST strike strictly above current price
      (e.g. SPX at 6848 → center strike = 6850).  Intentionally leverages
      the pricing bias of put skew.

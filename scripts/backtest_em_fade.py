@@ -1,7 +1,6 @@
 """SPX 0DTE expected-move fade — study driver.
 
 Spec:     docs/spx_0dte_em_fade_spec.md
-Handover: docs/spx_0dte_em_fade_HANDOVER.md
 Engine:   zerodte/backtest/em_fade_core.py  (+ zerodte/backtest/noarb.py)
 Data:     data/cbbo_cache_fly_10min/  (real CBBO, 2022-05-11 -> 2026-06-11)
 

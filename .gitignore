@@ -91,3 +91,15 @@ GLBX-*
 # Binary documents (course slides, PDFs)
 *.pdf
 *.pptx
+
+# Local artefacts that must never be committed
+.env.*
+!.env.example
+*.pkl
+*.parquet
+*.pt
+*.sqlite
+*.sqlite3
+*.out
+/scripts/*.png
+.claude/

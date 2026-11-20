@@ -24,14 +24,16 @@ submits orders.
 | `config/` | One YAML per strategy/variant. |
 | `docs/` | Findings reports, design notes, specs. |
 
-`llm_client.py` exists in both bots on purpose: the `zerodte` copy adds a Claude
-Agent SDK (subscription) backend, see [`docs/llm-subscription-auth.md`](docs/llm-subscription-auth.md).
+`trading_core` imports nothing from the bot packages. Generation 1 (`agentic_ic`)
+is frozen: it keeps its own TastyTrade client, risk manager and `llm_client.py`
+rather than being refactored onto generation 2's, so the two bots still carry
+near-duplicate modules. `zerodte` is where new work goes.
 
 ## Setup
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"   # add ",ann" for the neural-net pricer, ",research" for script-only libraries
 cp .env.example .env     # TastyTrade and LLM credentials; not needed for dry_run or the tests
 git config core.hooksPath .githooks   # protects tests_locked/ (see Tests)
 ```
@@ -80,10 +82,11 @@ The systemd units in `deploy/systemd/` run one strategy in `manual` and one in
 python -m pytest -q          # tests_locked/ tests/ tests_web/ tests_v2/
 ```
 
-The suite is hermetic: no credentials, network or local data are required.
-Tests that need cached market data skip when it is absent. CI runs the full
-suite on every push and pull request
-(`.github/workflows/tests.yml`).
+The suite needs no credentials, network or local data, and injects its own
+clock. Tests that need cached market data skip when it is absent. CI runs
+`ruff check` and the full suite on every push and pull request
+(`.github/workflows/tests.yml`). `ruff` covers the packages and tests;
+`scripts/` and `tools/` are research one-offs and are not linted.
 
 **`tests_locked/`** holds 279 tests written before the generation-1 implementation
 and treated as immutable. `.githooks/pre-commit` rejects any staged change under
@@ -122,16 +125,44 @@ superseded by the full-span re-run above. The
 `docs/*findings*.md` reports are research logs written as the work happened;
 they include backtest figures and are not edited for presentation.
 
+## Design notes
+
+- **One code path for backtest and live.** `zerodte/backtest/orchestrator.py`
+  drives the real `OrbEngine` and `PositionMonitor` through an injected clock
+  (`zerodte/backtest/sim_clock.py`) instead of a parallel reimplementation.
+- **Strategies are plugins.** `zerodte/strategies/base.py` defines the contract;
+  each strategy supplies its own entry engine. `bot.strategy` resolves through a
+  registry in `zerodte/main.py`, and an unknown name is an error, not a default.
+- **Execution is an adapter.** The Alpaca paper client
+  (`zerodte/services/alpaca_client.py`) sits behind the same interface as the
+  TastyTrade client and is pinned to the paper endpoint.
+- **Simulated by default.** `dry_run` is the default mode everywhere and `live`
+  needs an explicit flag. Order POSTs are not retried automatically; there is
+  no client-side idempotency key yet, so a timed-out submit has to be checked
+  against the broker by hand.
+- **Advisory gates fail open.** The LLM advisors and the
+  Markov regime gate are filters on top of a rule-based entry; when their data
+  is unavailable the bot logs it and trades ungated rather than silently
+  skipping every session.
+- **Local web surfaces.** The cockpit (`web/`) and the Flux app bind to
+  loopback, require a token (`BOT_WEB_TOKEN`) or refuse cross-site submits, and
+  validate anything that reaches a command line. They are not hardened for
+  exposure to a network.
+- **Caches are trusted local files.** Backtest caches are pickles written and
+  read by this code on the same machine; do not load ones you did not create.
+
 ## Process notes
 
 - `zerodte/backtest/orchestrator.py` runs the real `OrbEngine` and
   `PositionMonitor` rather than a parallel reimplementation; other backtest
   scripts are standalone analyses and are not checked against the live path.
-- A reported number is expected to reproduce from the committed scripts, and
+- A reported number is expected to reproduce from the committed scripts (the
+  Markov-gate scripts additionally need a `markov2` module that is not part of
+  this repository), and
   findings that later turned out to be artifacts are corrected in place in the
   report rather than deleted.
 - Cached market data, results and logs are not in the repository.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). This is research code, not investment advice.
