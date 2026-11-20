@@ -42,7 +42,7 @@ git config core.hooksPath .githooks
 
 | Package | Role |
 |---|---|
-| `trading_core/` | 12 modules shared by both bots (LLM advisors, market data, DB models, fill listener, ...) |
+| `trading_core/` | 11 modules shared by both bots (LLM advisors, market data, DB models, fill listener, ...) |
 | `agentic_ic/` | v1 bot (`DecisionEngine` pipeline + LLM advisors); guarded by `tests_locked/` |
 | `zerodte/` | v2 strategy-plugin bot; strategies own their entry engines; has its own README |
 | `es_8am/` | 8am ES/SPX options bot |

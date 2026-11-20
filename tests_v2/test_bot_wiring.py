@@ -51,12 +51,13 @@ class TestStrategyCreation:
         s = bot._create_strategy("iron_fly")
         assert isinstance(s, IronFlyStrategy)
 
-    def test_unknown_defaults_to_ic(self):
-        from zerodte.strategies.iron_condor import IronCondorStrategy
+    def test_unknown_strategy_is_rejected(self):
+        """A typo in bot.strategy must not silently trade an iron condor."""
+        import pytest
         config = {"bot": {"strategy": "unknown_thing"}, "strategy": {}}
         bot = BotOrchestrator(config, mode="dry_run")
-        s = bot._create_strategy("unknown_thing")
-        assert isinstance(s, IronCondorStrategy)
+        with pytest.raises(ValueError, match="unknown_thing"):
+            bot._create_strategy("unknown_thing")
 
 
 class TestConfigSchedule:

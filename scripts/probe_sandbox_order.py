@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Quick sandbox smoke test: connect → fetch ES chain → build order → submit.
-Run: python scripts/test_sandbox_order.py
+Run: python scripts/probe_sandbox_order.py
 """
 
 import asyncio

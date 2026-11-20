@@ -28,6 +28,8 @@ def _load(path):
     with open(path) as f:
         return yaml.safe_load(f)
 
+FUTURES_ROOTS = {"ES", "MES"}
+
 
 def test_configs_found():
     assert len(CONFIGS) == 10
@@ -44,6 +46,11 @@ def test_every_8am_config_declares_symbols(path):
     assert chain_type in ("index", "futures")
     if chain_type == "index":
         require(cfg, "options.chain_symbol")
+    else:
+        # The futures path fetches the ES futures-option chain, so only an ES
+        # config may select it — anything else would price the wrong product.
+        assert require(cfg, "bot.symbol") in FUTURES_ROOTS, (
+            f"{Path(path).name}: chain_type 'futures' with a non-futures symbol")
 
 
 class _StubClient:

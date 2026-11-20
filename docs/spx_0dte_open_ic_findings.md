@@ -209,10 +209,10 @@ These aren't predictable from entry-time data — they're the structural cost of
 - [scripts/build_entry_manifest.py](../scripts/build_entry_manifest.py) — builds multi-anchor manifest from SPY bars
 - [scripts/databento_backfill.py](../scripts/databento_backfill.py) — Databento backfill with cost cap (existing)
 - [scripts/analytical_ic_eval.py](../scripts/analytical_ic_eval.py) — model-free IC evaluator on multi-anchor cache
-- [scripts/test_asymmetric_ic.py](../scripts/test_asymmetric_ic.py) — asymmetric IC sweep
-- [scripts/test_filters.py](../scripts/test_filters.py) — filter impact tester
+- [scripts/probe_asymmetric_ic.py](../scripts/probe_asymmetric_ic.py) — asymmetric IC sweep
+- [scripts/probe_filters.py](../scripts/probe_filters.py) — filter impact tester
 - [scripts/analyze_ic_streaks.py](../scripts/analyze_ic_streaks.py) — loss-streak diagnostic
-- [scripts/test_consec_put_losses_analytic.py](../scripts/test_consec_put_losses_analytic.py) — TT "no 2 consecutive losing puts" claim test
+- [scripts/probe_consec_put_losses_analytic.py](../scripts/probe_consec_put_losses_analytic.py) — TT "no 2 consecutive losing puts" claim test
 
 ## Reproduce
 
@@ -238,12 +238,12 @@ These aren't predictable from entry-time data — they're the structural cost of
   --wing-widths "20,25,30"
 
 # Asymmetric variants
-.venv/bin/python -m scripts.test_asymmetric_ic
+.venv/bin/python -m scripts.probe_asymmetric_ic
 ```
 
 ## TT "never 2 consecutive losing puts at 25 delta" claim
 
-Tested via [test_consec_put_losses_analytic.py](../scripts/test_consec_put_losses_analytic.py):
+Tested via [probe_consec_put_losses_analytic.py](../scripts/probe_consec_put_losses_analytic.py):
 
 - At 25Δ equivalent (em=0.30): **7 consecutive losses** max (Sep 2022 bear rally)
 - At em=2.0 (~5Δ, very far OTM): 2 consecutive losses — closest to TT's claim, but strategy is unprofitable here

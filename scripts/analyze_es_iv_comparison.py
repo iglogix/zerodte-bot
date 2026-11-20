@@ -93,8 +93,9 @@ def print_table(headers, rows, col_widths=None):
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    data_path = Path("/mnt/c/Users/user/Dev/0dte_bot/data/iv_comparison/2026-03-18.jsonl")
-    model_path = Path("/mnt/c/Users/user/Dev/0dte_bot/models/0dte_ann_v2.pt")
+    repo_root = Path(__file__).resolve().parent.parent
+    data_path = repo_root / "data" / "iv_comparison" / "2026-03-18.jsonl"
+    model_path = repo_root / "models" / "0dte_ann_v2.pt"
 
     # ── Load data ──
     print(f"Loading data from {data_path}...")

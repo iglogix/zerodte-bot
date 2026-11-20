@@ -21,7 +21,8 @@ strategy:
 # IWM trades ~$200-250, options have $100 multiplier, 1-pt strike steps
 options:
   option_root: "IWM"
-  chain_type: "futures"
+  chain_symbol: "IWM"              # equity-option chain, not a futures root
+  chain_type: "index"
   spread_width_pts: 1              # IWM uses 1-pt wide spreads
   strike_step_pts: 1               # IWM strikes at 1-pt intervals
   target_short_delta: 0.12

@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import ast
 import copy
 import csv
 import itertools
@@ -253,7 +254,7 @@ class TouchTurnOptimizer:
             return None, fold_results
 
         best_key = max(combo_votes, key=lambda k: (combo_votes[k], combo_scores.get(k, 0)))
-        best_params = eval(best_key)  # noqa: S307 — controlled string from our own grid
+        best_params = ast.literal_eval(best_key)
 
         print(f"\n  Winner (votes={combo_votes[best_key]}): {best_params}")
         return best_params, fold_results

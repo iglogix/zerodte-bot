@@ -14,7 +14,7 @@ submits orders.
 
 | Package | What it is |
 |---|---|
-| `trading_core/` | The 12 modules both bots share: LLM advisors (`anomaly_detector`, `regime_classifier`), the legacy tool loop and dual validator, market-data cache, DB models, decision logger, notifications, fill listener, token provider. |
+| `trading_core/` | The 11 modules both bots share: LLM advisors (`anomaly_detector`, `regime_classifier`), the legacy tool loop and dual validator, market-data cache, DB models, decision logger, notifications, fill listener. |
 | `agentic_ic/` | Generation 1. A 0DTE iron-condor bot: deterministic entry pipeline (stability and large-move guards, risk manager) with LLM advisors for a pre-flight anomaly check and regime judgment. The earlier design, an LLM tool loop gated by an independent second-model validator, is still in `trading_core/agent/` but is no longer on the main path. |
 | `zerodte/` | Generation 2. Strategy-plugin bot: each strategy owns its entry engine (scheduled windows or event-driven ORB). Strategies: iron condor, iron fly, MEIC, ORB-EM IC, ORB-EM directional, power hour, reverse IC, open IC, open strangle. Also holds the event-driven backtest framework. See [`zerodte/README.md`](zerodte/README.md). |
 | `es_8am/` | 8am ES/SPX options bot and its backtests (futures and options variants). |

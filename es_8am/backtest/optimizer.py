@@ -585,7 +585,7 @@ class GridSearchOptimizer:
                     "train_end": str(train_days[-1].session_date),
                     "val_start": str(val_days[0].session_date),
                     "val_end": str(val_days[-1].session_date),
-                    "train_sharpe": best_sharpe, "val_sharpe": 0,
+                    "train_sharpe": train_rows[0]["sharpe"] if train_rows else 0.0, "val_sharpe": 0,
                     "train_ratio": len(train_days) / max(len(val_days), 1),
                     "top_val_params": []})
                 continue

@@ -99,12 +99,11 @@ def test_descriptive_packages_exist(pkg):
     assert (ROOT / pkg / "__init__.py").is_file()
 
 
-# The 12 modules both bots share — one copy, in trading_core (measured 2026-11-05:
+# The 11 modules both bots share — one copy, in trading_core (measured 2026-11-05:
 # byte-identical, or v2 is a strict superset / carries only v2's fixes).
 # services/llm_client.py stays per bot: v2 adds a subscription (Agent SDK) backend
 # that would change v1's LLM auth path.
 SHARED_MODULES = [
-    "services/live_token_provider.py",
     "services/decision_logger.py",
     "services/notifications.py",
     "services/order_fill_listener.py",

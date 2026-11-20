@@ -6,7 +6,7 @@ via the /market-data/quotes endpoint. If it works, we don't need
 browser scraping — REST is simpler and faster.
 
 Run during market hours:
-  python scripts/test_rest_option_quotes.py
+  python scripts/probe_rest_option_quotes.py
 """
 from dotenv import load_dotenv; load_dotenv()
 import asyncio, json, sys, os
