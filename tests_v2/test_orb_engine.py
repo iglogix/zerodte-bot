@@ -219,7 +219,8 @@ class TestPreflight:
 class TestExecuteEntry:
     @pytest.mark.asyncio
     async def test_validates_and_places(self):
-        deps = _make_deps()
+        # An injected clock: the post-entry idle must never sleep on the wall clock.
+        deps = _make_deps(clock=_MockClock(hour=10, minute=0))
         strategy = _make_strategy()
         engine = OrbEngine(deps, strategy)
 

@@ -245,7 +245,7 @@ class PositionMonitor:
                 # Mark trade fully closed only if ALL legs are now closed.
                 # Otherwise leave it open so the remaining side keeps being monitored
                 # (intraday breaches / TP / trailing logic still apply).
-                refreshed = await self.db.get_trade(trade_id) if hasattr(self.db, "get_trade") else None
+                refreshed = await self.db.get_trade_by_id(trade_id)
                 if refreshed is None:
                     open_trades = await self.db.get_open_trades()
                     refreshed = next((t for t in open_trades if t.get("trade_id") == trade_id), None)

@@ -13,7 +13,7 @@ async def test_monitor_honours_leg_quantities():
 
     db = MagicMock()
     db.get_open_trades = AsyncMock(return_value=[trade])
-    db.get_trade = AsyncMock(return_value=None)
+    db.get_trade_by_id = AsyncMock(return_value=None)
     db.update_trade = AsyncMock(return_value=True)
 
     cache = MagicMock()

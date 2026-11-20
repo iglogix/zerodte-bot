@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import argparse
 import asyncio
 import logging
@@ -63,6 +64,35 @@ def _load_prompt(prompt_path: str = "bot_prompt.md") -> str:
 
 
 VALID_MODES = {"dry_run", "manual", "sandbox", "live", "alpaca_paper"}
+
+
+# Strategy name (config key ``bot.strategy``) -> "module:Class". Modules are
+# imported on demand so that starting one strategy does not import the others.
+STRATEGY_REGISTRY = {
+    "iron_condor": "zerodte.strategies.iron_condor:IronCondorStrategy",
+    "iron_fly": "zerodte.strategies.iron_fly:IronFlyStrategy",
+    "orb_em_ic": "zerodte.strategies.orb_em_ic:OrbEmIronCondorStrategy",
+    "orb_em_directional": "zerodte.strategies.orb_em_directional:OrbEmDirectionalStrategy",
+    "meic": "zerodte.strategies.meic:MeicStrategy",
+    "power_hour": "zerodte.strategies.power_hour:PowerHourStrategy",
+    "reverse_ic": "zerodte.strategies.reverse_ic:ReverseIcStrategy",
+    "open_ic": "zerodte.strategies.open_ic:OpenIcStrategy",
+    "open_strangle": "zerodte.strategies.open_strangle:OpenStrangleStrategy",
+}
+
+
+def load_strategy_class(strategy_name: str):
+    """Resolve a configured strategy name to its class.
+
+    An unknown name is an error: silently falling back to another strategy
+    would trade something the operator did not configure.
+    """
+    try:
+        module_name, class_name = STRATEGY_REGISTRY[strategy_name].split(":")
+    except KeyError:
+        known = ", ".join(sorted(STRATEGY_REGISTRY))
+        raise ValueError(f"Unknown strategy {strategy_name!r}; expected one of: {known}") from None
+    return getattr(importlib.import_module(module_name), class_name)
 
 
 class BotOrchestrator:
@@ -312,27 +342,7 @@ class BotOrchestrator:
 
     def _create_strategy(self, strategy_name: str):
         """Instantiate and configure the trading strategy from config."""
-        if strategy_name == "iron_fly":
-            from zerodte.strategies.iron_fly import IronFlyStrategy
-            strategy = IronFlyStrategy()
-        elif strategy_name == "orb_em_ic":
-            from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
-            strategy = OrbEmIronCondorStrategy()
-        elif strategy_name == "orb_em_directional":
-            from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
-            strategy = OrbEmDirectionalStrategy()
-        elif strategy_name == "meic":
-            from zerodte.strategies.meic import MeicStrategy
-            strategy = MeicStrategy()
-        elif strategy_name == "power_hour":
-            from zerodte.strategies.power_hour import PowerHourStrategy
-            strategy = PowerHourStrategy()
-        elif strategy_name == "reverse_ic":
-            from zerodte.strategies.reverse_ic import ReverseIcStrategy
-            strategy = ReverseIcStrategy()
-        else:
-            from zerodte.strategies.iron_condor import IronCondorStrategy
-            strategy = IronCondorStrategy()
+        strategy = load_strategy_class(strategy_name)()
         strategy.configure(self.config)
         logger.info("Strategy created: %s", strategy_name)
         return strategy

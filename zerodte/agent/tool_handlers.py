@@ -763,7 +763,7 @@ class ToolHandlers:
         if self.db is None:
             return []
         try:
-            trade = await self.db.get_trade(trade_id)
+            trade = await self.db.get_trade_by_id(trade_id)
         except Exception:
             logger.exception("Failed to load trade %s for close_all", trade_id)
             return []
@@ -777,13 +777,18 @@ class ToolHandlers:
             except (ValueError, TypeError):
                 data = {}
 
+        # DatabaseService flattens the stored strategy_data JSON into the trade
+        # dict; other sources hand back the raw JSON under "strategy_data".
+        # Read through one merged view so both shapes resolve.
+        fields = {**trade, **(data if isinstance(data, dict) else {})}
+
         legs: List[tuple] = []
         for side in ("put", "call"):
-            qty = int(data.get(f"{side}_open_qty", 0) or 0)
+            qty = int(fields.get(f"{side}_open_qty", 0) or 0)
             if qty <= 0:
                 continue
             for role in ("short", "long"):
-                sym = data.get(f"{role}_{side}_symbol") or trade.get(f"{role}_{side}_symbol")
+                sym = fields.get(f"{role}_{side}_symbol")
                 if sym:
                     legs.append((sym, qty))
         return legs

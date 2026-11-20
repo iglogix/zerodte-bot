@@ -320,7 +320,7 @@ async def test_close_all_resolves_legs_from_the_trade_record():
     long_sym = format_osi(EXP, 7600, is_call=False)
 
     class FakeDb:
-        async def get_trade(self, trade_id):
+        async def get_trade_by_id(self, trade_id):
             return {
                 "trade_id": trade_id,
                 "strategy_data": (
