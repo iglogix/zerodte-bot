@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from zerodte.backtest.dc_time_machine.iv import bs_delta, implied_vol
 from zerodte.flux.cache import ChainCache
 from zerodte.flux.models import ChainSnapshot, OptionRow
 from zerodte.flux.sources.base import FluxSource
-from zerodte.backtest.dc_time_machine.iv import bs_delta, implied_vol
 
 BASE = "https://api.marketdata.app/v1"
 COLUMNS = "optionSymbol,side,strike,bid,ask,iv,delta,dte,updated"
@@ -50,10 +49,10 @@ def _default_fetch(token: str) -> Callable[[str], dict]:
                 # 400 (e.g. today's EOD / invalid expiry) and other 4xx == no data.
                 # 429 (rate limit) and 5xx are transient → retry.
                 if e.code == 429 or e.code >= 500:
-                    last = e; _t.sleep(1.5 * (attempt + 1)); continue
+                    last = e; _t.sleep(1.5 * (attempt + 1)); continue  # noqa: E702
                 return {}
             except Exception as e:                      # timeout / URLError → retry
-                last = e; _t.sleep(1.0 * (attempt + 1)); continue
+                last = e; _t.sleep(1.0 * (attempt + 1)); continue  # noqa: E702
         if last:
             raise last
         return {}

@@ -1,7 +1,8 @@
 """Shared helpers for live trading strategies."""
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+
+from typing import Any, Dict, Optional
 
 
 def mid_price(opt: Optional[Dict[str, Any]]) -> Optional[float]:

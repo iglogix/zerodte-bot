@@ -1,8 +1,8 @@
 # tests/flux/test_cache.py
 from datetime import date, datetime, timezone
 
-from zerodte.flux.models import OptionRow, ChainSnapshot
 from zerodte.flux.cache import ChainCache
+from zerodte.flux.models import ChainSnapshot, OptionRow
 
 
 def _snap():

@@ -2,9 +2,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from zerodte.flux.models import OptionRow, ChainSnapshot
-from zerodte.flux.sources.base import FluxSource
 from zerodte.flux.app import create_app
+from zerodte.flux.models import ChainSnapshot, OptionRow
+from zerodte.flux.sources.base import FluxSource
 
 
 class FakeLive(FluxSource):
@@ -45,6 +45,7 @@ def test_live_endpoints_off_when_no_live_source():
 class FakeIntraday:
     def intraday(self, session, front_exp, back_exp, ref_delta, atm_hint):
         from datetime import datetime, timezone
+
         from zerodte.flux.models import RatioPoint
         return [RatioPoint(datetime(2026, 6, 5, 13, 40, tzinfo=timezone.utc),
                            front_exp, back_exp, ref_delta, 0.22, 0.20, 1.1),

@@ -3,8 +3,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from zerodte.flux.models import OptionRow, ChainSnapshot
 from zerodte.flux.engine import atm_iv, ratio_point
+from zerodte.flux.models import ChainSnapshot, OptionRow
 
 
 def _chain(expiry, rows):

@@ -2,7 +2,6 @@
 """Reconstructed 'Flux' scan: rank candidate entries by front/back IV-ratio dynamics."""
 from __future__ import annotations
 
-import math
 import statistics
 from typing import Dict, List
 

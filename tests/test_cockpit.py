@@ -224,6 +224,7 @@ def client(tmp_path, monkeypatch):
     ck._state = ck._State()
 
     from fastapi.testclient import TestClient
+
     from web.app import create_app
 
     app = create_app()
@@ -280,6 +281,7 @@ def test_route_cockpit_page_served(client):
 
 def test_route_requires_auth():
     from fastapi.testclient import TestClient
+
     from web.app import create_app
 
     os.environ["BOT_WEB_TOKEN"] = "test-token"

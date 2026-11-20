@@ -72,7 +72,7 @@ class TastyTradeSubmitter(OrderSubmitter):
     async def _spy_listed(self, ticket: OrderTicket) -> OrderTicket:
         """Scale to SPY (÷10) then snap onto SPY's actually-listed expiries/strikes so cert
         accepts it. Raises if SPY has no usable 2-expiry calendar."""
-        from zerodte.flux.orders import spy_proxy, snap_spy_to_listed
+        from zerodte.flux.orders import snap_spy_to_listed, spy_proxy
         snapped = snap_spy_to_listed(spy_proxy(ticket), await self.client.get_listed_chain("SPY"))
         if snapped is None:
             raise RuntimeError("no listed SPY expiries/strikes to snap the proxy to")

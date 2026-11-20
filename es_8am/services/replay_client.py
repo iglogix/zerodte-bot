@@ -15,12 +15,11 @@ Usage:
 from __future__ import annotations
 
 import logging
-import math
-from datetime import date, datetime, time
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from es_8am.config_keys import require
-from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 

@@ -15,25 +15,15 @@ from __future__ import annotations
 import json
 import math
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
-
-from es_8am.backtest.strategy_base import Strategy, TradeSetup
 
 # Re-export pricing functions under their old underscore names for backward compat.
 # Any external code that imported `_bs_call` etc. from this module will still work.
-from es_8am.backtest.pricing import (
-    ncdf as _ncdf, npdf as _npdf,
-    bs_call as _bs_call, bs_put as _bs_put,
-    bs_call_delta as _bs_call_delta, bs_put_delta as _bs_put_delta,
-    bachelier_call as _bachelier_call, bachelier_put as _bachelier_put,
-    bachelier_call_delta as _bachelier_call_delta, bachelier_put_delta as _bachelier_put_delta,
-    select_strike as _select_strike,
-    spread_credit as _spread_credit, spread_value as _spread_value,
-)
+from es_8am.backtest.strategy_base import Strategy
 
 ET = ZoneInfo("America/New_York")
 
@@ -408,8 +398,10 @@ class OrbOptionsBacktestEngine:
         if self._price_ann is None:
             return 0.0
         import math
+
         import numpy as np
-        from scripts.train_price_ann import SYMBOL_ORDER, N_BASE_FEATURES
+
+        from scripts.train_price_ann import N_BASE_FEATURES, SYMBOL_ORDER
 
         m = strike / spot
         sym = self._price_ann_symbol
@@ -626,7 +618,6 @@ class OrbOptionsBacktestEngine:
     # -----------------------------------------------------------------------
 
     def _process_day(self, day_bars, prior_days_bars=None) -> Optional[OptionsBacktestResult]:
-        from es_8am.backtest.data_loader import DayBars
         bars: List[Dict] = day_bars.bars
         session_date: date = day_bars.session_date
         symbol: str = day_bars.symbol

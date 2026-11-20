@@ -1,6 +1,7 @@
 """Mock cache serving CBBO quotes for backtesting."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, Optional
 
 

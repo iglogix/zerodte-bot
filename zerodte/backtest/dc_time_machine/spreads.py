@@ -30,7 +30,6 @@ def half_spread_stats(store: MultiExpiryStore, sessions: List[date]
         store.load_session(session)
         for expiry in store.available_expiries():
             dte = (expiry - session).days
-            qm_keys = store.strikes  # noqa: not used; iterate panel directly below
             for (minute, strike, is_call), (bid, ask) in _iter_quotes(store, expiry):
                 half = (ask - bid) / 2.0
                 if half < 0:

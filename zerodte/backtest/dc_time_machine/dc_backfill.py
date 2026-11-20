@@ -8,9 +8,9 @@ to a full session. Writes one pickle per session: {expiry: {(min,strike,call):(b
 from __future__ import annotations
 
 import pickle
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd

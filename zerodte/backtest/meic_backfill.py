@@ -8,14 +8,15 @@ that have no existing CBBO cache to bootstrap a basis from.
 """
 from __future__ import annotations
 
-from datetime import date, datetime as _dt
+from datetime import date
+from datetime import datetime as _dt
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from zerodte.backtest.osi_symbol import format_osi
 from zerodte.backtest.databento_backfill import _parse_symbol, build_request_window
+from zerodte.backtest.osi_symbol import format_osi
 
 ET = ZoneInfo("America/New_York")
 

@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import List
 
+from zerodte.backtest.dc_time_machine.flux_scanner import rank_candidates, ratio_zscore
+from zerodte.backtest.dc_time_machine.trading_calendar import (
+    nth_trading_day_after,
+    sessions_between,
+)
 from zerodte.flux.engine import ratio_point
 from zerodte.flux.models import ScanRow
 from zerodte.flux.sources.base import FluxSource
-from zerodte.backtest.dc_time_machine.trading_calendar import (
-    nth_trading_day_after, sessions_between,
-)
-from zerodte.backtest.dc_time_machine.flux_scanner import ratio_zscore, rank_candidates
 
 
 def _prev_session(d: date) -> date:
@@ -36,7 +37,7 @@ def scan(source: FluxSource, on_date: date, min_dte: int, max_dte: int,
                 continue
             pairs.append((front, back, gap))
             for sess in (on_date, prev):
-                needed.add((sess, front)); needed.add((sess, back))
+                needed.add((sess, front)); needed.add((sess, back))  # noqa: E702
 
     # Pre-fetch every unique (session, expiry) chain once, in parallel & fault-tolerant
     # (shared expiries across pairs → far fewer fetches; the cache makes repeats instant).

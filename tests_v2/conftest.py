@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 def _make_opt(

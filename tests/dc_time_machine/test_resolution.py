@@ -1,13 +1,13 @@
 # tests/dc_time_machine/test_resolution.py
 from datetime import date
 
-import pytest
-
-from zerodte.backtest.dc_time_machine.strategy import DcParams
 from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 from zerodte.backtest.dc_time_machine.simulator import (
-    resolve_expiries, select_strikes, compute_iv_features,
+    compute_iv_features,
+    resolve_expiries,
+    select_strikes,
 )
+from zerodte.backtest.dc_time_machine.strategy import DcParams
 
 S = date(2026, 2, 2)   # Monday
 # Contiguous NYSE sessions after S = trading days 1..9 (02-03 Tue ... 02-13 Fri)

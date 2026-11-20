@@ -8,8 +8,8 @@ SimClock: orchestrator-driven time with instant sleep — used in backtesting.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from datetime import datetime
+from typing import Callable, Optional
 
 
 class WallClock:

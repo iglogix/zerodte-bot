@@ -16,14 +16,20 @@ import math
 from datetime import datetime, time
 from typing import Any, Dict, List, Optional, Tuple
 
-from zerodte.strategies.base import (
-    LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
+from es_8am.backtest.pricing import (
+    bs_call,
+    bs_call_delta,
+    bs_put,
+    bs_put_delta,
 )
 from zerodte.agent.base_engine import BaseEngine, EngineDeps
-from zerodte.strategies.utils import mid_price as _mid
-from es_8am.backtest.pricing import (
-    bs_call, bs_put, bs_call_delta, bs_put_delta,
+from zerodte.strategies.base import (
+    ExitAction,
+    LiveStrategy,
+    LiveTradeSetup,
+    OrderLeg,
 )
+from zerodte.strategies.utils import mid_price as _mid
 
 
 class OpenIcStrategy(LiveStrategy):
@@ -178,8 +184,8 @@ class OpenIcStrategy(LiveStrategy):
         if not all([sc, lc, sp, lp]):
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
 
-        sc_mid = _mid(sc); lc_mid = _mid(lc)
-        sp_mid = _mid(sp); lp_mid = _mid(lp)
+        sc_mid = _mid(sc); lc_mid = _mid(lc)  # noqa: E702
+        sp_mid = _mid(sp); lp_mid = _mid(lp)  # noqa: E702
         if None in (sc_mid, lc_mid, sp_mid, lp_mid):
             return {"candidates_found": 0, "top_candidate": None, "candidates": []}
 
@@ -342,7 +348,7 @@ class OpenIcStrategy(LiveStrategy):
         entry_time = trade.get("entry_time")
         if clock is None or entry_time is None:
             return self._tp_pct
-        from zoneinfo import ZoneInfo as _ZI
+        from zoneinfo import ZoneInfo as _ZI  # noqa: N814
         ET = _ZI("America/New_York")
         now = clock.now(ET)
         from datetime import datetime as _dt
@@ -508,7 +514,7 @@ class OpenIcStrategy(LiveStrategy):
             put = chain_by.get((atm_k, "put"))
         if not call or not put:
             return None
-        c_mid = _mid(call); p_mid = _mid(put)
+        c_mid = _mid(call); p_mid = _mid(put)  # noqa: E702
         if c_mid is None or p_mid is None:
             return None
         return c_mid + p_mid

@@ -1,6 +1,7 @@
 """Tests for the manual-mode QuoteComparator (chain-based quote source)."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from zerodte.services.execution_log import ExecutionLog
 from zerodte.services.quote_comparator import QuoteComparator

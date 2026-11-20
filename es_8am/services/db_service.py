@@ -6,14 +6,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from es_8am.models.database import (
-    OrbTrade,
     OrbSpreadTrade,
     OrbToolCallLog,
-    get_engine,
+    OrbTrade,
     get_session,
     init_db,
 )

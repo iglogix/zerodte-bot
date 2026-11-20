@@ -11,9 +11,10 @@ def test_full_navigation_flow(authed_client):
 
 def test_start_and_list_bot_flow(authed_client):
     """Start a bot via form, verify it appears on dashboard."""
-    from unittest.mock import AsyncMock, patch, MagicMock
-    from web.bot_manager import BotInfo
     from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from web.bot_manager import BotInfo
 
     mock_info = BotInfo(
         bot_id="test1", name="test_bot", config_path="config/config.yaml",

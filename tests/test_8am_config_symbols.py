@@ -1,7 +1,6 @@
 """Symbols come from config, never from hardcoded defaults (see tests_locked guard)."""
 import asyncio
 import glob
-from datetime import date
 from pathlib import Path
 
 import pytest

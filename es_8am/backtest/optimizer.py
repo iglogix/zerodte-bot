@@ -16,7 +16,6 @@ Prints top-N table and saves full results to CSV.
 
 from __future__ import annotations
 
-import copy
 import csv
 import itertools
 import logging
@@ -256,8 +255,9 @@ class GridSearchOptimizer:
         # Preload CBBO cache into memory if configured
         cbbo_cache_dir = base_config.get("options", {}).get("cbbo_cache_dir", "")
         if cbbo_cache_dir and Path(cbbo_cache_dir).exists():
-            from es_8am.backtest.cbbo_store import CbboStore
             import time as _t
+
+            from es_8am.backtest.cbbo_store import CbboStore
             t0 = _t.time()
             self._cbbo_cache = CbboStore.preload_cache(cbbo_cache_dir)
             print(f"  CBBO preloaded: {len(self._cbbo_cache)} days in {_t.time()-t0:.1f}s", flush=True)
@@ -772,7 +772,7 @@ class GridSearchOptimizer:
         print(sep)
         print(f"\n  Best params: {best_params}")
         if oos_report:
-            print(f"\n  OOS result (per contract):")
+            print("\n  OOS result (per contract):")
             print(f"    trades={oos_report.get('trades')}  "
                   f"sharpe={oos_report.get('sharpe', 0):.2f}  "
                   f"WR={oos_report.get('win_rate', 0)*100:.1f}%  "

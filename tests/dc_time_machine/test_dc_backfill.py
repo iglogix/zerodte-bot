@@ -3,7 +3,6 @@ from datetime import date
 from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
 
 from zerodte.backtest.dc_time_machine.dc_backfill import fetch_expiry_session
 

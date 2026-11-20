@@ -47,11 +47,13 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from es_8am.backtest.strategy_base import Strategy, TradeSetup
 from es_8am.backtest.pricing import (
-    bs_call, bs_put, bs_call_delta, bs_put_delta,
-    spread_credit, spread_value,
+    bs_call_delta,
+    bs_put_delta,
+    spread_credit,
+    spread_value,
 )
+from es_8am.backtest.strategy_base import Strategy, TradeSetup
 
 
 class IronFlyStrategy(Strategy):

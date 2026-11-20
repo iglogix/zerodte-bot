@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import List, Optional
 
+from zerodte.backtest.dc_time_machine.pricing import transform_credit
 from zerodte.flux.models import ChainSnapshot
 from zerodte.flux.orders import OrderLeg, OrderTicket
-from zerodte.backtest.dc_time_machine.pricing import transform_credit
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class WingRow:
 
 def parse_option_symbol(sym: str) -> Optional[tuple]:
     """OSI 21-char → (root, expiry, strike, is_call); None if not an option symbol."""
-    s = sym.strip()
+    sym.strip()
     if len(sym) != 21 or sym[12] not in ("C", "P"):
         return None
     try:

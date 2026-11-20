@@ -7,8 +7,8 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Tuple
 
-from zerodte.flux.models import ChainSnapshot
 from zerodte.backtest.osi_symbol import format_osi
+from zerodte.flux.models import ChainSnapshot
 
 
 @dataclass(frozen=True)

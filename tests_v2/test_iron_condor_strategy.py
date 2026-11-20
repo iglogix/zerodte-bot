@@ -1,7 +1,8 @@
 """Phase 2 TDD tests: IronCondorStrategy."""
 
 import pytest
-from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, ExitAction
+
+from zerodte.strategies.base import LiveStrategy, LiveTradeSetup
 from zerodte.strategies.iron_condor import IronCondorStrategy
 
 

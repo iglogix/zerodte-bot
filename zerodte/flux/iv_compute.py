@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from zerodte.flux.models import OptionRow
 from zerodte.backtest.dc_time_machine.iv import bs_delta, implied_vol
+from zerodte.flux.models import OptionRow
 
 RATE = 0.04
 PriceRow = Tuple[float, bool, float, float]

@@ -25,14 +25,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from trading_core.services.decision_logger import DecisionFileLogger
 from zerodte.agent.base_engine import EngineDeps
 from zerodte.agent.decision_engine import CycleResult
 from zerodte.agent.orb_engine import OrbEngine
-from trading_core.services.decision_logger import DecisionFileLogger
 
 ET = ZoneInfo("America/New_York")
 

@@ -1,6 +1,8 @@
 # tests/test_gex_stats.py
 import numpy as np
-from zerodte.backtest.gex_stats import ols, tercile_buckets, partial_effect
+
+from zerodte.backtest.gex_stats import ols, partial_effect, tercile_buckets
+
 
 def test_ols_recovers_known_coefficients():
     rng = np.random.default_rng(0)
@@ -31,6 +33,7 @@ def test_partial_effect_zero_when_regime_is_pure_vol_proxy():
     assert abs(res["regime_t"]) < 3.0             # not robustly significant
 
 from zerodte.backtest.gex_stats import oos_partial_effect
+
 
 def test_oos_partial_effect_reports_per_fold():
     rng = np.random.default_rng(2)

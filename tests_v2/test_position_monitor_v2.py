@@ -1,8 +1,9 @@
 """Phase 5 TDD tests: PositionMonitor delegates exit logic to strategy."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import time
+
 from zerodte.strategies.base import ExitAction
 
 

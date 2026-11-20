@@ -18,7 +18,7 @@ baseline behaviour, never to a silent permanent skip.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, Sequence
 
 logger = logging.getLogger(__name__)
 

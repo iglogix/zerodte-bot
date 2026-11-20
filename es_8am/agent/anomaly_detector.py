@@ -5,7 +5,7 @@ ORB Anomaly Detector — thin wrapper delegating to the existing 0DTE anomaly de
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

@@ -9,16 +9,17 @@ Falls back to BS pricing when CBBO quotes are unavailable for a strike/minute.
 
 from __future__ import annotations
 
-import copy
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from es_8am.backtest.strategy_base import Strategy, TradeSetup
-from es_8am.backtest.strategy_delta import DeltaStrategy
 from es_8am.backtest.pricing import (
-    select_strike, spread_credit, spread_value,
-    bs_put_delta, bs_call_delta,
+    bs_call_delta,
+    bs_put_delta,
+    select_strike,
+    spread_credit,
 )
+from es_8am.backtest.strategy_base import TradeSetup
+from es_8am.backtest.strategy_delta import DeltaStrategy
 
 
 class CbboDeltaStrategy(DeltaStrategy):

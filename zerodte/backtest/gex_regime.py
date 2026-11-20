@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Dict, List, Optional, Tuple
 
-from zerodte.backtest.gex import bs_gamma, total_gex, gamma_flip, magnet_strike
+from zerodte.backtest.gex import bs_gamma, gamma_flip, magnet_strike, total_gex
 
 MultiOi = Dict[Tuple[date, float, bool], int]
 Oi = Dict[Tuple[float, bool], int]

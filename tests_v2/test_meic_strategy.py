@@ -1,10 +1,11 @@
 """TDD tests: MeicStrategy."""
 
-import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction
+import pytest
+
+from zerodte.strategies.base import ExitAction, LiveStrategy, LiveTradeSetup, OrderLeg
 
 ET = ZoneInfo("America/New_York")
 
@@ -26,8 +27,8 @@ class TestExitActionWidening:
         assert a.quantity_fraction == 0.25
 
 
-from zerodte.strategies.meic import MeicStrategy
 from zerodte.agent.scheduled_engine import ScheduledEngine
+from zerodte.strategies.meic import MeicStrategy
 
 
 class TestMeicSimpleMethods:

@@ -13,12 +13,14 @@ from datetime import date
 from typing import Dict, List, Optional
 
 from zerodte.backtest.dc_time_machine.fills import fill_price, net_combo_credit
+from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 from zerodte.backtest.dc_time_machine.policy import entry_allowed, overnight_decision
 from zerodte.backtest.dc_time_machine.pricing import (
-    entry_debit, ic_terminal_pnl, is_risk_free,
+    entry_debit,
+    ic_terminal_pnl,
+    is_risk_free,
 )
 from zerodte.backtest.dc_time_machine.strategy import DcParams
-from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 
 
 @dataclass
@@ -130,7 +132,7 @@ def simulate_trade(store: MultiExpiryStore, params: DcParams, *, session: date,
 # --- append to zerodte/backtest/dc_time_machine/simulator.py ---
 from typing import Tuple
 
-from zerodte.backtest.dc_time_machine.iv import bs_delta, implied_vol, front_back_ratio
+from zerodte.backtest.dc_time_machine.iv import bs_delta, front_back_ratio, implied_vol
 
 
 def resolve_expiries(store: MultiExpiryStore, session: date, params: DcParams,
@@ -160,7 +162,7 @@ def resolve_expiries(store: MultiExpiryStore, session: date, params: DcParams,
     return front, back
 
 
-def _T(session: date, expiry: date) -> float:
+def _T(session: date, expiry: date) -> float:  # noqa: N802
     return max((expiry - session).days, 1) / 365.0
 
 

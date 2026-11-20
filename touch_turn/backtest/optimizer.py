@@ -18,11 +18,10 @@ import itertools
 import logging
 import math
 from concurrent.futures import ProcessPoolExecutor
-from datetime import date
 from multiprocessing import get_context
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from touch_turn.backtest.engine import TouchTurnBacktestEngine, BacktestReport
+from touch_turn.backtest.engine import BacktestReport, TouchTurnBacktestEngine
 
 logger = logging.getLogger(__name__)
 

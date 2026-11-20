@@ -1,8 +1,12 @@
 """Phase 1 tests: LiveStrategy ABC cannot be instantiated directly."""
 
 import pytest
+
 from zerodte.strategies.base import (
-    LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
+    ExitAction,
+    LiveStrategy,
+    LiveTradeSetup,
+    OrderLeg,
 )
 
 

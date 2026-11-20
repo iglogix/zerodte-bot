@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from itertools import product
 from typing import Any, Callable, Dict, List, Optional
 

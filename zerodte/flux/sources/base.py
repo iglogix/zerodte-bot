@@ -7,8 +7,8 @@ from abc import ABC, abstractmethod
 from datetime import date
 from typing import List, Optional
 
-from zerodte.flux.models import ChainSnapshot
 from zerodte.backtest.dc_time_machine.trading_calendar import nth_trading_day_after
+from zerodte.flux.models import ChainSnapshot
 
 
 class FluxSource(ABC):

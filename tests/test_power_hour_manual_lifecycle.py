@@ -3,13 +3,12 @@ through the DB into a trade dict that PowerHourStrategy.check_exit can manage
 (the 2026-06-11 review found this path entirely missing)."""
 from __future__ import annotations
 
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from zerodte.agent.tool_handlers import ToolHandlers
 from trading_core.services.db_service import DatabaseService
+from zerodte.agent.tool_handlers import ToolHandlers
 from zerodte.strategies.power_hour import PowerHourStrategy
 
 ET = ZoneInfo("America/New_York")

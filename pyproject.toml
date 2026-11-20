@@ -89,5 +89,22 @@ target-version = ["py310"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# scripts/ and tools/ are research one-offs; tests_locked/ is the immutable suite
+# (a pre-commit hook rejects any change to it, formatting included).
+extend-exclude = ["scripts", "tools", "tests_locked"]
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+ignore = [
+    "E501",          # line length is advisory
+    "N803", "N806",  # option-pricing code keeps the textbook names (S, K, T, IV)
+    "E741",          # likewise single-letter maths names
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests read better with compact fixtures, local helper classes and late imports.
+"tests*/**" = ["E402", "E702", "E731", "N801", "N802", "N814"]
+# Entry points load .env / configure logging before importing the application.
+"es_8am/main_options.py" = ["E402"]
+"web/app.py" = ["E402"]
+"zerodte/backtest/dc_time_machine/simulator.py" = ["E402"]

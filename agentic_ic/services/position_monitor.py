@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, date
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from datetime import datetime, time
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from trading_core.services.order_fill_listener import FillEvent
@@ -183,7 +183,7 @@ class PositionMonitor:
     # -------------------------------------------------------------------------
 
     async def _check_trade(self, trade: Dict[str, Any]):
-        trade_id = trade.get("trade_id", "")
+        trade.get("trade_id", "")
 
         await self._check_take_profit(trade)
         await self._check_stop_triggered(trade)

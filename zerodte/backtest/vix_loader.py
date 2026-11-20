@@ -11,7 +11,6 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, Optional
 
-
 _CACHE: Dict[str, Dict[date, float]] = {}
 
 

@@ -15,8 +15,8 @@ from datetime import date
 from typing import Any, Dict, List, Tuple
 
 from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
-from zerodte.backtest.dc_time_machine.strategy import DcParams
 from zerodte.backtest.dc_time_machine.simulator import run_session
+from zerodte.backtest.dc_time_machine.strategy import DcParams
 
 TRADING_DAYS = 252
 

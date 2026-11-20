@@ -4,7 +4,11 @@ import pytest
 
 from zerodte.flux.models import ChainSnapshot, OptionRow
 from zerodte.flux.orders import (
-    select_dc_strikes, build_dc_order, spy_proxy, snap_spy_to_listed, OrderLeg,
+    OrderLeg,
+    build_dc_order,
+    select_dc_strikes,
+    snap_spy_to_listed,
+    spy_proxy,
 )
 
 

@@ -6,11 +6,11 @@ for all live ORB market data needs.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from es_8am.utils.contract_utils import get_dxlink_symbol, get_contract_info
+from es_8am.utils.contract_utils import get_contract_info, get_dxlink_symbol
 
 logger = logging.getLogger(__name__)
 

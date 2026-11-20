@@ -15,7 +15,6 @@ import json
 import os
 import pickle
 import time
-import urllib.request
 from datetime import date
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Tuple

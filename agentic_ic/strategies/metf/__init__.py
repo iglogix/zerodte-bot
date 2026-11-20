@@ -1,12 +1,12 @@
 from .metf_strategy import (
-    METFStrategy,
-    METFConfig,
-    METFSignal,
-    METFPosition,
     CreditSpread,
+    ExitReason,
+    METFConfig,
+    METFPosition,
+    METFSignal,
+    METFStrategy,
     SpreadType,
     TrendDirection,
-    ExitReason,
 )
 
 __all__ = [

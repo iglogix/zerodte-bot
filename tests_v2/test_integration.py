@@ -1,14 +1,14 @@
 """Phase 8-9: Integration tests — strategy wiring, database model, config routing."""
 
 import json
-import pytest
-from datetime import datetime, date
-from unittest.mock import AsyncMock, MagicMock
+from datetime import date, datetime
+from unittest.mock import AsyncMock
 
-from trading_core.models.database import Trade, Base, get_engine, init_db
+import pytest
+
+from trading_core.models.database import Trade, init_db
 from zerodte.strategies.iron_condor import IronCondorStrategy
 from zerodte.strategies.iron_fly import IronFlyStrategy
-from zerodte.strategies.base import LiveTradeSetup, OrderLeg
 
 
 class TestTradeModel:

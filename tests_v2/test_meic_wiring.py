@@ -1,7 +1,8 @@
 """MEIC wiring: tool handler + config routing."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from zerodte.agent.tool_handlers import ToolHandlers
 
@@ -31,6 +32,7 @@ async def test_place_two_spread_ic_dry_run_simulates():
 
 def test_main_routes_meic_strategy():
     import yaml
+
     from zerodte.main import BotOrchestrator
     from zerodte.strategies.meic import MeicStrategy
 
@@ -49,6 +51,7 @@ def test_main_routes_meic_strategy():
 async def test_place_two_spread_ic_live_submits_short_stops():
     """Live MEIC entry submits the 2 spreads AND a stop-market on each short."""
     from datetime import date
+
     from zerodte.backtest.osi_symbol import format_osi
 
     api = MagicMock()
@@ -81,6 +84,7 @@ async def test_place_two_spread_ic_manual_logs_assumed_and_registers():
     """Manual mode: no orders submitted, but assumed entry is logged and the
     trade is registered with the quote comparator (on_entry)."""
     from datetime import date
+
     from zerodte.backtest.osi_symbol import format_osi
 
     exec_log = MagicMock()

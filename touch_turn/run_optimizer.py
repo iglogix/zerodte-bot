@@ -116,9 +116,9 @@ def main():
 
     # OOS test
     if best_params and oos_days:
-        print(f"\nRunning OOS test with best params...")
+        print("\nRunning OOS test with best params...")
         oos_metrics = opt.eval_on_oos(best_params, oos_days)
-        print(f"\n  OOS Results:")
+        print("\n  OOS Results:")
         print(f"    Trades       : {oos_metrics['trades']}")
         print(f"    Total P&L    : ${oos_metrics['total_pnl_usd']:,.2f}")
         print(f"    Sharpe       : {oos_metrics['sharpe']:.2f}")

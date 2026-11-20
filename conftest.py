@@ -4,8 +4,7 @@ so tests that call json.dumps on fixtures containing datetime values work correc
 """
 
 import json
-from datetime import datetime, date
-
+from datetime import date, datetime
 
 _original_default = json.JSONEncoder.default
 

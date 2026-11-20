@@ -1,13 +1,12 @@
 """Tests for OrbEngine three-phase entry."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
-from zerodte.agent.orb_engine import OrbEngine
+import pytest
+
 from zerodte.agent.base_engine import EngineDeps
-from zerodte.agent.decision_engine import CycleResult
-from zerodte.backtest.sim_clock import WallClock
+from zerodte.agent.orb_engine import OrbEngine
 
 ET = ZoneInfo("America/New_York")
 

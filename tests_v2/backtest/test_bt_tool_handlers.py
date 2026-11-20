@@ -39,10 +39,10 @@ def cbbo_cache(tmp_path):
 
 @pytest.fixture
 def handlers(cbbo_cache):
-    from zerodte.backtest.cbbo_store import CbboStore
-    from zerodte.backtest.sim_clock import SimClock
-    from zerodte.backtest.mock_db import BacktestDb
     from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
+    from zerodte.backtest.cbbo_store import CbboStore
+    from zerodte.backtest.mock_db import BacktestDb
+    from zerodte.backtest.sim_clock import SimClock
 
     store = CbboStore(cbbo_cache, cache_dir=cbbo_cache)
     store.load_day(date(2025, 10, 1))

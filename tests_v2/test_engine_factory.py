@@ -1,6 +1,8 @@
 """Tests that strategies create the correct engine type."""
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+
 from zerodte.agent.base_engine import BaseEngine, EngineDeps
 
 
@@ -29,8 +31,8 @@ def test_base_engine_is_abstract():
 
 
 def test_iron_condor_creates_scheduled_engine():
-    from zerodte.strategies.iron_condor import IronCondorStrategy
     from zerodte.agent.scheduled_engine import ScheduledEngine
+    from zerodte.strategies.iron_condor import IronCondorStrategy
 
     s = IronCondorStrategy()
     s.configure({"strategy": {"min_short_delta": 0.10, "max_short_delta": 0.15,
@@ -43,8 +45,8 @@ def test_iron_condor_creates_scheduled_engine():
 
 
 def test_iron_fly_creates_scheduled_engine():
-    from zerodte.strategies.iron_fly import IronFlyStrategy
     from zerodte.agent.scheduled_engine import ScheduledEngine
+    from zerodte.strategies.iron_fly import IronFlyStrategy
 
     s = IronFlyStrategy()
     s.configure({"options": {"strike_step_pts": 5, "contract_multiplier": 100}})
@@ -53,8 +55,8 @@ def test_iron_fly_creates_scheduled_engine():
 
 
 def test_orb_em_ic_creates_orb_engine():
-    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
     from zerodte.agent.orb_engine import OrbEngine
+    from zerodte.strategies.orb_em_ic import OrbEmIronCondorStrategy
 
     s = OrbEmIronCondorStrategy()
     s.configure({"options": {"strike_step_pts": 5, "contract_multiplier": 100}})

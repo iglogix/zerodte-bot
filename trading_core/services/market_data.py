@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from trading_core.models.database import Base, MarketDataCache, get_engine, get_session

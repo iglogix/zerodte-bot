@@ -14,10 +14,13 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from zerodte.strategies.base import (
-    LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
-)
 from zerodte.agent.base_engine import BaseEngine, EngineDeps
+from zerodte.strategies.base import (
+    ExitAction,
+    LiveStrategy,
+    LiveTradeSetup,
+    OrderLeg,
+)
 from zerodte.strategies.utils import mid_price as _mid
 
 
@@ -214,7 +217,7 @@ class IronFlyStrategy(LiveStrategy):
         quotes: Dict[str, Dict[str, Any]],
     ) -> ExitAction:
         credit = trade.get("credit_received", 0)
-        center = trade.get("center_strike", 0)
+        trade.get("center_strike", 0)
         long_put = trade.get("long_put", 0)
         long_call = trade.get("long_call", 0)
 

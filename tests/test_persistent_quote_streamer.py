@@ -6,11 +6,11 @@ instead of opening/closing a new websocket on every get_quote() call.
 """
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_ic.services.tastytrade_client import TastyTradeClient
+import pytest
 
+from agentic_ic.services.tastytrade_client import TastyTradeClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,7 +55,7 @@ async def test_persistent_streamer_reuses_connection():
     mock_instance.__aexit__ = AsyncMock(return_value=False)
     mock_cls.return_value = mock_instance
 
-    with patch("agentic_ic.services.tastytrade_client.TastyTradeClient._get_quote_via_dxlink") as mock_dxlink:
+    with patch("agentic_ic.services.tastytrade_client.TastyTradeClient._get_quote_via_dxlink"):
         # Bypass the real implementation and test _ensure_quote_streamer directly
         pass
 

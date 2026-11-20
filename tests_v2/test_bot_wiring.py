@@ -1,9 +1,10 @@
 """Integration tests for BotOrchestrator wiring — verifies config → strategy → engine → monitor."""
 
 import os
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from argparse import Namespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from zerodte.main import BotOrchestrator, _resolve_mode
 

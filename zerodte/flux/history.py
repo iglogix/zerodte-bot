@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-from typing import List, Optional
+from typing import List
 
+from zerodte.backtest.dc_time_machine.trading_calendar import (
+    nth_trading_day_after,
+    sessions_between,
+)
 from zerodte.flux.engine import ratio_point
 from zerodte.flux.models import RatioPoint
 from zerodte.flux.sources.base import FluxSource
-from zerodte.backtest.dc_time_machine.trading_calendar import (
-    nth_trading_day_after, sessions_between,
-)
 
 
 def _resolve(session: date, front_dte: int, gap: int):
@@ -30,7 +31,7 @@ def daily_ratio_series(source: FluxSource, front_dte: int, gap: int, n_days: int
         if front is None or back is None:
             continue
         triples.append((s, front, back))
-        needed.add((s, front)); needed.add((s, back))
+        needed.add((s, front)); needed.add((s, back))  # noqa: E702
 
     # Fetch every (session, expiry) chain concurrently — marketdata.app EOD reads are
     # ~5-9s each, so serial fetching of ~2·n chains blows the timeout. The cache makes

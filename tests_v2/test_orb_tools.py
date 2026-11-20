@@ -1,6 +1,8 @@
 """Tests for ORB tools on ToolHandlers."""
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+
 from zerodte.agent.tool_handlers import ToolHandlers
 
 

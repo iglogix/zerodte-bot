@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Dict
+
 import numpy as np
 from scipy import stats
 
@@ -38,7 +39,7 @@ def tercile_buckets(em: np.ndarray) -> np.ndarray:
 def partial_effect(y: np.ndarray, regime: np.ndarray, em: np.ndarray) -> Dict:
     """Regress y ~ 1 + regime + em + regime*em; report the partial regime effect
     (coefficient, t-stat, p) holding EM fixed."""
-    y = np.asarray(y, float); regime = np.asarray(regime, float); em = np.asarray(em, float)
+    y = np.asarray(y, float); regime = np.asarray(regime, float); em = np.asarray(em, float)  # noqa: E702
     X = np.column_stack([np.ones_like(y), regime, em, regime * em])
     beta, se, t, p = ols(X, y)
     return {"regime_coef": float(beta[1]), "regime_se": float(se[1]),
@@ -55,7 +56,7 @@ def _sequential_folds(n: int, n_folds: int):
 
 def oos_partial_effect(y, regime, em, n_folds: int = 4) -> Dict:
     """Run partial_effect within each sequential OOS block. Rows MUST be date-sorted."""
-    y = np.asarray(y, float); regime = np.asarray(regime, float); em = np.asarray(em, float)
+    y = np.asarray(y, float); regime = np.asarray(regime, float); em = np.asarray(em, float)  # noqa: E702
     folds = []
     for k, (lo, hi) in enumerate(_sequential_folds(len(y), n_folds)):
         sl = slice(lo, hi)

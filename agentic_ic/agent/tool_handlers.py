@@ -6,8 +6,7 @@ Each method corresponds to a tool the LLM can call.
 from __future__ import annotations
 
 import logging
-import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -113,7 +112,6 @@ class ToolHandlers:
         If target_credit is provided, results are sorted by proximity to that mid-price
         so the closest match appears first.
         """
-        from datetime import date
         chain = await self.cache.get_option_chain_with_fallback("SPX", max_age_seconds=60)
 
         # Filter to today's expiry (0DTE) if options have expiration data

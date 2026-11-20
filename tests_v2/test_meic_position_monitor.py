@@ -1,7 +1,8 @@
 """PositionMonitor partial-close behaviour for MEIC."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from zerodte.services.position_monitor import PositionMonitor
 from zerodte.strategies.base import ExitAction

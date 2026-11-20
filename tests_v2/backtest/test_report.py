@@ -1,6 +1,7 @@
 """Tests for zerodte.backtest.report."""
 
 from datetime import date
+
 import pytest
 
 

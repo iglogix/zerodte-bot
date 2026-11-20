@@ -4,10 +4,12 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import pytest
 
 from zerodte.backtest.meic_backfill import (
-    spot_range_from_bars, meic_day_symbols, meic_window_utc, quotes_from_df,
+    meic_day_symbols,
+    meic_window_utc,
+    quotes_from_df,
+    spot_range_from_bars,
 )
 from zerodte.backtest.osi_symbol import format_osi
 

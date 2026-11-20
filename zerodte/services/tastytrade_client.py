@@ -21,10 +21,10 @@ import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from zerodte.backtest.osi_symbol import format_osi
-
 import aiohttp
 import httpx
+
+from zerodte.backtest.osi_symbol import format_osi
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +392,7 @@ class TastyTradeClient:
 
     async def _ensure_quote_streamer(self, symbol: str):
         """Ensure the owner task is alive and *symbol* is subscribed."""
-        from tastytrade.dxfeed import Quote    # type: ignore
+        from tastytrade.dxfeed import Quote  # type: ignore
 
         async with self._quote_streamer_lock:
             if self._quote_owner_task is None or self._quote_owner_task.done():
@@ -423,7 +423,7 @@ class TastyTradeClient:
         the calling engine/monitor tasks are never touched.
         """
         from tastytrade import DXLinkStreamer  # type: ignore
-        from tastytrade.dxfeed import Quote    # type: ignore
+        from tastytrade.dxfeed import Quote  # type: ignore
 
         backoff = 1.0
         while not self._quote_shutdown:
@@ -567,7 +567,7 @@ class TastyTradeClient:
         """
         try:
             from tastytrade import DXLinkStreamer  # type: ignore
-            from tastytrade.dxfeed import Candle   # type: ignore
+            from tastytrade.dxfeed import Candle  # type: ignore
 
             # Calculate from_time if not provided
             if from_time is None:
@@ -732,7 +732,7 @@ class TastyTradeClient:
         Subscribes to both Quote and Greeks simultaneously and collects for 6s.
         """
         from tastytrade import DXLinkStreamer  # type: ignore
-        from tastytrade.dxfeed import Quote, Greeks  # type: ignore
+        from tastytrade.dxfeed import Greeks, Quote  # type: ignore
 
         # Filter to near-ATM strikes only (±200 pts) to limit subscription size
         if spx_price:
@@ -1017,7 +1017,7 @@ class TastyTradeClient:
         """
         try:
             from tastytrade import DXLinkStreamer  # type: ignore
-            from tastytrade.dxfeed import Candle   # type: ignore
+            from tastytrade.dxfeed import Candle  # type: ignore
 
             session = self._market_sdk_session or self._sdk_session
             candles: List[Dict[str, Any]] = []

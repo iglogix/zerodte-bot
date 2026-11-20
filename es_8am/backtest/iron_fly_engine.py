@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import math
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from es_8am.config_keys import require
-from es_8am.backtest.strategy_iron_fly import IronFlyStrategy
-from es_8am.backtest.strategy_base import TradeSetup
 from es_8am.backtest.pricing import spread_value
+from es_8am.backtest.strategy_base import TradeSetup
+from es_8am.backtest.strategy_iron_fly import IronFlyStrategy
+from es_8am.config_keys import require
 
 ET = ZoneInfo("America/New_York")
 

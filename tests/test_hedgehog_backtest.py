@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import math
 import pickle
 
 import pytest
@@ -13,12 +12,10 @@ from zerodte.backtest.hedgehog import (
     HedgeHogStore,
     HhParams,
     black_put,
-    black_put_delta,
     black_put_iv,
     parity_forward,
     summarize,
 )
-
 
 # ---------------------------------------------------------------- helpers
 

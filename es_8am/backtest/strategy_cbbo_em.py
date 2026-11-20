@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import copy
 import math
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from es_8am.backtest.strategy_base import Strategy, TradeSetup
+from es_8am.backtest.pricing import bs_call_delta, bs_put_delta
+from es_8am.backtest.strategy_base import TradeSetup
 from es_8am.backtest.strategy_em import EMStrategy
-from es_8am.backtest.pricing import bs_put_delta, bs_call_delta
 
 
 class CbboEMStrategy(EMStrategy):

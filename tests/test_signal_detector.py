@@ -1,10 +1,9 @@
-from datetime import date, datetime, time
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from zerodte.backtest.signal_detector import (
-    SignalEvent,
     compute_orb_levels,
     detect_signals_for_day,
 )

@@ -5,7 +5,6 @@ ORB Backtest Report — P&L summary, win rate, drawdown, profit factor.
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

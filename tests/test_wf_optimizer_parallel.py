@@ -4,12 +4,10 @@ Backtest is fully deterministic — parallelization must preserve identical resu
 """
 from __future__ import annotations
 
-import pickle
 import sys
 import time
 from datetime import date
 from pathlib import Path
-from typing import List
 from unittest.mock import patch
 
 import pytest
@@ -17,11 +15,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from zerodte.backtest.cbbo_store import CbboStore
-from zerodte.backtest.data_loader import BarLoader, DayBars
+from zerodte.backtest.data_loader import BarLoader
 from zerodte.backtest.wf_optimizer import (
     WalkForwardOptimizer,
-    _wait_for_memory,
     _suggest_workers,
+    _wait_for_memory,
 )
 from zerodte.strategies.orb_em_directional import OrbEmDirectionalStrategy
 

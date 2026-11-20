@@ -1,9 +1,7 @@
 # tests/dc_time_machine/test_flux_scanner.py
 from datetime import date
 
-import pytest
-
-from zerodte.backtest.dc_time_machine.flux_scanner import ratio_zscore, rank_candidates
+from zerodte.backtest.dc_time_machine.flux_scanner import rank_candidates, ratio_zscore
 
 
 def test_ratio_zscore_positive_when_today_above_history():

@@ -290,8 +290,9 @@ class WindowEntryEngine(BaseEngine):
         return None
 
     def _regime_check(self) -> Optional[str]:
+        from datetime import timedelta as _timedelta
+
         from zerodte.backtest.vix_loader import load_vix_series, lookup_prior_close
-        from datetime import date as _date, timedelta as _timedelta
         series = load_vix_series(self._vix_csv)
         if not series:
             return None  # no data → don't block

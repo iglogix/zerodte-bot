@@ -228,8 +228,9 @@ class LLMClient:
 
         Returns {"action": "approve"|"reject", "reasoning": "..."}
         """
-        import litellm
         import re
+
+        import litellm
 
         trade_json = json.dumps(proposed_trade or {}, indent=2)
 

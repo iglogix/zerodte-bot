@@ -52,6 +52,7 @@ def main(argv=None) -> int:
             loop = getattr(submitter, "loop", None)
             if client is not None and loop is not None:
                 import asyncio
+
                 from zerodte.flux.sources.tastytrade_intraday import TastyTradeIntradaySource
 
                 def _chain_fn(exp):       # run the broker chain fetch on the client's loop

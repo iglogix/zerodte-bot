@@ -1,6 +1,8 @@
 # tests/test_study_expiries.py
 from datetime import date, timedelta
-from zerodte.backtest.study_expiries import study_expiries, third_fridays, month_end_sessions
+
+from zerodte.backtest.study_expiries import study_expiries, third_fridays
+
 
 def _weekday_calendar(start: date, n: int):
     days, d = [], start

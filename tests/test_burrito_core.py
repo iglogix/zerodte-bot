@@ -2,12 +2,23 @@
 import pytest
 
 from zerodte.backtest.burrito_core import (
-    BurritoConfig, Leg, build_legs, payoff, position_value, entry_debit,
-    passes_gates, direction_from_series, BurritoTrade, lifecycle_decision,
-    lock_legs, choo_choo_legs, _nearest_valley, summarize_burrito, run_trade,
+    BurritoConfig,
+    BurritoTrade,
+    Leg,
+    _nearest_valley,
+    build_legs,
+    choo_choo_legs,
+    direction_from_series,
+    entry_debit,
+    lifecycle_decision,
+    lock_legs,
+    passes_gates,
+    payoff,
+    position_value,
+    run_trade,
+    summarize_burrito,
 )
 from zerodte.backtest.iron_duck import Smile
-
 
 # ---------------------------------------------------------------- geometry
 
@@ -189,8 +200,9 @@ def test_summarize_sharpe_basic():
 # ---------------------------------------------------------------- integration
 
 def test_run_trade_settles_to_pnl():
-    from zerodte.backtest.iron_duck import DuckStore
     import os
+
+    from zerodte.backtest.iron_duck import DuckStore
     cache = "data/iron_duck_eod/SPXW"
     if not os.path.isdir(cache):
         pytest.skip("SPXW cache not present")

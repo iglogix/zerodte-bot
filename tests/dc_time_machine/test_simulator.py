@@ -1,11 +1,9 @@
 # tests/dc_time_machine/test_simulator.py
 from datetime import date
 
-import pytest
-
-from zerodte.backtest.dc_time_machine.strategy import DcParams
 from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 from zerodte.backtest.dc_time_machine.simulator import simulate_trade
+from zerodte.backtest.dc_time_machine.strategy import DcParams
 
 S = date(2026, 2, 2)
 F = date(2026, 2, 11)
@@ -20,13 +18,6 @@ def _build_panel(transform_minute="09:42", settle=5000.0):
     Two minutes present: entry (09:40) and a later minute where back bids rise.
     """
     # Entry @ 09:40: D = backs@ask − fronts@bid
-    entry = {
-        # fronts (sold)
-        ("09:40", 4980.0, False): (24.9, 25.1),   # front put bid 24.9
-        ("09:40", 5020.0, True): (24.9, 25.1),    # front call bid 24.9
-        # backs (bought)
-        ("09:40", 4980.0, False, ): (24.9, 25.1),
-    }
     # Build full quote sets for both expiries at two minutes
     def qm_front(minute, put_bid, call_bid):
         return {

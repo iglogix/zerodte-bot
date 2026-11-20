@@ -2,7 +2,8 @@ import pickle
 from datetime import date
 
 from zerodte.backtest.dc_time_machine.theta_backfill import (
-    fetch_expiry_session_theta, backfill_session_theta,
+    backfill_session_theta,
+    fetch_expiry_session_theta,
 )
 
 _FMT = ["ms_of_day", "bid_size", "bid_exchange", "bid", "bid_condition",

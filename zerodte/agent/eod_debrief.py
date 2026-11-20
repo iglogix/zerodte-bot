@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,6 @@ class EodDebrief:
         # Read trade outcomes from DB
         if self.db:
             try:
-                from trading_core.services.db_service import DatabaseService
                 all_trades = await self.db.get_all_trades_for_date(session_date)
                 for t in all_trades:
                     summary["trades"].append({

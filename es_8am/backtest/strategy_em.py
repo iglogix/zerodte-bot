@@ -11,15 +11,18 @@ from __future__ import annotations
 
 import copy
 import math
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from es_8am.backtest.strategy_base import Strategy, TradeSetup
 from es_8am.backtest.pricing import (
-    spread_credit, spread_value,
-    bs_put_delta, bs_call_delta,
-    bachelier_put_delta, bachelier_call_delta,
+    bachelier_call_delta,
+    bachelier_put_delta,
+    bs_call_delta,
+    bs_put_delta,
+    spread_credit,
+    spread_value,
 )
+from es_8am.backtest.strategy_base import Strategy, TradeSetup
 
 
 class EMStrategy(Strategy):

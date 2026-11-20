@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, date
-from typing import Optional, Generator
+from datetime import date, datetime
+from typing import Generator
 
 from sqlalchemy import (
     Boolean,
@@ -19,7 +19,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    TypeDecorator,
     create_engine,
     event,
 )

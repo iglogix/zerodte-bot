@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from zerodte.backtest.osi_symbol import format_osi

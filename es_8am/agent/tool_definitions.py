@@ -4,7 +4,7 @@ ORB tool definitions — JSON schemas for tools available to the LLM agent.
 
 from __future__ import annotations
 
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 ORB_TOOLS: List[Dict[str, Any]] = [
     {

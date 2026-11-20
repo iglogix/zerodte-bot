@@ -5,7 +5,6 @@ and strike selection is exercised against a real chain shape.
 """
 from __future__ import annotations
 
-import math
 from datetime import date
 
 import pytest
@@ -17,7 +16,7 @@ from zerodte.backtest.em_fade_core import (
     minutes_between,
     simulate_day,
 )
-from zerodte.backtest.noarb import quote_ok, vertical_mark, check_pnl_bounds
+from zerodte.backtest.noarb import check_pnl_bounds, quote_ok, vertical_mark
 
 SD = date(2024, 6, 12)
 
@@ -356,7 +355,8 @@ def test_max_one_trade_per_day():
 # mutated the engine in this exact way and the suite still passed.
 # ----------------------------------------------------------------------
 
-from zerodte.backtest.em_fade_core import _buy_fill, _sell_fill, EmFadeConfig as _C
+from zerodte.backtest.em_fade_core import EmFadeConfig as _C
+from zerodte.backtest.em_fade_core import _buy_fill, _sell_fill
 
 
 def _small_day(spot=5000.0):

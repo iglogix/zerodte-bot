@@ -6,7 +6,7 @@ SQLAlchemy ORM models with SQLite backend.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, date
+from datetime import datetime
 from typing import Generator
 
 from sqlalchemy import (

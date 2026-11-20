@@ -17,9 +17,9 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
 from dotenv import load_dotenv
@@ -77,17 +77,17 @@ class OrbBotOrchestrator:
 
     async def initialize(self):
         """Initialize all services."""
-        from es_8am.services.db_service import OrbDatabaseService
-        from es_8am.services.market_data import OrbMarketData
-        from es_8am.agent.tool_handlers import OrbToolHandlers
+        from agentic_ic.services.llm_client import LLMClient
+        from es_8am.agent.anomaly_detector import OrbAnomalyDetector
         from es_8am.agent.decision_engine import OrbDecisionEngine
         from es_8am.agent.regime_classifier import OrbRegimeClassifier
-        from es_8am.agent.anomaly_detector import OrbAnomalyDetector
-        from agentic_ic.services.llm_client import LLMClient
+        from es_8am.agent.tool_handlers import OrbToolHandlers
+        from es_8am.services.db_service import OrbDatabaseService
+        from es_8am.services.market_data import OrbMarketData
 
         db_cfg = self.config.get("database", {})
         llm_cfg = self.config.get("llm", {})
-        log_cfg = self.config.get("logging", {})
+        self.config.get("logging", {})
 
         self._db = OrbDatabaseService(db_cfg.get("trading_db", "orb_bot.db"))
         self._db.initialize()
@@ -173,9 +173,10 @@ class OrbBotOrchestrator:
 
     async def run_backtest(self):
         """Run the backtest engine over the configured date range."""
+        from datetime import date as dt_date
+
         from es_8am.backtest.engine import OrbBacktestEngine
         from es_8am.backtest.report import generate_report, print_report
-        from datetime import date as dt_date
 
         bt_cfg = self.config.get("backtest", {})
         zip_path = bt_cfg.get("data_file", "GLBX-20260227-7PWD5NKFSF.zip")

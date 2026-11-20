@@ -36,19 +36,19 @@ Invariants asserted in code (enumerated before any result was looked at):
 
 from __future__ import annotations
 
-import math
 import random
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from zerodte.flux.iv_compute import compute_iv_rows, parity_spot as _iv_parity_spot
 from zerodte.backtest.noarb import (
     PackageMark,
     assert_pnl_bounds,
     quote_ok,
     vertical_mark,
 )
+from zerodte.flux.iv_compute import compute_iv_rows
+from zerodte.flux.iv_compute import parity_spot as _iv_parity_spot
 
 Quote = Tuple[float, float]
 QuoteMap = Dict[Tuple[str, float, bool], Quote]

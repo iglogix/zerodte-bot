@@ -14,7 +14,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -89,17 +89,17 @@ class BotOrchestrator:
 
     async def initialize(self):
         """Initialize all services."""
-        from trading_core.services.market_data import CachedMarketData
-        from trading_core.services.db_service import DatabaseService
-        from agentic_ic.services.risk_manager import RiskManager
-        from trading_core.services.notifications import NotificationService
-        from agentic_ic.services.llm_client import LLMClient
-        from trading_core.services.decision_logger import DecisionFileLogger
-        from agentic_ic.agent.tool_handlers import ToolHandlers
         from agentic_ic.agent.decision_engine import DecisionEngine
+        from agentic_ic.agent.eod_debrief import EodDebrief
+        from agentic_ic.agent.tool_handlers import ToolHandlers
+        from agentic_ic.services.llm_client import LLMClient
+        from agentic_ic.services.risk_manager import RiskManager
         from trading_core.agent.anomaly_detector import AnomalyDetector
         from trading_core.agent.regime_classifier import RegimeClassifier
-        from agentic_ic.agent.eod_debrief import EodDebrief
+        from trading_core.services.db_service import DatabaseService
+        from trading_core.services.decision_logger import DecisionFileLogger
+        from trading_core.services.market_data import CachedMarketData
+        from trading_core.services.notifications import NotificationService
 
         db_cfg = self.config.get("database", {})
         llm_cfg = self.config.get("llm", {})
@@ -131,8 +131,8 @@ class BotOrchestrator:
         advisor_llm = LLMClient(model=llm_cfg.get("advisor_model", "anthropic/claude-haiku-4-5"))
         debrief_llm = LLMClient(model=llm_cfg.get("debrief_model", "anthropic/claude-sonnet-4-5"))
 
-        from agentic_ic.services.tastytrade_client import TastyTradeClient
         from agentic_ic.services.position_monitor import PositionMonitor
+        from agentic_ic.services.tastytrade_client import TastyTradeClient
         from trading_core.services.order_fill_listener import OrderFillListener
 
         api_client = TastyTradeClient(

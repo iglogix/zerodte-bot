@@ -1,15 +1,13 @@
-from datetime import date, datetime
-from types import SimpleNamespace
+from datetime import date
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from zerodte.backtest.databento_backfill import (
-    fetch_day_quotes,
     build_request_window,
+    fetch_day_quotes,
 )
 
 ET = ZoneInfo("America/New_York")

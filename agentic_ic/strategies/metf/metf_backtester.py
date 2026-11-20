@@ -15,17 +15,18 @@ Author: METF Backtester v1.0
 """
 
 from __future__ import annotations
+
+import argparse
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum
-from typing import Optional, List, Dict, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
-import argparse
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -139,12 +140,12 @@ class METFBacktestConfig:
     ema_fast_period: int = 20
     ema_slow_period: int = 40
     ema_min_separation_pct: float = 0.001
-    
+
     # Entry times (HH:MM format)
     entry_times: List[str] = field(default_factory=lambda: [
         "12:30", "13:00", "13:30", "14:00", "14:30", "14:45"
     ])
-    
+
     # Spread settings
     spread_widths: List[int] = field(default_factory=lambda: [20, 30, 35])
     default_width: int = 20
@@ -155,18 +156,18 @@ class METFBacktestConfig:
     em_method: str = "historical_vol"  # "historical_vol", "atr", or "fixed_pct"
     em_fixed_pct: float = 0.01  # 1% EM if using fixed_pct method
     em_lookback: int = 20  # Lookback period for historical vol calculation
-    
+
     # Risk settings
     stop_loss_multiplier: float = 1.0
-    
+
     # Market hours
     market_open: time = field(default_factory=lambda: time(9, 30))
     market_close: time = field(default_factory=lambda: time(16, 0))
-    
+
     # Filters
     fomc_rate_days: List[str] = field(default_factory=list)
     fomc_minutes_days: List[str] = field(default_factory=list)
-    
+
     # Data settings
     symbol: str = "SPX"
     timezone: str = "America/New_York"
@@ -177,11 +178,11 @@ class METFBacktestConfig:
     bar_csv_path: str = "data/spy_1m.csv"
     bar_price_scale: float = 10.0  # SPY * 10 ≈ SPX
     quote_max_stale_min: int = 5
-    
+
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
-    
+
     def get_entry_times(self) -> List[time]:
         """Parse entry times to time objects"""
         times = []
@@ -258,68 +259,68 @@ class BacktestResults:
     @property
     def total_trades(self) -> int:
         return sum(len(d.trades) for d in self.daily_results)
-    
+
     @property
     def total_pnl(self) -> float:
         return sum(d.total_pnl for d in self.daily_results)
-    
+
     @property
     def total_winners(self) -> int:
         return sum(d.num_winners for d in self.daily_results)
-    
+
     @property
     def total_losers(self) -> int:
         return sum(d.num_losers for d in self.daily_results)
-    
+
     @property
     def win_rate(self) -> float:
         total = self.total_winners + self.total_losers
         return self.total_winners / total if total > 0 else 0.0
-    
+
     @property
     def avg_winner(self) -> float:
         winners = [t.pnl for d in self.daily_results for t in d.trades if t.is_winner]
         return np.mean(winners) if winners else 0.0
-    
+
     @property
     def avg_loser(self) -> float:
         losers = [t.pnl for d in self.daily_results for t in d.trades if not t.is_winner]
         return np.mean(losers) if losers else 0.0
-    
+
     @property
     def profit_factor(self) -> float:
         gross_profit = sum(t.pnl for d in self.daily_results for t in d.trades if t.pnl > 0)
         gross_loss = abs(sum(t.pnl for d in self.daily_results for t in d.trades if t.pnl < 0))
         return gross_profit / gross_loss if gross_loss > 0 else float('inf')
-    
+
     @property
     def max_drawdown(self) -> float:
         """Calculate maximum drawdown"""
         cumulative = 0.0
         peak = 0.0
         max_dd = 0.0
-        
+
         for daily in self.daily_results:
             cumulative += daily.total_pnl
             peak = max(peak, cumulative)
             dd = peak - cumulative
             max_dd = max(max_dd, dd)
-        
+
         return max_dd
-    
+
     @property
     def sharpe_ratio(self) -> float:
         """Calculate Sharpe ratio (annualized)"""
         daily_pnls = [d.total_pnl for d in self.daily_results]
         if len(daily_pnls) < 2:
             return 0.0
-        
+
         mean_daily = np.mean(daily_pnls)
         std_daily = np.std(daily_pnls)
-        
+
         if std_daily == 0:
             return 0.0
-        
+
         # Annualize (252 trading days)
         return (mean_daily / std_daily) * np.sqrt(252)
 
@@ -331,10 +332,10 @@ class BacktestResults:
 class METFBacktester:
     """
     METF Strategy Backtester
-    
+
     Tests the METF strategy on historical 1-minute bar data.
     """
-    
+
     def __init__(
         self,
         config: Optional[METFBacktestConfig] = None,
@@ -345,37 +346,37 @@ class METFBacktester:
         self._pricer = pricer
         if self.config.use_cbbo and self._pricer is None:
             self._pricer = CbboPricer(self.config.cbbo_dir)
-    
+
     def calculate_ema(self, prices: pd.Series, period: int) -> pd.Series:
         """Calculate Exponential Moving Average"""
         return prices.ewm(span=period, adjust=False).mean()
-    
+
     def get_trend(self, ema_fast: float, ema_slow: float) -> TrendDirection:
         """Determine trend from EMA values"""
         separation_pct = (ema_fast - ema_slow) / ema_slow * 100
         min_sep = self.config.ema_min_separation_pct * 100
-        
+
         if separation_pct > min_sep:
             return TrendDirection.BULLISH
         elif separation_pct < -min_sep:
             return TrendDirection.BEARISH
         else:
             return TrendDirection.NEUTRAL
-    
+
     def is_fomc_day(self, trade_date: str) -> bool:
         """Check if date is an FOMC day"""
-        return (trade_date in self.config.fomc_rate_days or 
+        return (trade_date in self.config.fomc_rate_days or
                 trade_date in self.config.fomc_minutes_days)
-    
+
     def calculate_expected_move(self, bars: pd.DataFrame, current_idx: int) -> float:
         """
         Calculate Expected Move (EM) for strike placement.
-        
+
         Methods:
         - historical_vol: Use historical volatility scaled to intraday
         - atr: Use Average True Range
         - fixed_pct: Use fixed percentage of underlying
-        
+
         Returns:
             Expected move in points (e.g., 45 for SPY at 600 with 0.75% EM)
         """
@@ -383,39 +384,39 @@ class METFBacktester:
             # Not enough data, use fixed percentage
             current_price = bars.iloc[current_idx]['close']
             return current_price * self.config.em_fixed_pct
-        
+
         lookback_bars = bars.iloc[max(0, current_idx - self.config.em_lookback):current_idx]
         current_price = bars.iloc[current_idx]['close']
-        
+
         if self.config.em_method == "fixed_pct":
             return current_price * self.config.em_fixed_pct
-        
+
         elif self.config.em_method == "atr":
             # Calculate ATR
             high = lookback_bars['high']
             low = lookback_bars['low']
             close = lookback_bars['close']
-            
+
             tr1 = high - low
             tr2 = abs(high - close.shift(1))
             tr3 = abs(low - close.shift(1))
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             atr = tr.mean()
-            
+
             # Scale ATR for remaining trading time (afternoon entries = ~3-4 hours left)
             # Full day ATR covers ~6.5 hours, so scale by sqrt(remaining/total)
             time_scale = np.sqrt(3.5 / 6.5)
             return atr * time_scale
-        
+
         else:  # historical_vol
             # Calculate historical volatility from returns
             returns = lookback_bars['close'].pct_change().dropna()
             if len(returns) < 2:
                 return current_price * self.config.em_fixed_pct
-            
+
             # For 0DTE options, EM is typically calculated from ATM straddle
             # which represents ~1 standard deviation move for remaining time
-            # 
+            #
             # Typical 0DTE EM for SPY/SPX:
             # - Low vol day: 0.3-0.5% (~$1.5-2.5 for SPY at $500)
             # - Normal day: 0.5-0.8% (~$2.5-4 for SPY at $500)
@@ -423,38 +424,38 @@ class METFBacktester:
             #
             # Calculate intraday vol and scale to remaining time
             vol_1min = returns.std()
-            
+
             # Remaining bars from afternoon entry (~3.5 hours = 210 bars)
             # Scale by sqrt(time) for volatility
             remaining_bars = 210
             remaining_vol = vol_1min * np.sqrt(remaining_bars)
-            
+
             # EM is typically 1 standard deviation, but cap it to realistic range
             em_pct = remaining_vol
-            
+
             # Cap EM to realistic 0DTE range (0.3% to 1.5%)
             em_pct = max(0.003, min(0.015, em_pct))
-            
+
             return current_price * em_pct
-    
+
     def get_credit_for_em_distance(self, em_distance: float, width: int) -> float:
         """
         Estimate credit based on how far OTM the short strike is.
-        
+
         Per METF rules: credit should be between $1.25 and $2.50.
         Closer to ATM = higher credit, further OTM = lower credit.
-        
+
         This is a simplified model - real credit depends on IV, time to expiry, etc.
         """
         import random
-        
+
         # Base credit scales with how close we are to ATM
         # At EM boundary, we expect mid-range credit
         # Use random within the valid range to simulate market conditions
         base_credit = random.uniform(self.config.min_credit, self.config.max_credit)
-        
+
         return round(base_credit, 2)
-    
+
     # -------------------------------------------------------------------------
     # Real-pricing (CBBO) selection + simulation
     # -------------------------------------------------------------------------
@@ -543,7 +544,6 @@ class METFBacktester:
         is_call = spread_type == SpreadType.CALL_CREDIT_SPREAD
         stop_mark = credit * (1 + self.config.stop_loss_multiplier)
         max_adverse_dollars = 0.0
-        exit_mark: Optional[float] = None
 
         for ts, row in bars_after_entry.iterrows():
             minute_et = ts.strftime("%H:%M")
@@ -588,50 +588,50 @@ class METFBacktester:
     ) -> Tuple[ExitReason, float, float, datetime]:
         """
         Simulate credit spread outcome with Expected Move (EM) based strike placement.
-        
+
         Based on METF strategy rules:
         - Short strike is placed at the Expected Move boundary
         - Credit target: $1.25 - $2.50
         - Stop loss: 1x credit (spread value reaches 2x credit)
         - Hold to expiration unless stopped
-        
+
         Strike Placement Logic:
         - PUT CREDIT SPREAD: Short put at entry_price - expected_move
         - CALL CREDIT SPREAD: Short call at entry_price + expected_move
-        
+
         Win/Loss at Expiration:
         - WIN: Price stays above short put (PCS) or below short call (CCS)
         - LOSS: Price breaches short strike
-        
+
         Returns:
             Tuple of (exit_reason, pnl, max_adverse_excursion, exit_time)
         """
         # Use Expected Move for OTM distance (short strike at EM boundary)
         otm_distance = expected_move
-        
+
         # Place strikes based on spread type
         if spread_type == SpreadType.PUT_CREDIT_SPREAD:
             # Bullish: sell put spread below current price
             short_strike = entry_price - otm_distance
-            long_strike = short_strike - width
+            short_strike - width
         else:
             # Bearish: sell call spread above current price
             short_strike = entry_price + otm_distance
-            long_strike = short_strike + width
-        
+            short_strike + width
+
         # Stop loss price (1x credit = 2x initial spread value)
         stop_spread_value = credit * (1 + self.config.stop_loss_multiplier)
-        max_loss = width - credit
-        
+        width - credit
+
         # Track adverse movement
         max_adverse = 0.0
-        
+
         # Simulate through each bar
         for idx, row in bars_after_entry.iterrows():
             current_price = row['close']
             current_low = row['low']
             current_high = row['high']
-            
+
             # Estimate spread value based on intrinsic + time value decay
             # As we approach expiration, spread value is mostly intrinsic
             if spread_type == SpreadType.PUT_CREDIT_SPREAD:
@@ -668,24 +668,24 @@ class METFBacktester:
                     time_remaining = len(bars_after_entry) - bars_after_entry.index.get_loc(idx)
                     time_pct = time_remaining / max(len(bars_after_entry), 1)
                     spread_value = credit * (0.3 + 0.7 * time_pct) * max(0.2, 1 - distance_pct * 0.5)
-            
+
             # Track max adverse excursion
             if spread_value > credit:
                 max_adverse = max(max_adverse, spread_value - credit)
-            
+
             # Check stop loss (spread value reaches 2x credit)
             if spread_value >= stop_spread_value:
                 pnl = -credit * 100  # Loss equals credit received (1x stop)
                 return ExitReason.STOP_LOSS, pnl, max_adverse, idx
-        
+
         # Held to expiration - determine final outcome
         if len(bars_after_entry) == 0:
             return ExitReason.EXPIRATION_WIN, credit * 100, 0.0, entry_time
-        
+
         final_bar = bars_after_entry.iloc[-1]
         final_price = final_bar['close']
         exit_time = bars_after_entry.index[-1]
-        
+
         if spread_type == SpreadType.PUT_CREDIT_SPREAD:
             itm_amount = max(0.0, min(short_strike - final_price, width))
         else:
@@ -693,7 +693,7 @@ class METFBacktester:
         pnl = (credit - itm_amount) * 100
         reason = ExitReason.EXPIRATION_WIN if pnl > 0 else ExitReason.EXPIRATION_LOSS
         return reason, pnl, max_adverse, exit_time
-    
+
     def backtest_day(
         self,
         trade_date: str,
@@ -701,11 +701,11 @@ class METFBacktester:
     ) -> DailyResult:
         """
         Backtest a single trading day
-        
+
         Args:
             trade_date: Date string (YYYY-MM-DD)
             bars: DataFrame with 1-minute bars (timestamp index, OHLCV columns)
-            
+
         Returns:
             DailyResult with all trades for the day
         """
@@ -724,28 +724,28 @@ class METFBacktester:
                 num_losers=0,
                 is_fomc_day=True
             )
-        
+
         # Ensure bars are sorted by time
         bars = bars.sort_index()
-        
+
         # Calculate EMAs
         bars['ema_fast'] = self.calculate_ema(bars['close'], self.config.ema_fast_period)
         bars['ema_slow'] = self.calculate_ema(bars['close'], self.config.ema_slow_period)
-        
+
         # Get entry times
         entry_times = self.config.get_entry_times()
-        
+
         # Process each entry time
         for entry_num, entry_time in enumerate(entry_times, 1):
             # Find bar at entry time
             entry_datetime = None
             entry_bar = None
-            
+
             for idx in bars.index:
                 bar_time = idx.time() if hasattr(idx, 'time') else idx
                 if isinstance(bar_time, datetime):
                     bar_time = bar_time.time()
-                
+
                 # Match entry time (within same minute)
                 if hasattr(idx, 'hour'):
                     if idx.hour == entry_time.hour and idx.minute == entry_time.minute:
@@ -759,38 +759,38 @@ class METFBacktester:
                         entry_datetime = dt
                         entry_bar = bars.loc[idx]
                         break
-            
+
             if entry_bar is None:
                 self.logger.debug(f"{trade_date} {entry_time}: No bar found at entry time")
                 continue
-            
+
             # Get EMA values at entry
             ema_fast = entry_bar['ema_fast']
             ema_slow = entry_bar['ema_slow']
-            
+
             # Skip if EMAs not yet calculated (early in day)
             if pd.isna(ema_fast) or pd.isna(ema_slow):
                 self.logger.debug(f"{trade_date} {entry_time}: EMAs not ready")
                 continue
-            
+
             # Determine trend
             trend = self.get_trend(ema_fast, ema_slow)
-            
+
             if trend == TrendDirection.NEUTRAL:
                 self.logger.debug(f"{trade_date} {entry_time}: Neutral trend - no entry")
                 continue
-            
+
             # Determine spread type
             if trend == TrendDirection.BULLISH:
                 spread_type = SpreadType.PUT_CREDIT_SPREAD
             else:
                 spread_type = SpreadType.CALL_CREDIT_SPREAD
-            
+
             # Get bars after entry until market close
             bars_after = bars.loc[entry_datetime:]
             if len(bars_after) < 2:
                 continue
-            
+
             # Get entry bar index for EM calculation
             entry_price = entry_bar['close']
             entry_idx = bars.index.get_loc(entry_datetime)
@@ -869,12 +869,12 @@ class METFBacktester:
                 f"{trade_date} Entry #{entry_num}: {spread_type.value} @ ${entry_price:.2f}, "
                 f"PnL: ${pnl:.2f} ({exit_reason.value})"
             )
-        
+
         # Compile daily results
         total_pnl = sum(t.pnl for t in trades)
         num_winners = sum(1 for t in trades if t.is_winner)
         num_losers = sum(1 for t in trades if not t.is_winner)
-        
+
         return DailyResult(
             trade_date=trade_date,
             trades=trades,
@@ -884,7 +884,7 @@ class METFBacktester:
             is_fomc_day=False,
             skip_reasons=skip_reasons,
         )
-    
+
     def run(
         self,
         bars: pd.DataFrame,
@@ -893,36 +893,36 @@ class METFBacktester:
     ) -> BacktestResults:
         """
         Run backtest on historical data
-        
+
         Args:
             bars: DataFrame with 1-minute bars (timestamp index, OHLCV columns)
             start_date: Optional start date filter (YYYY-MM-DD)
             end_date: Optional end date filter (YYYY-MM-DD)
-            
+
         Returns:
             BacktestResults with all metrics
         """
-        self.logger.info(f"Starting METF backtest...")
-        
+        self.logger.info("Starting METF backtest...")
+
         # Ensure timestamp index
         if not isinstance(bars.index, pd.DatetimeIndex):
             if 'timestamp' in bars.columns:
                 bars = bars.set_index('timestamp')
             else:
                 raise ValueError("Bars must have timestamp index or 'timestamp' column")
-        
+
         # Filter by date range
         if start_date:
             bars = bars[bars.index >= start_date]
         if end_date:
             bars = bars[bars.index <= end_date]
-        
+
         # Get unique trading days
         bars['date'] = bars.index.date
         trading_days = sorted(bars['date'].unique())
-        
+
         self.logger.info(f"Processing {len(trading_days)} trading days")
-        
+
         # Backtest each day
         daily_results: List[DailyResult] = []
         skipped_no_cbbo: List[str] = []
@@ -958,9 +958,9 @@ class METFBacktester:
             daily_results=daily_results,
             skipped_days_no_cbbo=skipped_no_cbbo,
         )
-        
+
         self.logger.info(f"Backtest complete: {results.total_trades} trades")
-        
+
         return results
 
 
@@ -970,14 +970,14 @@ class METFBacktester:
 
 class METFResultsReporter:
     """Generate reports from backtest results"""
-    
+
     def __init__(self, results: BacktestResults):
         self.results = results
-    
+
     def print_summary(self):
         """Print summary statistics to console"""
         r = self.results
-        
+
         print(f"\n{'='*60}")
         print("METF Backtest Results")
         print(f"{'='*60}")
@@ -985,7 +985,7 @@ class METFResultsReporter:
         print(f"Trading Days:    {len(r.daily_results)}")
         print(f"Total Trades:    {r.total_trades}")
         print()
-        
+
         print("Performance:")
         print(f"  Total P&L:     ${r.total_pnl:,.2f}")
         print(f"  Win Rate:      {r.win_rate:.1%}")
@@ -997,7 +997,7 @@ class METFResultsReporter:
         print(f"  Max Drawdown:  ${r.max_drawdown:,.2f}")
         print(f"  Sharpe Ratio:  {r.sharpe_ratio:.2f}")
         print()
-        
+
         # Entry time analysis
         print("By Entry Time:")
         entry_stats: Dict[int, Dict] = {}
@@ -1010,7 +1010,7 @@ class METFResultsReporter:
                 else:
                     entry_stats[trade.entry_number]['losses'] += 1
                 entry_stats[trade.entry_number]['pnl'] += trade.pnl
-        
+
         entry_times = r.config.entry_times
         for entry_num in sorted(entry_stats.keys()):
             stats = entry_stats[entry_num]
@@ -1018,9 +1018,9 @@ class METFResultsReporter:
             wr = stats['wins'] / total if total > 0 else 0
             time_str = entry_times[entry_num - 1] if entry_num <= len(entry_times) else f"#{entry_num}"
             print(f"  {time_str}: {stats['wins']}W/{stats['losses']}L ({wr:.0%}) P&L: ${stats['pnl']:,.2f}")
-        
+
         print()
-        
+
         # Trend analysis
         print("By Trend Direction:")
         trend_stats: Dict[str, Dict] = {}
@@ -1034,7 +1034,7 @@ class METFResultsReporter:
                 else:
                     trend_stats[trend]['losses'] += 1
                 trend_stats[trend]['pnl'] += trade.pnl
-        
+
         for trend, stats in trend_stats.items():
             total = stats['wins'] + stats['losses']
             wr = stats['wins'] / total if total > 0 else 0
@@ -1053,7 +1053,7 @@ class METFResultsReporter:
                     print(f"  days_no_cbbo_cache: {len(r.skipped_days_no_cbbo)}")
 
         print(f"\n{'='*60}")
-    
+
     def to_dataframe(self) -> pd.DataFrame:
         """Convert results to DataFrame"""
         rows = []
@@ -1082,29 +1082,29 @@ class METFResultsReporter:
                     'is_winner': trade.is_winner,
                     'max_adverse': trade.max_adverse_excursion
                 })
-        
+
         return pd.DataFrame(rows)
-    
+
     def export_csv(self, filepath: str):
         """Export results to CSV"""
         df = self.to_dataframe()
         df.to_csv(filepath, index=False)
         print(f"Results exported to {filepath}")
-    
+
     def export_summary(self, filepath: str):
         """Export summary to text file"""
         import io
         import sys
-        
+
         # Capture print output
         old_stdout = sys.stdout
         sys.stdout = buffer = io.StringIO()
         self.print_summary()
         sys.stdout = old_stdout
-        
+
         with open(filepath, 'w') as f:
             f.write(buffer.getvalue())
-        
+
         print(f"Summary exported to {filepath}")
 
 
@@ -1115,19 +1115,19 @@ class METFResultsReporter:
 def load_bars_from_csv(filepath: str) -> pd.DataFrame:
     """Load 1-minute bars from CSV file"""
     df = pd.read_csv(filepath)
-    
+
     # Try to parse timestamp column
     timestamp_cols = ['timestamp', 'datetime', 'date', 'time']
     for col in timestamp_cols:
         if col in df.columns:
             df['timestamp'] = pd.to_datetime(df[col])
             break
-    
+
     if 'timestamp' not in df.columns:
         raise ValueError(f"Could not find timestamp column. Available: {df.columns.tolist()}")
-    
+
     df = df.set_index('timestamp')
-    
+
     # Ensure required columns
     required = ['open', 'high', 'low', 'close']
     for col in required:
@@ -1137,7 +1137,7 @@ def load_bars_from_csv(filepath: str) -> pd.DataFrame:
                 df[col] = df[col.lower()]
             else:
                 raise ValueError(f"Missing required column: {col}")
-    
+
     return df
 
 
@@ -1149,25 +1149,25 @@ def load_bars_from_db(
 ) -> pd.DataFrame:
     """Load 1-minute bars from SQLite database"""
     import sqlite3
-    
+
     conn = sqlite3.connect(db_path)
-    
+
     query = """
         SELECT timestamp, open, high, low, close, volume
         FROM underlying_bars
         WHERE symbol = ? AND date(timestamp) BETWEEN ? AND ?
         ORDER BY timestamp
     """
-    
+
     df = pd.read_sql_query(query, conn, params=(symbol, start_date, end_date))
     conn.close()
-    
+
     if df.empty:
         raise ValueError(f"No data found for {symbol} between {start_date} and {end_date}")
-    
+
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.set_index('timestamp')
-    
+
     return df
 
 
@@ -1181,13 +1181,13 @@ def load_bars_from_marketdata(
 ) -> pd.DataFrame:
     """
     Load bars from MarketData.app API with SQLite caching.
-    
+
     - Checks cache first for existing bars
     - Only fetches missing days from API
     - Saves new data to cache for future runs
-    
+
     Requires MARKET_DATA_TOKEN environment variable.
-    
+
     Args:
         symbol: Stock symbol (SPX, SPY, etc.)
         start_date: Start date (YYYY-MM-DD)
@@ -1195,27 +1195,28 @@ def load_bars_from_marketdata(
         interval: Data interval (1min, 5min, 15min)
         cache_db: Path to SQLite cache database
         force_refresh: If True, bypass cache and fetch all from API
-        
+
     Returns:
         DataFrame with OHLCV data
     """
     import os
     import sqlite3
+
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     api_key = os.getenv("MARKET_DATA_TOKEN")
     if not api_key:
         raise ValueError("MARKET_DATA_TOKEN environment variable not set")
-    
+
     # Get list of trading days needed
     trading_days = _get_trading_days(start_date, end_date)
     logger.info(f"Requested {len(trading_days)} trading days for {symbol}")
-    
+
     # Check cache for existing data (unless force_refresh)
     cached_days = set()
     cached_bars = pd.DataFrame()
-    
+
     if not force_refresh and os.path.exists(cache_db):
         try:
             conn = sqlite3.connect(cache_db)
@@ -1227,7 +1228,7 @@ def load_bars_from_marketdata(
             """
             result = pd.read_sql_query(query, conn, params=(symbol, start_date, end_date))
             cached_days = set(result['trade_date'].tolist())
-            
+
             if cached_days:
                 # Load cached bars
                 bars_query = """
@@ -1241,28 +1242,28 @@ def load_bars_from_marketdata(
                     cached_bars['timestamp'] = pd.to_datetime(cached_bars['timestamp'])
                     cached_bars = cached_bars.set_index('timestamp')
                 logger.info(f"Found {len(cached_days)} days in cache ({len(cached_bars)} bars)")
-            
+
             conn.close()
         except Exception as e:
             logger.warning(f"Error reading cache: {e}")
-    
+
     # Determine which days need to be fetched
     missing_days = [d for d in trading_days if d not in cached_days]
-    
+
     if not missing_days:
         logger.info(f"All {len(trading_days)} days found in cache, no API calls needed")
         return cached_bars
-    
+
     logger.info(f"Need to fetch {len(missing_days)} missing days from MarketData.app")
-    
+
     # Fetch missing days from API
     new_bars = _fetch_missing_days(symbol, missing_days, interval, api_key)
-    
+
     if not new_bars.empty:
         # Cache the new bars
         _cache_bars_to_db(new_bars, symbol, cache_db, interval)
         logger.info(f"Cached {len(new_bars)} new bars to {cache_db}")
-    
+
     # Combine cached and new bars
     if cached_bars.empty:
         all_bars = new_bars
@@ -1273,10 +1274,10 @@ def load_bars_from_marketdata(
         all_bars = all_bars.sort_index()
         # Remove any duplicates
         all_bars = all_bars[~all_bars.index.duplicated(keep='last')]
-    
+
     if all_bars.empty:
         raise ValueError(f"No data available for {symbol} between {start_date} and {end_date}")
-    
+
     logger.info(f"Total: {len(all_bars)} bars ({len(cached_days)} cached + {len(missing_days)} fetched)")
     return all_bars
 
@@ -1285,7 +1286,7 @@ def _get_trading_days(start_date: str, end_date: str) -> List[str]:
     """Get list of trading days (weekdays) between dates"""
     start = datetime.strptime(start_date, '%Y-%m-%d')
     end = datetime.strptime(end_date, '%Y-%m-%d')
-    
+
     days = []
     current = start
     while current <= end:
@@ -1302,38 +1303,39 @@ def _fetch_missing_days(
     api_key: str
 ) -> pd.DataFrame:
     """Fetch specific days from MarketData.app API"""
-    import requests
-    from datetime import time as time_obj
     import time as time_module
-    
+    from datetime import time as time_obj
+
+    import requests
+
     BASE_URL = "https://api.marketdata.app/v1"
     resolution_map = {"1min": "1", "5min": "5", "15min": "15", "1day": "D"}
     resolution = resolution_map.get(interval, "1")
-    
+
     session = requests.Session()
     session.headers.update({"Authorization": f"Token {api_key}"})
-    
+
     market_open = time_obj(9, 30)
     market_close = time_obj(16, 0)
-    
+
     all_bars = []
     fetched_count = 0
-    
+
     for day in days:
         try:
             current_date = datetime.strptime(day, '%Y-%m-%d').date()
             market_open_dt = datetime.combine(current_date, market_open)
             market_close_dt = datetime.combine(current_date, market_close)
-            
+
             from_ts = int(market_open_dt.timestamp())
             to_ts = int(market_close_dt.timestamp())
-            
+
             params = {"from": from_ts, "to": to_ts}
-            
+
             response = session.get(f"{BASE_URL}/stocks/candles/{resolution}/{symbol}/", params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-            
+
             if data.get("s") == "ok" and 't' in data:
                 for i in range(len(data['t'])):
                     all_bars.append({
@@ -1346,35 +1348,34 @@ def _fetch_missing_days(
                     })
                 fetched_count += 1
                 logger.debug(f"Fetched {len(data['t'])} bars for {day}")
-            
+
             time_module.sleep(0.1)  # Rate limiting
-            
+
         except Exception as e:
             logger.warning(f"Failed to fetch {day}: {e}")
-    
+
     logger.info(f"Successfully fetched {fetched_count}/{len(days)} days from API")
-    
+
     if not all_bars:
         return pd.DataFrame()
-    
+
     df = pd.DataFrame(all_bars)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.sort_values('timestamp')
     df.set_index('timestamp', inplace=True)
-    
+
     return df
 
 
 def _cache_bars_to_db(df: pd.DataFrame, symbol: str, db_path: str, interval: str):
     """Save bars to SQLite cache database"""
     import sqlite3
-    from pathlib import Path
-    
+
     # Ensure directory exists
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    
+
     conn = sqlite3.connect(db_path)
-    
+
     # Create table if not exists
     conn.execute("""
         CREATE TABLE IF NOT EXISTS underlying_bars (
@@ -1390,7 +1391,7 @@ def _cache_bars_to_db(df: pd.DataFrame, symbol: str, db_path: str, interval: str
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_symbol_timestamp ON underlying_bars(symbol, timestamp)")
-    
+
     # Prepare records
     records = []
     for timestamp, row in df.iterrows():
@@ -1404,14 +1405,14 @@ def _cache_bars_to_db(df: pd.DataFrame, symbol: str, db_path: str, interval: str
             int(row['volume']),
             'marketdata'
         ))
-    
+
     # Insert with replace for any duplicates
     conn.executemany("""
-        INSERT OR REPLACE INTO underlying_bars 
+        INSERT OR REPLACE INTO underlying_bars
         (symbol, timestamp, open, high, low, close, volume, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, records)
-    
+
     conn.commit()
     conn.close()
 
@@ -1467,36 +1468,36 @@ def generate_sample_data(
 ) -> pd.DataFrame:
     """Generate sample 1-minute bar data for testing"""
     import random
-    
+
     tz = ZoneInfo('America/New_York')
     start = datetime.fromisoformat(start_date).replace(tzinfo=tz)
     end = datetime.fromisoformat(end_date).replace(tzinfo=tz)
-    
+
     bars = []
     current_date = start.date()
     price = base_price
-    
+
     while current_date <= end.date():
         # Skip weekends
         if current_date.weekday() >= 5:
             current_date += timedelta(days=1)
             continue
-        
+
         # Generate bars for trading hours
         current_time = datetime.combine(current_date, time(9, 30), tzinfo=tz)
         market_close = datetime.combine(current_date, time(16, 0), tzinfo=tz)
-        
+
         # Daily trend (random)
         daily_trend = random.choice([-1, 0, 1]) * random.uniform(0.001, 0.003)
-        
+
         while current_time < market_close:
             # Random walk with trend
             change = random.gauss(daily_trend * price, price * 0.0005)
             price = max(price + change, price * 0.95)  # Prevent extreme drops
-            
+
             bar_high = price + random.uniform(0, price * 0.001)
             bar_low = price - random.uniform(0, price * 0.001)
-            
+
             bars.append({
                 'timestamp': current_time,
                 'open': price,
@@ -1505,14 +1506,14 @@ def generate_sample_data(
                 'close': price,
                 'volume': random.randint(1000, 10000)
             })
-            
+
             current_time += timedelta(minutes=1)
-        
+
         current_date += timedelta(days=1)
-    
+
     df = pd.DataFrame(bars)
     df = df.set_index('timestamp')
-    
+
     return df
 
 
@@ -1532,60 +1533,60 @@ Examples:
     python -m app.backtesting.metf_backtester --db backtest_data/underlying_bars.db --symbol SPX
         """
     )
-    
+
     parser.add_argument(
         '--start',
         type=str,
         default=None,
         help='Start date (YYYY-MM-DD)'
     )
-    
+
     parser.add_argument(
         '--end',
         type=str,
         default=None,
         help='End date (YYYY-MM-DD)'
     )
-    
+
     parser.add_argument(
         '--symbol',
         type=str,
         default='SPX',
         help='Symbol to backtest (default: SPX)'
     )
-    
+
     parser.add_argument(
         '--csv',
         type=str,
         default=None,
         help='Path to CSV file with 1-minute bars'
     )
-    
+
     parser.add_argument(
         '--db',
         type=str,
         default=None,
         help='Path to SQLite database with bars'
     )
-    
+
     parser.add_argument(
         '--sample',
         action='store_true',
         help='Use generated sample data for testing'
     )
-    
+
     parser.add_argument(
         '--marketdata',
         action='store_true',
         help='Fetch real data from MarketData.app (requires MARKET_DATA_TOKEN). Uses cache by default.'
     )
-    
+
     parser.add_argument(
         '--force-refresh',
         action='store_true',
         help='Bypass cache and fetch all data from API (use with --marketdata)'
     )
-    
+
     parser.add_argument(
         '--interval',
         type=str,
@@ -1593,27 +1594,27 @@ Examples:
         choices=['1min', '5min', '15min'],
         help='Data interval for MarketData.app (default: 1min)'
     )
-    
+
     parser.add_argument(
         '--cache-db',
         type=str,
         default='backtest_data/underlying_bars.db',
         help='Path to SQLite cache database (default: backtest_data/underlying_bars.db)'
     )
-    
+
     parser.add_argument(
         '--output',
         type=str,
         default=None,
         help='Output CSV file for trade results'
     )
-    
+
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='Enable verbose logging'
     )
-    
+
     # Strategy parameters
     parser.add_argument(
         '--ema-fast',
@@ -1621,48 +1622,48 @@ Examples:
         default=20,
         help='Fast EMA period (default: 20)'
     )
-    
+
     parser.add_argument(
         '--ema-slow',
         type=int,
         default=40,
         help='Slow EMA period (default: 40)'
     )
-    
+
     parser.add_argument(
         '--width',
         type=int,
         default=20,
         help='Default spread width (default: 20)'
     )
-    
+
     parser.add_argument(
         '--credit',
         type=float,
         default=1.75,
         help='Default credit for simulation (default: 1.75)'
     )
-    
+
     parser.add_argument(
         '--otm-pct',
         type=float,
         default=0.75,
         help='OTM distance as %% of underlying price (default: 0.75 = 0.75%% OTM ≈ 15-20 delta). Ignored when --use-em is set.'
     )
-    
+
     parser.add_argument(
         '--use-em',
         action='store_true',
         default=True,
         help='Place short strike at Expected Move boundary (default: True)'
     )
-    
+
     parser.add_argument(
         '--no-em',
         action='store_true',
         help='Disable EM-based strikes, use fixed OTM percentage instead'
     )
-    
+
     parser.add_argument(
         '--em-method',
         type=str,
@@ -1670,7 +1671,7 @@ Examples:
         choices=['historical_vol', 'atr', 'fixed_pct'],
         help='Method for calculating Expected Move (default: historical_vol)'
     )
-    
+
     parser.add_argument(
         '--em-fixed-pct',
         type=float,
@@ -1712,14 +1713,14 @@ Examples:
 def main():
     """Main entry point"""
     args = parse_cli_args()
-    
+
     # Setup logging
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
     # Load data
     if args.use_cbbo:
         if not args.start or not args.end:
@@ -1750,9 +1751,9 @@ def main():
         print(f"Fetching data from MarketData.app for {args.symbol} {cache_msg}...")
         try:
             bars = load_bars_from_marketdata(
-                args.symbol, 
-                args.start, 
-                args.end, 
+                args.symbol,
+                args.start,
+                args.end,
                 args.interval,
                 cache_db=args.cache_db,
                 force_refresh=args.force_refresh
@@ -1769,9 +1770,9 @@ def main():
     else:
         print("Error: Must specify --csv, --db, --marketdata, or --sample")
         return 1
-    
+
     print(f"Loaded {len(bars)} bars")
-    
+
     # Create config
     use_em = args.use_em and not args.no_em  # --no-em overrides --use-em
     config = METFBacktestConfig(
@@ -1788,19 +1789,19 @@ def main():
         bar_csv_path=args.bar_csv,
         bar_price_scale=args.price_scale,
     )
-    
+
     # Run backtest
     backtester = METFBacktester(config)
     results = backtester.run(bars, args.start, args.end)
-    
+
     # Print results
     reporter = METFResultsReporter(results)
     reporter.print_summary()
-    
+
     # Export if requested
     if args.output:
         reporter.export_csv(args.output)
-    
+
     return 0
 
 

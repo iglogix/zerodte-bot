@@ -1,10 +1,9 @@
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from web.bot_manager import BotInfo, BotManager
+from web.bot_manager import BotManager
 
 
 @pytest.fixture

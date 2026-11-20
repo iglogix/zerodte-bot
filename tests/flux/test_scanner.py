@@ -1,9 +1,9 @@
 # tests/flux/test_scanner.py
 from datetime import date, datetime, timezone
 
-from zerodte.flux.models import OptionRow, ChainSnapshot
-from zerodte.flux.sources.base import FluxSource
+from zerodte.flux.models import ChainSnapshot, OptionRow
 from zerodte.flux.scanner import scan
+from zerodte.flux.sources.base import FluxSource
 
 
 class FakeSource(FluxSource):

@@ -14,8 +14,8 @@ Strike placement rules:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date
+from typing import Any, Dict, List, Optional
 
 from es_8am.config_keys import require
 
@@ -250,7 +250,6 @@ class OrbOptionsService:
 
     def atm_straddle(self, chain: List[Dict[str, Any]], spot: float) -> float:
         """Compute ATM straddle price from chain — this IS the 0DTE expected move."""
-        import math
         atm_strike = round(spot / self._strike_step) * self._strike_step
         atm_put = next((o for o in chain if o.get("option_type") == "put"
                         and abs(o["strike"] - atm_strike) < self._strike_step), None)

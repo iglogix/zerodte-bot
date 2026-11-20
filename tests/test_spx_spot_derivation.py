@@ -5,12 +5,12 @@ get_spread_candidates flow that uses derived spot instead of ES price.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from es_8am.services.orb_options_service import OrbOptionsService
-from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
+import pytest
 
+from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
+from es_8am.services.orb_options_service import OrbOptionsService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,7 +34,6 @@ def _make_chain_around(spot: float, n_strikes: int = 5, step: float = 5.0) -> li
     Puts get more expensive below spot; calls get more expensive above.
     Put-call parity holds: C - P = spot - K at each strike.
     """
-    import math
     atm_k = round(spot / step) * step
     chain = []
     for i in range(-n_strikes, n_strikes + 1):
@@ -186,7 +185,6 @@ class TestDeriveSpotFromChain:
         svc = _build_service()
         # Chain with two strikes: 6575 (near SPX) and 6610 (near ES)
         # The one near ES should be picked as ATM for parity calc
-        spx_actual = 6575.0
         chain = [
             # Strike 6575 — far from ES 6613
             _make_option(6575, "call", 3.10, 3.30),  # mid=3.20

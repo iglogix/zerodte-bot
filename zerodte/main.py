@@ -9,13 +9,13 @@ Usage:
 
 from __future__ import annotations
 
-import importlib
 import argparse
 import asyncio
+import importlib
 import logging
 import os
 import sys
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -146,27 +146,27 @@ class BotOrchestrator:
 
     async def initialize(self):
         """Initialize all services."""
-        from trading_core.services.market_data import CachedMarketData
-        from trading_core.services.db_service import DatabaseService
-        from zerodte.services.risk_manager import RiskManager
-        from trading_core.services.notifications import NotificationService
-        from zerodte.services.llm_client import LLMClient
-        from trading_core.services.decision_logger import DecisionFileLogger
-        from zerodte.agent.tool_handlers import ToolHandlers
-        from zerodte.agent.base_engine import EngineDeps
         from trading_core.agent.anomaly_detector import AnomalyDetector
         from trading_core.agent.regime_classifier import RegimeClassifier
+        from trading_core.services.db_service import DatabaseService
+        from trading_core.services.decision_logger import DecisionFileLogger
+        from trading_core.services.market_data import CachedMarketData
+        from trading_core.services.notifications import NotificationService
+        from zerodte.agent.base_engine import EngineDeps
         from zerodte.agent.eod_debrief import EodDebrief
+        from zerodte.agent.tool_handlers import ToolHandlers
+        from zerodte.services.llm_client import LLMClient
+        from zerodte.services.risk_manager import RiskManager
 
         db_cfg = self.config.get("database", {})
         llm_cfg = self.config.get("llm", {})
         risk_cfg = self.config.get("risk", {})
         notif_cfg = self.config.get("notifications", {})
-        stop_cfg = self.config.get("stop_loss", {})
+        self.config.get("stop_loss", {})
         cache_cfg = self.config.get("cache", {})
         monitor_cfg = self.config.get("monitor", {})
         strategy_cfg = self.config.get("strategy", {})
-        entry_cfg = self.config.get("entry", {})
+        self.config.get("entry", {})
         log_cfg = self.config.get("logging", {})
 
         self._db = DatabaseService(db_cfg.get("trading_db", "0dte_bot.db"))
@@ -188,9 +188,9 @@ class BotOrchestrator:
         advisor_llm = LLMClient(model=llm_cfg.get("advisor_model", "anthropic/claude-haiku-4-5"))
         debrief_llm = LLMClient(model=llm_cfg.get("debrief_model", "anthropic/claude-sonnet-4-5"))
 
-        from zerodte.services.tastytrade_client import TastyTradeClient
-        from zerodte.services.position_monitor import PositionMonitor
         from trading_core.services.order_fill_listener import OrderFillListener
+        from zerodte.services.position_monitor import PositionMonitor
+        from zerodte.services.tastytrade_client import TastyTradeClient
 
         # alpaca_paper is a HYBRID: TastyTrade supplies market data (Alpaca has
         # no futures, so the ES opening-range signal cannot come from there),

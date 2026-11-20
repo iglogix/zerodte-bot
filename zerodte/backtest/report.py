@@ -196,8 +196,8 @@ def print_trades(results: List[BacktestResult]) -> None:
 def export_trades_csv(results: List[BacktestResult], path: str) -> None:
     """Export all BacktestResult fields to CSV."""
     import csv
-    from pathlib import Path
     from dataclasses import fields
+    from pathlib import Path
 
     closed = [r for r in results if r.status == "closed"]
     if not closed:

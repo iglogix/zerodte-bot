@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import os
 from http.cookies import SimpleCookie
-from typing import Tuple
 
 from starlette.responses import RedirectResponse
 from starlette.types import ASGIApp, Receive, Scope, Send

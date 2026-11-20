@@ -2,8 +2,8 @@
 import csv
 from datetime import date
 
+from zerodte.backtest.dc_time_machine.run_backtest import summarize, write_trades_csv
 from zerodte.backtest.dc_time_machine.simulator import TradeResult
-from zerodte.backtest.dc_time_machine.run_backtest import write_trades_csv, summarize
 
 
 def test_write_trades_csv_roundtrips(tmp_path):

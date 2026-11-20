@@ -15,14 +15,15 @@ import argparse
 import csv
 from datetime import date
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from zerodte.backtest.dc_time_machine.dc_backfill import backfill_session
 from zerodte.backtest.dc_time_machine.multi_expiry_store import MultiExpiryStore
 from zerodte.backtest.dc_time_machine.simulator import TradeResult, run_session
 from zerodte.backtest.dc_time_machine.strategy import DcParams
 from zerodte.backtest.dc_time_machine.trading_calendar import (
-    nth_trading_day_after, sessions_between,
+    nth_trading_day_after,
+    sessions_between,
 )
 
 _CSV_FIELDS = ["session", "front", "back", "k_put", "k_call", "outcome", "entry_debit",
@@ -170,7 +171,7 @@ def main(argv: List[str] | None = None) -> int:
     if args.cmd == "backfill":
         client = None
         if args.source == "databento":
-            import databento as dbn   # local import: only needed for the paid path
+            import databento as dbn  # local import: only needed for the paid path
             client = dbn.Historical()  # reads DATABENTO_API_KEY from env
         sessions = sessions_between(date.fromisoformat(args.start), date.fromisoformat(args.end))
         if not args.oldest_first:

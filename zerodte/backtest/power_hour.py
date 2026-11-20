@@ -17,7 +17,7 @@ settlement uses the robust parity forward at the last cached minute.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo

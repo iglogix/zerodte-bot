@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator, Optional
 
-from zerodte.backtest.iron_duck import parity_forward, _to_date
+from zerodte.backtest.iron_duck import _to_date, parity_forward
 
 
 @dataclass

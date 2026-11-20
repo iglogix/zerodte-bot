@@ -1,8 +1,10 @@
 """Phase 4 TDD tests: DecisionEngine calls strategy interface, not IC methods."""
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from zerodte.agent.decision_engine import DecisionEngine, CycleResult
+
+from zerodte.agent.decision_engine import DecisionEngine
 from zerodte.strategies.base import LiveStrategy, LiveTradeSetup, OrderLeg
 
 

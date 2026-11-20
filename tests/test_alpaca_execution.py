@@ -824,8 +824,9 @@ def test_manual_mode_close_counts_as_flat():
 def test_strategies_write_to_separate_files(tmp_path):
     """MEIC and ORB both default to log_dir "logs"; a shared file interleaves
     them and each strategy's report then reads the other's rows."""
-    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
+
+    from zerodte.services.execution_log import ExecutionLog
 
     meic = ExecutionLog(base_dir=str(tmp_path), strategy="meic")
     orb = ExecutionLog(base_dir=str(tmp_path), strategy="orb_em_directional")
@@ -844,8 +845,9 @@ def test_strategies_write_to_separate_files(tmp_path):
 
 def test_no_strategy_keeps_the_legacy_flat_path(tmp_path):
     """Historical files and their readers must keep working."""
-    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
+
+    from zerodte.services.execution_log import ExecutionLog
     ExecutionLog(base_dir=str(tmp_path))._append({"type": "assumed"})
     assert (tmp_path / "execution_comparison" / f"{_d.today().isoformat()}.jsonl").exists()
 
@@ -853,8 +855,9 @@ def test_no_strategy_keeps_the_legacy_flat_path(tmp_path):
 async def test_exit_fill_is_recorded_against_the_quote_it_crossed(tmp_path):
     """Exit realism is the open question for this strategy; a fill with no
     record of the quote it crossed answers nothing."""
-    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
+
+    from zerodte.services.execution_log import ExecutionLog
 
     log = ExecutionLog(base_dir=str(tmp_path), strategy="orb_em_directional")
 
@@ -882,8 +885,9 @@ async def test_exit_fill_is_recorded_against_the_quote_it_crossed(tmp_path):
 
 async def test_exit_fill_records_a_skipped_close_too(tmp_path):
     """A close that did not happen is itself a finding."""
-    from zerodte.services.execution_log import ExecutionLog
     from datetime import date as _d
+
+    from zerodte.services.execution_log import ExecutionLog
 
     log = ExecutionLog(base_dir=str(tmp_path), strategy="orb_em_directional")
 
@@ -915,6 +919,7 @@ def test_backtest_handlers_accept_every_live_close_kwarg():
     management. That exact drift caused two separate live defects (`reason`,
     then `exit_quote`), each invisible until a position needed closing."""
     import inspect
+
     from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
 
     live = inspect.signature(ToolHandlers.close_position).parameters
@@ -929,6 +934,7 @@ def test_backtest_handlers_accept_every_live_close_kwarg():
 def test_backtest_close_position_actually_accepts_the_live_call():
     """Signature check plus a real call, so a **kwargs sink can't fake it."""
     import inspect
+
     from zerodte.backtest.bt_tool_handlers import BacktestToolHandlers
     sig = inspect.signature(BacktestToolHandlers.close_position)
     for name in ("reason", "exit_quote", "trade_id", "close_all", "quantity"):

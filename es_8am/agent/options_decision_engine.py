@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
@@ -114,7 +114,6 @@ class OrbOptionsDecisionEngine:
         trade_id = f"ORBOPT-{today.isoformat()}-{uuid.uuid4().hex[:6].upper()}"
         self._session_trade_id = trade_id
 
-        from es_8am.models.database import OrbSpreadTrade
         await self._db.create_spread_trade({
             "trade_id": trade_id,
             "session_date": today,
@@ -484,7 +483,7 @@ class OrbOptionsDecisionEngine:
         if not hasattr(self, "_active_spreads"):
             self._active_spreads = []
 
-        now = datetime.now()
+        datetime.now()
         for spread, result in placed:
             credit = spread["credit"]
             trend_type = spread.get("trend_type", "")
@@ -542,7 +541,7 @@ class OrbOptionsDecisionEngine:
             # Determine if likely OTM (expire worthless) vs ITM (must close)
             spx_price = await self._md.get_current_price()
             if spx_price is not None:
-                short_strike = (s.get("short_symbol") or "")
+                (s.get("short_symbol") or "")
                 debit = 0.0  # assume expires worthless — conservative approximation
                 reason = "expired_worthless"
             else:

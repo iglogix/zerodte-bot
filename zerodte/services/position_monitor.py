@@ -12,10 +12,9 @@ Responsibilities (checked every `poll_interval_seconds`):
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, time, date
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from datetime import date, datetime, time
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from trading_core.services.order_fill_listener import FillEvent
@@ -30,7 +29,7 @@ _SHORT_LEG_KEYS = ("short_put_symbol", "short_call_symbol")
 _LONG_LEG_KEYS = ("long_put_symbol", "long_call_symbol")
 
 
-class TradeOutlivedExpiry(RuntimeError):
+class TradeOutlivedExpiry(RuntimeError):  # noqa: N818
     """A trade is being closed on a later date than the option it holds expires.
 
     On a 0DTE book this is never benign: the contract already settled, so the

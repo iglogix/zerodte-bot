@@ -24,7 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from es_8am.backtest.data_loader import DatabentoLoader
-from touch_turn.backtest.engine import TouchTurnBacktestEngine, BacktestReport
+from touch_turn.backtest.engine import BacktestReport, TouchTurnBacktestEngine
 from touch_turn.backtest.equity_loader import EquityLoader
 
 
@@ -32,7 +32,7 @@ def _print_summary(report: BacktestReport, elapsed: float) -> None:
     trades = report.trades
     n = len(trades)
     print(f"\n{'=' * 60}")
-    print(f"  Touch & Turn Scalper — Backtest Results")
+    print("  Touch & Turn Scalper — Backtest Results")
     print(f"{'=' * 60}")
     print(f"  Days processed : {report.total_days}")
     print(f"  Days skipped   : {report.skipped_days}")
@@ -78,7 +78,7 @@ def _print_summary(report: BacktestReport, elapsed: float) -> None:
 
     pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
-    print(f"\n  --- Performance ---")
+    print("\n  --- Performance ---")
     print(f"  Total P&L      : ${total_pnl:>10,.2f}")
     print(f"  Avg trade       : ${avg_pnl:>10,.2f}")
     print(f"  Win rate        : {win_rate * 100:>8.1f}%")
@@ -88,7 +88,7 @@ def _print_summary(report: BacktestReport, elapsed: float) -> None:
     print(f"  Gross profit    : ${gross_profit:>10,.2f}")
     print(f"  Gross loss      : ${gross_loss:>10,.2f}")
 
-    print(f"\n  --- Breakdown ---")
+    print("\n  --- Breakdown ---")
     print(f"  Longs / Shorts  : {len(longs)} / {len(shorts)}")
     print(f"  TP / SL / EOD   : {len(tp_trades)} / {len(sl_trades)} / {len(eod_trades)}")
 

@@ -7,7 +7,7 @@ ES bars in one pass.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date
 from typing import List, Literal, Optional, Tuple
 
 Bias = Literal["long", "short"]

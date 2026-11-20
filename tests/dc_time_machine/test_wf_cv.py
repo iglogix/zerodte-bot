@@ -1,9 +1,7 @@
 # tests/dc_time_machine/test_wf_cv.py
 from datetime import date, timedelta
 
-import pytest
-
-from zerodte.backtest.dc_time_machine.wf_cv import split_folds, annualized_sharpe
+from zerodte.backtest.dc_time_machine.wf_cv import annualized_sharpe, split_folds
 
 
 def test_split_folds_ratio_and_count():

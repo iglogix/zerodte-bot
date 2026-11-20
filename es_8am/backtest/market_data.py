@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import pandas as pd
 

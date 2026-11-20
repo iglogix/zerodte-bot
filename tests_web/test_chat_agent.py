@@ -1,7 +1,8 @@
 """Tests for the ChatAgent class."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from web.chat_agent import ChatAgent
 

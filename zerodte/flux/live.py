@@ -6,10 +6,10 @@ from datetime import datetime, time, timezone
 from typing import Callable, List, Optional
 from zoneinfo import ZoneInfo
 
+from zerodte.backtest.dc_time_machine.trading_calendar import sessions_between
 from zerodte.flux.engine import ratio_point
 from zerodte.flux.models import RatioPoint
 from zerodte.flux.sources.base import FluxSource
-from zerodte.backtest.dc_time_machine.trading_calendar import sessions_between
 
 ET = ZoneInfo("America/New_York")
 

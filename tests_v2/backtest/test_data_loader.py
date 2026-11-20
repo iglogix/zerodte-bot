@@ -1,9 +1,7 @@
 """Tests for zerodte.backtest.data_loader."""
 
 import csv
-import tempfile
-from datetime import date, datetime
-from pathlib import Path
+from datetime import date
 from zoneinfo import ZoneInfo
 
 import pytest

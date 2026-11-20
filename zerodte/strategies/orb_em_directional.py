@@ -21,10 +21,13 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from zerodte.strategies.base import (
-    LiveStrategy, LiveTradeSetup, OrderLeg, ExitAction,
-)
 from zerodte.agent.base_engine import BaseEngine, EngineDeps
+from zerodte.strategies.base import (
+    ExitAction,
+    LiveStrategy,
+    LiveTradeSetup,
+    OrderLeg,
+)
 from zerodte.strategies.utils import mid_price as _mid
 
 
@@ -246,7 +249,7 @@ class OrbEmDirectionalStrategy(LiveStrategy):
             tp_debit = credit * self._tp_pct
             if credit > 0 and mark <= tp_debit:
                 return ExitAction(
-                    action="take_profit",                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+                    action="take_profit",
                     legs_to_close=[short_sym, long_sym],
                     reason=f"{side} TP: mark={mark:.2f} <= tp={tp_debit:.2f}",
                 )

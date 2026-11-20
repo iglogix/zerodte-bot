@@ -2,7 +2,10 @@
 import pytest
 
 from zerodte.backtest.dc_time_machine.pricing import (
-    entry_debit, transform_credit, ic_terminal_pnl, is_risk_free,
+    entry_debit,
+    ic_terminal_pnl,
+    is_risk_free,
+    transform_credit,
 )
 
 

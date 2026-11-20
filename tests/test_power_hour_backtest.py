@@ -214,7 +214,7 @@ def test_never_invert_floors_at_atm():
 
 
 def test_fomc_day_skipped():
-    res = run_engine(make_quotes(), make_config())
+    run_engine(make_quotes(), make_config())
     engine_day = date(2023, 6, 14)  # FOMC
     engine = PowerHourEngine(make_config())
     engine.set_cbbo_store(CbboStore("", preloaded={engine_day: make_quotes()}))

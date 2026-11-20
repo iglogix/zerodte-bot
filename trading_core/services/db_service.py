@@ -7,17 +7,15 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, date, time as dt_time
+from datetime import date, datetime
+from datetime import time as dt_time
 from typing import Any, Dict, List, Optional
 
 from trading_core.models.database import (
     AgentDecision,
     IronCondorTrade,
-    MarketDataCache,
-    Order,
     ToolCallLog,
     TradingSession,
-    get_engine,
     get_session,
     init_db,
 )

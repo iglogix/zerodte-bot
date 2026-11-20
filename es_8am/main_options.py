@@ -20,11 +20,12 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 
@@ -88,14 +89,14 @@ class OrbOptionsBotOrchestrator:
         self._candle_recorder = None
 
     async def initialize(self):
+        from agentic_ic.services.llm_client import LLMClient
+        from es_8am.agent.anomaly_detector import OrbAnomalyDetector
+        from es_8am.agent.options_decision_engine import OrbOptionsDecisionEngine
+        from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
+        from es_8am.agent.regime_classifier import OrbRegimeClassifier
         from es_8am.services.db_service import OrbDatabaseService
         from es_8am.services.market_data import OrbMarketData
         from es_8am.services.orb_options_service import OrbOptionsService
-        from es_8am.agent.options_tool_handlers import OrbOptionsToolHandlers
-        from es_8am.agent.options_decision_engine import OrbOptionsDecisionEngine
-        from es_8am.agent.regime_classifier import OrbRegimeClassifier
-        from es_8am.agent.anomaly_detector import OrbAnomalyDetector
-        from agentic_ic.services.llm_client import LLMClient
 
         db_cfg = self.config.get("database", {})
         llm_cfg = self.config.get("llm", {})

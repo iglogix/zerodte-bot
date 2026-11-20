@@ -1,5 +1,6 @@
 # tests/test_backfill_oi_multi.py
-import importlib.util, sys
+import importlib.util
+import sys
 from pathlib import Path
 
 # load the script module by path (it lives in scripts/, not a package)

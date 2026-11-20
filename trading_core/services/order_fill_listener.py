@@ -21,7 +21,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +159,8 @@ class OrderFillListener:
 
     async def _listen_via_sdk(self):
         """Use the official tastytrade Python SDK AlertStreamer (v10+)."""
-        from tastytrade import AlertStreamer, Account  # type: ignore
-        from tastytrade.order import PlacedOrder       # type: ignore
+        from tastytrade import Account, AlertStreamer  # type: ignore
+        from tastytrade.order import PlacedOrder  # type: ignore
 
         session = await self.api_client.get_session()
 

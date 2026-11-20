@@ -1,11 +1,12 @@
 """MEIC backtest smoke tests with a fake CBBO store."""
 
-import pytest
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from zerodte.strategies.meic import MeicStrategy
+import pytest
+
 from zerodte.backtest.engine import BacktestEngine
+from zerodte.strategies.meic import MeicStrategy
 
 ET = ZoneInfo("America/New_York")
 

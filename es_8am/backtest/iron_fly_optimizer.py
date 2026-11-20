@@ -13,21 +13,20 @@ Usage:
 
 from __future__ import annotations
 
-import copy
 import itertools
 import logging
 import math
 import time as time_mod
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
-from pathlib import Path
 
+from es_8am.backtest.cbbo_store import CbboStore
 from es_8am.backtest.iron_fly_engine import IronFlyEngine, IronFlyResult
 from es_8am.backtest.strategy_iron_fly import IronFlyStrategy
-from es_8am.backtest.cbbo_store import CbboStore
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ def _run_combo_inproc(params, base_config, days, iv, cbbo_store,
 def _generate_report(results: List[IronFlyResult]) -> Dict[str, Any]:
     """Generate report dict from IronFlyResult list."""
     closed = [r for r in results if r.status == "closed"]
-    skipped = [r for r in results if r.status == "skipped"]
+    [r for r in results if r.status == "skipped"]
 
     if not closed:
         return {"trades_placed": 0, "win_rate": 0, "total_pnl_usd": 0,

@@ -1,9 +1,9 @@
 # tests/flux/test_live.py
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
-from zerodte.flux.models import OptionRow, ChainSnapshot
-from zerodte.flux.sources.base import FluxSource
 from zerodte.flux.live import LivePoller
+from zerodte.flux.models import ChainSnapshot, OptionRow
+from zerodte.flux.sources.base import FluxSource
 
 ET_OPEN = datetime(2026, 6, 8, 14, 35, tzinfo=timezone.utc)   # 10:35 ET (open)
 ET_CLOSED = datetime(2026, 6, 8, 2, 0, tzinfo=timezone.utc)   # overnight (closed)
